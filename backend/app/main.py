@@ -10,9 +10,7 @@ import json
 import time
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -38,30 +36,9 @@ lm_client = LMStudioClient()
 model_manager = ModelManager(lm_client)
 pageindex_generator = PageIndexTreeGenerator(lm_client)
 
-
-# ─── AppState & Dependency Injection ───
-
-class AppState:
-    """Holds references to all long-lived services for route injection."""
-
-    vram_monitor: VRAMMonitor
-    lm_client: LMStudioClient
-    model_manager: ModelManager
-    pageindex_generator: PageIndexTreeGenerator
-    startup_time: float
-
-
-def _make_state() -> AppState:
-    state = AppState()
-    state.vram_monitor = vram_monitor
-    state.lm_client = lm_client
-    state.model_manager = model_manager
-    state.pageindex_generator = pageindex_generator
-    state.startup_time = _startup_time
-    return state
-
-
+# Startup timestamp — set to module load, reset in lifespan() for uptime after server started
 _startup_time: float = time.time()
+
 
 # Metrics subscribers + latest broadcast frame
 _metrics_ws: set[WebSocket] = set()
