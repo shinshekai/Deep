@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -104,9 +105,9 @@ async def upload_document(
     kb_name: str = Form("default"),
 ):
     """Upload document and start PageIndex tree generation."""
-    _ensure_kb(kb_name)
-
-    doc_id = file.filename or f"doc_{int(time.time())}"
+    # Sanitize inputs to prevent path traversal
+    kb_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kb_name) or "default"
+    doc_id = Path(file.filename or f"doc_{int(time.time())}").name
     file_bytes = await file.read()
 
     task_id = f"task_{int(time.time() * 1000)}"
