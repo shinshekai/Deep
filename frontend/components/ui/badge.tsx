@@ -1,11 +1,12 @@
 import { clsx } from "clsx";
 import type { HTMLAttributes } from "react";
 
-type Variant = "green" | "yellow" | "red" | "blue" | "zinc";
+type Variant = "green" | "yellow" | "orange" | "red" | "blue" | "zinc";
 
 const variantClasses: Record<Variant, string> = {
   green: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   yellow: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  orange: "bg-orange-500/10 text-orange-400 border-orange-500/20",
   red: "bg-red-500/10 text-red-400 border-red-500/20",
   blue: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   zinc: "bg-zinc-800 text-zinc-400 border-zinc-700",
@@ -14,6 +15,7 @@ const variantClasses: Record<Variant, string> = {
 export const variantDot: Record<Variant, string> = {
   green: "bg-emerald-500",
   yellow: "bg-yellow-500",
+  orange: "bg-orange-500",
   red: "bg-red-500",
   blue: "bg-blue-500",
   zinc: "bg-zinc-500",

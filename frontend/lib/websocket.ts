@@ -1,14 +1,18 @@
-const WS_URL = "ws://127.0.0.1:8000/ws";
-const API_BASE = "http://127.0.0.1:8000";
+const SOLVE_WS_URL = "ws://localhost:8001/api/v1/solve";
+const METRICS_WS_URL = "ws://localhost:8001/ws/metrics";
+const API_BASE = "http://localhost:8001";
 
 type MessageCallback = (data: Record<string, unknown>) => void;
 type Status = "connecting" | "open" | "closed" | "error";
 
 export class WebSocketManager {
   private static instance: WebSocketManager;
-  private ws: WebSocket | null = null;
-  private status: Status = "closed";
-  private subscribers = new Map<string, Set<MessageCallback>>();
+  private solveConnection: WebSocket | null = null;
+  private metricsConnection: WebSocket | null = null;
+  private solveStatus: Status = "closed";
+  private metricsStatus: Status = "closed";
+  private solveSubscribers = new Map<string, Set<MessageCallback>>();
+  private metricsSubscribers = new Map<string, Set<MessageCallback>>();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -22,51 +26,85 @@ export class WebSocketManager {
     return WebSocketManager.instance;
   }
 
-  connect(): Promise<void> {
+  // ──────────────────────────────────────────
+  // Smart Solver WebSocket
+  // ──────────────────────────────────────────
+
+  connectSolve(): Promise<void> {
+    return this._connect("solve", SOLVE_WS_URL, (ws) => { this.solveConnection = ws; },
+      () => this.solveStatus, (s) => { this.solveStatus = s; },
+      this.solveSubscribers, this.metricsSubscribers);
+  }
+
+  // ──────────────────────────────────────────
+  // Metrics WebSocket
+  // ──────────────────────────────────────────
+
+  connectMetrics(): Promise<void> {
+    return this._connect("metrics", METRICS_WS_URL, (ws) => { this.metricsConnection = ws; },
+      () => this.metricsStatus, (s) => { this.metricsStatus = s; },
+      this.metricsSubscribers, this.solveSubscribers);
+  }
+
+  // ──────────────────────────────────────────
+  // Shared connection logic
+  // ──────────────────────────────────────────
+
+  private _connect(
+    name: string,
+    url: string,
+    setWs: (ws: WebSocket) => void,
+    getStatus: () => Status,
+    setStatus: (s: Status) => void,
+    subscribers: Map<string, Set<MessageCallback>>,
+    _otherSubscribers: Map<string, Set<MessageCallback>>
+  ): Promise<void> {
     return new Promise((resolve) => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.status = "open";
+      if (this._getWs(name)?.readyState === WebSocket.OPEN) {
+        setStatus("open");
         resolve();
         return;
       }
 
-      this.status = "connecting";
-      this.notify("connection", { status: "open" as const });
+      setStatus("connecting");
+      this._notify(subscribers, "_connection", { connection: name, status: "open" });
 
       try {
-        this.ws = new WebSocket(WS_URL);
+        const ws = new WebSocket(url);
+        setWs(ws);
 
-        this.ws.onopen = () => {
-          this.status = "open";
+        ws.onopen = () => {
+          setStatus("open");
           this.reconnectAttempts = 0;
-          this.notify("connection", { status: "open" });
+          this._notify(subscribers, "_connection", { connection: name, status: "open" });
           resolve();
         };
 
-        this.ws.onmessage = (event: MessageEvent) => {
+        ws.onmessage = (event: MessageEvent) => {
           try {
             const message = JSON.parse(event.data);
             const data: Record<string, unknown> =
               "data" in message ? (message.data as Record<string, unknown>) : message;
-            this.notify(message.type, data);
+            this._notify(subscribers, message.type ?? "message", data);
           } catch {
-            // Non-JSON message, ignore
+            // Non-JSON — treat as raw text frame
+            this._notify(subscribers, "_raw", { connection: name, text: String(event.data) });
           }
         };
 
-        this.ws.onclose = () => {
-          this.status = "closed";
-          this.notify("connection", { status: "close" });
-          this.scheduleReconnect();
+        ws.onclose = () => {
+          setStatus("closed");
+          this._notify(subscribers, "_connection", { connection: name, status: "close" });
+          this._scheduleReconnect(name, url);
         };
 
-        this.ws.onerror = () => {
-          this.status = "error";
-          this.notify("connection", { status: "error" });
+        ws.onerror = () => {
+          setStatus("error");
+          this._notify(subscribers, "_connection", { connection: name, status: "error" });
         };
       } catch {
-        this.status = "error";
-        this.scheduleReconnect();
+        setStatus("error");
+        this._scheduleReconnect(name, url);
         resolve();
       }
     });
@@ -77,17 +115,22 @@ export class WebSocketManager {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.status = "closed";
+    this.solveConnection?.close();
+    this.metricsConnection?.close();
+    this.solveConnection = null;
+    this.metricsConnection = null;
+    this.solveStatus = "closed";
+    this.metricsStatus = "closed";
     this.resetReconnectAttempts();
   }
 
+  // ──────────────────────────────────────────
+  // Send via solve connection (primary API)
+  // ──────────────────────────────────────────
+
   send(data: Record<string, unknown>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+    if (this.solveConnection?.readyState === WebSocket.OPEN) {
+      this.solveConnection.send(JSON.stringify(data));
     }
   }
 
@@ -95,31 +138,53 @@ export class WebSocketManager {
     eventType: string,
     callback: MessageCallback
   ): () => void {
-    if (!this.subscribers.has(eventType)) {
-      this.subscribers.set(eventType, new Set());
+    // Subscribe to both connections
+    for (const map of [this.solveSubscribers, this.metricsSubscribers]) {
+      if (!map.has(eventType)) {
+        map.set(eventType, new Set());
+      }
+      map.get(eventType)!.add(callback);
     }
-    this.subscribers.get(eventType)!.add(callback);
-
     return () => {
-      this.subscribers.get(eventType)?.delete(callback);
+      this.solveSubscribers.get(eventType)?.delete(callback);
+      this.metricsSubscribers.get(eventType)?.delete(callback);
     };
   }
 
   getStatus(): Status {
-    return this.status;
+    // Return the solve connection status as primary
+    return this.solveStatus;
   }
 
-  private notify(eventType: string, data: Record<string, unknown>): void {
-    this.subscribers.get(eventType)?.forEach((cb) => cb(data));
+  getMetricsStatus(): Status {
+    return this.metricsStatus;
   }
 
-  private scheduleReconnect(): void {
+  private _getWs(name: string): WebSocket | null {
+    return name === "solve" ? this.solveConnection : this.metricsConnection;
+  }
+
+  private _notify(
+    subscribers: Map<string, Set<MessageCallback>>,
+    eventType: string,
+    data: Record<string, unknown>
+  ): void {
+    subscribers.get(eventType)?.forEach((cb) => cb(data));
+  }
+
+  private _scheduleReconnect(
+    name: string,
+    url: string
+  ): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
-
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
     this.reconnectTimeout = setTimeout(() => {
-      this.connect();
+      if (name === "solve") {
+        this.connectSolve();
+      } else {
+        this.connectMetrics();
+      }
     }, delay);
   }
 
@@ -129,12 +194,13 @@ export class WebSocketManager {
 }
 
 // ─────────────────────────────────────────────
-// REST API helpers (for routing stats polling)
+// REST API helpers (UDIP API :8001)
 // ─────────────────────────────────────────────
 
-export async function fetchCacheTelemetry(): Promise<Record<string, unknown> | null> {
+/** GET /api/v1/metrics/history — timeseries for dashboard charts */
+export async function fetchMetricsHistory(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/telemetry/routing-stats`);
+    const res = await fetch(`${API_BASE}/api/v1/metrics/history`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -142,9 +208,32 @@ export async function fetchCacheTelemetry(): Promise<Record<string, unknown> | n
   }
 }
 
+/** GET /api/v1/vram/status — current GPU VRAM pressure level */
+export async function fetchVramStatus(): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/vram/status`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/v1/models — list all models with tier assignments */
+export async function fetchModels(): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/models`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/v1/health — system health check */
 export async function fetchHealth(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await fetch(`${API_BASE}/api/v1/health`);
     if (!res.ok) return null;
     return res.json();
   } catch {

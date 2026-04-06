@@ -8,8 +8,8 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { WebSocketManager, fetchCacheTelemetry } from "@/lib/websocket";
-import type { CacheTelemetry, RoutingStats } from "@/types/api";
+import { WebSocketManager, fetchVramStatus, fetchMetricsHistory } from "@/lib/websocket";
+import type { CacheTelemetry, MetricsFrame, VramPressureLevel } from "@/types/api";
 
 // ─────────────────────────────────────────────
 // Context
@@ -17,10 +17,11 @@ import type { CacheTelemetry, RoutingStats } from "@/types/api";
 
 interface WebSocketContextValue {
   ws: WebSocketManager;
-  status: "connecting" | "open" | "closed" | "error";
-  conditionState: "green" | "yellow" | "red" | null;
-  cacheTelemetry: CacheTelemetry | null;
-  routingStats: RoutingStats | null;
+  solveStatus: "connecting" | "open" | "closed" | "error";
+  metricsStatus: "connecting" | "open" | "closed" | "error";
+  vram: CacheTelemetry | null;
+  pressure: VramPressureLevel | null;
+  latestMetrics: MetricsFrame | null;
   subscribe: (
     eventType: string,
     callback: (data: Record<string, unknown>) => void
@@ -44,15 +45,14 @@ export function useWebSocket(): WebSocketContextValue {
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [ws] = useState(() => WebSocketManager.getInstance());
-  const [status, setStatus] = useState<WebSocketContextValue["status"]>(
-    "connecting"
-  );
-  const [conditionState, setConditionState] =
-    useState<WebSocketContextValue["conditionState"]>(null);
-  const [cacheTelemetry, setCacheTelemetry] = useState<CacheTelemetry | null>(
-    null
-  );
-  const [routingStats, setRoutingStats] = useState<RoutingStats | null>(null);
+  const [solveStatus, setSolveStatus] =
+    useState<WebSocketContextValue["solveStatus"]>("connecting");
+  const [metricsStatus, setMetricsStatus] =
+    useState<WebSocketContextValue["metricsStatus"]>("connecting");
+  const [vram, setVram] = useState<CacheTelemetry | null>(null);
+  const [pressure, setPressure] =
+    useState<VramPressureLevel | null>(null);
+  const [latestMetrics, setLatestMetrics] = useState<MetricsFrame | null>(null);
 
   const subscribe: WebSocketContextValue["subscribe"] = useCallback(
     (eventType, callback) => {
@@ -66,49 +66,79 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [ws]
   );
 
-  // Connect on mount, disconnect on unmount
+  // Connect both WebSocket endpoints on mount
   useEffect(() => {
-    ws.connect();
+    ws.connectSolve();
+    ws.connectMetrics();
 
     return () => {
       ws.disconnect();
     };
   }, [ws]);
 
-  // Subscribe to connection status
+  // Subscribe to solve connection status
   useEffect(() => {
-    return ws.subscribe("connection", (data) => {
-      setStatus(data.status as WebSocketContextValue["status"]);
+    return ws.subscribe("_connection", (data) => {
+      if (data.connection === "solve") {
+        setSolveStatus(data.status as WebSocketContextValue["solveStatus"]);
+      }
     });
   }, [ws]);
 
-  // Subscribe to cache telemetry events
+  // Subscribe to metrics connection status
   useEffect(() => {
-    return ws.subscribe("cache", (data) => {
-      setConditionState(data.condition_state as "green" | "yellow" | "red" | null);
-      setCacheTelemetry(data as unknown as CacheTelemetry);
+    return ws.subscribe("_connection", (data) => {
+      if (data.connection === "metrics") {
+        setMetricsStatus(data.status as WebSocketContextValue["metricsStatus"]);
+      }
     });
   }, [ws]);
 
-  // Poll routing stats via REST (every 5s) — Section 5 of inference strategy
+  // Subscribe to metrics stream frames
+  useEffect(() => {
+    return ws.subscribe("metrics_frame", (data) => {
+      setLatestMetrics(data as unknown as MetricsFrame);
+      if (data.pressure_level) {
+        setPressure(data.pressure_level as VramPressureLevel);
+      }
+    });
+  }, [ws]);
+
+  // Subscribe to solve agent steps
+  useEffect(() => {
+    return ws.subscribe("agent_step", (_data) => {
+      // Will be consumed by chat page
+    });
+  }, [ws]);
+
+  // Poll VRAM status via REST every 2s (matches backend pynvml poll rate)
   useEffect(() => {
     const poll = async () => {
-      const data = await fetchCacheTelemetry();
+      const data = await fetchVramStatus();
       if (data) {
-        setConditionState(data.condition_state as "green" | "yellow" | "red" | null);
-        setCacheTelemetry(data as unknown as CacheTelemetry);
-        setRoutingStats(data as unknown as RoutingStats);
+        setVram(data as unknown as CacheTelemetry);
+        if (data.pressure_level) {
+          setPressure(data.pressure_level as VramPressureLevel);
+        }
       }
     };
-
     poll();
-    const interval = setInterval(poll, 5000);
+    const interval = setInterval(poll, 2000);
     return () => clearInterval(interval);
-  }, [ws]);
+  }, []);
 
   return (
     <WebSocketContext.Provider
-      value={{ ws, status, conditionState, cacheTelemetry, routingStats, subscribe, send }}
+      value={{
+        ws,
+        solveStatus,
+        metricsStatus,
+        vram,
+        pressure,
+        latestMetrics,
+        subscribe,
+        send,
+      }}
     >
       {children}
     </WebSocketContext.Provider>

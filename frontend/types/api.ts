@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────
-// OpenAPI 3.1 Schema Mappings (from 02-system-architecture.md)
+// UDIP API Type Mappings (from CLAUDE.md)
 // ─────────────────────────────────────────────
+
+// ── Document / PageIndex Types ──
 
 export interface IndexNode {
   node_id: string;
@@ -11,48 +13,84 @@ export interface IndexNode {
   children: IndexNode[];
 }
 
-export interface QueryRequest {
-  session_id: string;
-  query: string;
-  force_tier?: number;
+// ── Model Tier Types ──
+
+export type ModelTier = 1 | 2 | 3;
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  tier: ModelTier;
+  status: "loaded" | "unloaded" | "loading";
+  vram_used_mb: number;
+  kv_cache_config: {
+    cache_type_k: string;
+    cache_type_v: string;
+  };
+  max_concurrent: number;
 }
 
-export interface QueryResponse {
-  status: string;
-  assigned_tier?: number;
-}
+// ── VRAM / Cache Types ──
+
+export type VramPressureLevel = "green" | "yellow" | "orange" | "red";
 
 export interface CacheTelemetry {
   vram_total_mb: number;
-  vram_allocated_mb: number;
-  condition_state: "green" | "yellow" | "red";
-  active_models: string[];
-  kv_compression_type: "turbo3" | "turbo4" | "q8_0" | "fp16";
+  vram_used_mb: number;
+  vram_used_pct: number;
+  pressure_level: VramPressureLevel;
+  active_models: ModelInfo[];
+  turboquant_tier: string;
 }
 
-export interface LMSStatsPassthrough {
-  tokens_per_second: number;
-  time_to_first_token: number;
-  generation_time: number;
-  stop_reason: string;
+// ── Solve Query Types ──
+
+export interface SolveQuery {
+  query: string;
+  kb_name: string;
+  mode: "auto" | "detailed" | "quick";
+  retrieval_pipeline: "tree" | "hybrid" | "naive" | "combined";
+  session_id?: string;
 }
 
-export interface ErrorResponse {
-  error_code: string;
+export interface Citation {
+  doc_id: string;
+  page: number;
+  section: string;
+  node_id: string;
+}
+
+// ── WebSocket Solve Protocol Frames ──
+
+export type AgentStepFrame = {
+  type: "agent_step";
+  agent: "investigate" | "note" | "plan" | "manager" | "solve" | "check" | "format";
+  content: string;
+  timestamp: number;
+};
+
+export type CitationFrame = {
+  type: "citation";
+  citation: Citation;
+};
+
+export type CompleteFrame = {
+  type: "complete";
+  answer: string;
+  citations: Citation[];
+  session_id: string;
+  solve_dir: string;
+};
+
+export type ErrorFrame = {
+  type: "error";
+  error: string;
   message: string;
-  fallback_triggered: boolean;
-}
+};
 
-export interface HealthResponse {
-  fastapi_status: string;
-  llmster_daemon: string;
-  workspace_sandbox: string;
-}
+export type SolveFrame = AgentStepFrame | CitationFrame | CompleteFrame | ErrorFrame;
 
-// ─────────────────────────────────────────────
-// WebSocket Telemetry Events
-// (from 03-inference-strategy.md Section 5)
-// ─────────────────────────────────────────────
+// ── Metrics Types (ws/metrics stream) ──
 
 export type PipelineStage =
   | "PageIndex_Retrieval"
@@ -69,6 +107,18 @@ export interface InferenceTelemetryEvent {
   kv_compression_ratio: number;
 }
 
+export interface MetricsFrame {
+  vram_used_mb: number;
+  vram_total_mb: number;
+  pressure_level: VramPressureLevel;
+  active_models: string[];
+  queue_depths: { retrieval: number; reasoning: number; generation: number };
+  latency_ms: number;
+  throughput_tps: number;
+}
+
+// ── Agent Log Events ──
+
 export interface AgentLogEvent {
   agent_name: string;
   loop: "analysis" | "solve";
@@ -77,25 +127,7 @@ export interface AgentLogEvent {
   details?: Record<string, unknown>;
 }
 
-export interface InteractiveComponentPayload {
-  type: "chart" | "table" | "flowchart" | "label-exercise" | string;
-  data: Record<string, unknown>;
-  componentId: string;
-}
-
-export type WSMessage =
-  | { type: "telemetry"; data: InferenceTelemetryEvent }
-  | { type: "cache"; data: CacheTelemetryEvent }
-  | { type: "agent_log"; data: AgentLogEvent }
-  | { type: "interactive"; data: InteractiveComponentPayload }
-  | { type: "connection"; status: "open" | "close" | "error" };
-
-// ─────────────────────────────────────────────
-// Dashboard Routing Stats (REST polling)
-// ─────────────────────────────────────────────
-
-// Alias used in websocket event payloads
-export type CacheTelemetryEvent = CacheTelemetry;
+// ── Dashboard Routing Stats ──
 
 export type RoutingStats = {
   cache_hit_rate: number;
@@ -104,3 +136,11 @@ export type RoutingStats = {
   model_hit_rate: number;
   queries_by_tier: { tier: number; count: number }[];
 };
+
+// ── Interactive UI Payloads ──
+
+export interface InteractiveComponentPayload {
+  type: "chart" | "table" | "flowchart" | "label-exercise" | string;
+  data: Record<string, unknown>;
+  componentId: string;
+}

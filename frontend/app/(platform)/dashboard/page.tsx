@@ -14,8 +14,8 @@ export default function DashboardPage() {
           Performance Dashboard
         </h1>
         <p className="text-sm text-zinc-500">
-          Real-time telemetry for local inference. Monitors VRAM, throughput,
-          and QCS routing effectiveness.
+          Real-time telemetry from the ws/metrics stream (2s interval). Monitors
+          VRAM pressure, model tier throughput, and routing effectiveness.
         </p>
       </div>
 

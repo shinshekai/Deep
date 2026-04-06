@@ -12,8 +12,8 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { fetchCacheTelemetry } from "@/lib/websocket";
-import type { RoutingStats } from "@/types/api";
+import { fetchMetricsHistory } from "@/lib/websocket";
+import type { MetricsFrame, RoutingStats } from "@/types/api";
 
 const POLL_INTERVAL = 5000; // Section 5: 5-second polling cadence
 
@@ -22,7 +22,7 @@ export function RouterEffectivenessMatrix() {
 
   useEffect(() => {
     const poll = async () => {
-      const data = await fetchCacheTelemetry();
+      const data = await fetchMetricsHistory();
       if (data) {
         setStats(data as unknown as RoutingStats);
       }
