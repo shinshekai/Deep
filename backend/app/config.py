@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     turboquant_residual_window: int = 256
     turboquant_tier: str = "auto"
     vram_safety_margin_pct: int = 15
+    pageindex_model: str = ""
+    pageindex_max_pages_per_node: int = 10
+    pageindex_max_tokens_per_node: int = 20000
     metrics_interval: float = 2.0
     t2_ttl: int = 600
     t3_ttl: int = 300
