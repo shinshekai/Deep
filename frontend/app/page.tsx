@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileText, Activity } from "lucide-react";
+import { FileText, Activity, Zap } from "lucide-react";
 
 export default function Home() {
   return (
@@ -14,7 +14,20 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Link
+          href="/solve"
+          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-6 py-4 transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
+        >
+          <Zap className="h-5 w-5 text-zinc-400" />
+          <div>
+            <div className="font-medium">Smart Solve</div>
+            <div className="text-sm text-zinc-500">
+              Multi-agent document Q&A
+            </div>
+          </div>
+        </Link>
+
         <Link
           href="/documents"
           className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-6 py-4 transition-colors hover:border-zinc-700 hover:bg-zinc-800/50"
