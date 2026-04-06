@@ -52,6 +52,53 @@ class LMStudioClient:
         logger.info(f"Model unload requested: {model_id}")
         return True
 
+    async def stream_chat_completion(
+        self,
+        model: str,
+        messages: list[dict],
+        max_tokens: int = 2048,
+    ) -> dict:
+        """Stream chat completion and return dict with 'content' key.
+
+        Returns {"content": full_content} on success or {"error": str(e)} on failure.
+        """
+        try:
+            body: dict = {
+                "model": model,
+                "messages": messages,
+                "stream": True,
+                "max_tokens": max_tokens,
+            }
+
+            content = []
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/v1/chat/completions",
+                    json=body,
+                    headers=self._headers,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                                delta = chunk.get("choices", [{}])[0].get(
+                                    "delta", {})
+                                tok = delta.get("content", "")
+                                if tok:
+                                    content.append(tok)
+                            except json.JSONDecodeError:
+                                pass
+
+            return {"content": "".join(content) if content else ""}
+        except Exception as e:
+            logger.error(f"stream_chat_completion failed: {e}")
+            return {"error": str(e)}
+
     async def stream_chat(
         self,
         messages: list[dict],
