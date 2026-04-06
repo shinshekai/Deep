@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.services.vram_monitor import VRAMMonitor
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
+from app.services.pageindex_generator import PageIndexTreeGenerator
 from app.routers.knowledge import router as knowledge_router
 from app.routers.system import router as system_router
 from app.routers.agent import router as agent_router
@@ -34,6 +35,7 @@ settings = get_settings()
 vram_monitor = VRAMMonitor()
 lm_client = LMStudioClient()
 model_manager = ModelManager(lm_client)
+pageindex_generator = PageIndexTreeGenerator(lm_client)
 
 # Metrics subscribers + latest broadcast frame
 _metrics_ws: set[WebSocket] = set()
