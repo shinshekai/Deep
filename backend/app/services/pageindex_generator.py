@@ -5,6 +5,7 @@ Pass 2: Content Matching -- assign page ranges to each heading
 Pass 3: Node Summarization -- LLM generates per-node summaries
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -12,6 +13,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Prompt templates
 HEADING_EXTRACTION_PROMPT = (
     "You are a document structure analysis expert. Analyze the following document text "
     "and extract all section headings and their hierarchy as a JSON array. Each entry "
@@ -28,12 +30,24 @@ SUMMARY_PROMPT = (
     "Only output the summary text, no markdown or labels.\n\n"
 )
 
+# Tunable constants
+TOC_MAX_PAGES = 20                # First N pages used for heading extraction
+HEADING_EXTRACT_MAX_CHARS = 60000  # Max text sent to LLM for heading extraction
+HEADING_EXTRACT_MAX_TOKENS = 4096  # Max LLM output tokens for headings
+REGEX_HEADING_MAX_LEN = 120       # Skip lines longer than this in regex fallback
+FALLBACK_MAX_HEADINGS = 30        # Cap on regex-detected headings
+HEADING_SEARCH_PREFIX = 30        # Characters for partial heading match
+CHARS_PER_TOKEN = 4               # Rough chars-to-tokens multiplier
+SUMMARY_MAX_TOKENS = 512          # Max LLM output tokens per summary
+SUMMARIZE_CONCURRENCY = 3         # Max concurrent summarization LLM calls
+
 
 class PageIndexTreeGenerator:
     """Generate hierarchical PageIndex tree from document content."""
 
     def __init__(self, lm_client):
         self.lm_client = lm_client
+        self._summarize_sem = asyncio.Semaphore(SUMMARIZE_CONCURRENCY)
 
     async def build_tree(
         self,
@@ -55,8 +69,11 @@ class PageIndexTreeGenerator:
 
         nodes_with_ranges = self._assign_page_ranges(pages, toc_nodes)
 
-        for node in nodes_with_ranges:
-            summary = await self._summarize_node(node, pages, model_id)
+        # Concurrent summarization for performance
+        results = await asyncio.gather(
+            *(self._summarize_node(node, pages, model_id) for node in nodes_with_ranges),
+        )
+        for node, summary in zip(nodes_with_ranges, results):
             node["summary"] = summary
 
         return self._structure_tree(nodes_with_ranges, doc_id, total_pages, doc_id)
@@ -64,7 +81,7 @@ class PageIndexTreeGenerator:
     # -- Pass 1: Heading Extraction --
 
     def _extract_toc_candidates(self, pages: list[dict]) -> str:
-        candidate_pages = pages[:20]
+        candidate_pages = pages[:TOC_MAX_PAGES]
         parts = []
         for page_info in candidate_pages:
             text = page_info.get("text", "").strip()
@@ -77,9 +94,8 @@ class PageIndexTreeGenerator:
         if not toc_text.strip():
             return []
 
-        max_chars = 60000
-        if len(toc_text) > max_chars:
-            toc_text = toc_text[:max_chars] + "\n...[truncated]"
+        if len(toc_text) > HEADING_EXTRACT_MAX_CHARS:
+            toc_text = toc_text[:HEADING_EXTRACT_MAX_CHARS] + "\n...[truncated]"
 
         try:
             result = await self.lm_client.stream_chat(
@@ -88,7 +104,7 @@ class PageIndexTreeGenerator:
                     {"role": "user", "content": toc_text},
                 ],
                 model=model_id,
-                max_tokens=4096,
+                max_tokens=HEADING_EXTRACT_MAX_TOKENS,
                 temperature=0.1,
             )
             if result is None:
@@ -134,22 +150,22 @@ class PageIndexTreeGenerator:
         ]
         for line in text.split("\n") :
             line = line.strip()
-            if not line or len(line) > 120:
+            if not line or len(line) > REGEX_HEADING_MAX_LEN:
                 continue
             if line.count(".") > 3 and not re.match(r"\d+\.", line):
                 continue
             for pattern in patterns:
                 m = re.match(pattern, line, re.IGNORECASE)
                 if m:
-                    title = m.group(0) if not m.group(1) else m.group(1)
+                    title = m.group(1) or m.group(0)
                     if title not in seen:
-                        heading = {"title": title.strip(), "depth": 1}
+                        heading = {"title": title, "depth": 1}
                         if re.match(r"\d+\.\d+", m.group(0)):
                             heading["depth"] = 2
                         headings.append(heading)
                         seen.add(title)
                     break
-        return headings[:30]
+        return headings[:FALLBACK_MAX_HEADINGS]
 
     # -- Pass 2: Content Matching --
 
@@ -202,7 +218,7 @@ class PageIndexTreeGenerator:
         pos = full_text.lower().find(heading.lower())
         if pos != -1:
             return pos
-        partial = heading[:30].strip()
+        partial = heading[:HEADING_SEARCH_PREFIX].strip()
         if partial:
             pos = full_text.find(partial)
             if pos != -1:
@@ -224,6 +240,7 @@ class PageIndexTreeGenerator:
         pages: list[dict],
         model_id: str,
     ) -> str:
+        """Summarize a single node's content using LLM, with concurrency control."""
         from app.config import get_settings
         settings = get_settings()
         max_tokens = settings.pageindex_max_tokens_per_node
@@ -239,20 +256,20 @@ class PageIndexTreeGenerator:
             return f"Section: {node['title']}"
 
         node_text = "\n".join(p.get("text", "") for p in node_pages)
-        max_chars = max_tokens * 4
-        if len(node_text) > max_chars:
-            node_text = node_text[:max_chars] + "\n...[truncated]"
+        if len(node_text) > max_tokens * CHARS_PER_TOKEN:
+            node_text = node_text[:max_tokens * CHARS_PER_TOKEN] + "\n...[truncated]"
 
         try:
-            result = await self.lm_client.stream_chat(
-                messages=[
-                    {"role": "system", "content": SUMMARY_PROMPT},
-                    {"role": "user", "content": node_text},
-                ],
-                model=model_id,
-                max_tokens=512,
-                temperature=0.3,
-            )
+            async with self._summarize_sem:
+                result = await self.lm_client.stream_chat(
+                    messages=[
+                        {"role": "system", "content": SUMMARY_PROMPT},
+                        {"role": "user", "content": node_text},
+                    ],
+                    model=model_id,
+                    max_tokens=SUMMARY_MAX_TOKENS,
+                    temperature=0.3,
+                )
             if result:
                 return result.strip()
         except Exception as e:
