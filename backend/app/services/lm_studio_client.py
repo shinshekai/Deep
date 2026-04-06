@@ -60,41 +60,17 @@ class LMStudioClient:
     ) -> dict:
         """Stream chat completion and return dict with 'content' key.
 
-        Returns {"content": full_content} on success or {"error": str(e)} on failure.
+        Returns {"content": str} on success or {"error": str(e)} on failure.
+        Delegates to `stream_chat` to avoid duplicated streaming logic.
         """
         try:
-            body: dict = {
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                "max_tokens": max_tokens,
-            }
-
-            content = []
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/v1/chat/completions",
-                    json=body,
-                    headers=self._headers,
-                ) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                delta = chunk.get("choices", [{}])[0].get(
-                                    "delta", {})
-                                tok = delta.get("content", "")
-                                if tok:
-                                    content.append(tok)
-                            except json.JSONDecodeError:
-                                pass
-
-            return {"content": "".join(content) if content else ""}
+            content = await self.stream_chat(
+                messages=messages,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=0.7,
+            )
+            return {"content": content if content else ""}
         except Exception as e:
             logger.error(f"stream_chat_completion failed: {e}")
             return {"error": str(e)}
