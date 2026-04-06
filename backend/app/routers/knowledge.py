@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
 
-DATA_DIR = Path("data/knowledge_bases")
+DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases"
 KB_UPLOADS_DIR = DATA_DIR / "uploads"
 _tasks: dict = {}
 _kb_registry: dict = {}
@@ -108,6 +108,7 @@ async def upload_document(
     # Sanitize inputs to prevent path traversal
     kb_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kb_name) or "default"
     doc_id = Path(file.filename or f"doc_{int(time.time())}").name
+    _ensure_kb(kb_name)
     file_bytes = await file.read()
 
     task_id = f"task_{int(time.time() * 1000)}"
