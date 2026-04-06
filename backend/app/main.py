@@ -18,6 +18,7 @@ from app.services.vram_monitor import VRAMMonitor
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
 from app.services.pageindex_generator import PageIndexTreeGenerator
+from app.services.benchmark_runner import BenchmarkRunner
 from app.routers.knowledge import router as knowledge_router
 from app.routers.system import router as system_router
 from app.routers.agent import router as agent_router
@@ -35,6 +36,7 @@ vram_monitor = VRAMMonitor()
 lm_client = LMStudioClient()
 model_manager = ModelManager(lm_client)
 pageindex_generator = PageIndexTreeGenerator(lm_client)
+benchmark_runner = BenchmarkRunner(lm_client, vram_monitor, model_manager)
 
 # Startup timestamp — set to module load, reset in lifespan() for uptime after server started
 _startup_time: float = time.time()
@@ -83,6 +85,8 @@ async def lifespan(app: FastAPI):
         _latest_metrics["pressure_level"] = data.get("pressure_level", "green")
 
     vram_monitor.on_update(on_vram)
+
+    await benchmark_runner.start_worker()
 
     vram_task = asyncio.create_task(vram_monitor.start_polling(interval=2.0))
     broadcast_task = asyncio.create_task(_broadcast_loop())
