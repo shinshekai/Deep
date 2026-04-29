@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 reference/
 .claude/
+data/
+backend/data/
+docs_old/
