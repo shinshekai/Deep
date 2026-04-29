@@ -10,11 +10,13 @@ import asyncio
 import json
 import time
 import logging
+import os
 from typing import AsyncGenerator
 
 from app.services.complexity_scorer import score_query_complexity
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
+from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ async def run_solve_pipeline(
     query: str,
     kb_name: str,
     mode: str,
+    retrieval_pipeline: str,
     lm_client: LMStudioClient,
     model_manager: ModelManager,
     session_id: str,
@@ -73,10 +76,11 @@ async def run_solve_pipeline(
 
     # ── Step 3: Run the dual-loop ──
     try:
-        full_answer = await _run_dual_loop(
+        full_answer, transcript = await _run_dual_loop(
             query=query,
             kb_name=kb_name,
             mode=mode,
+            retrieval_pipeline=retrieval_pipeline,
             lm_client=lm_client,
             model_id=model_id,
             session_id=session_id,
@@ -85,6 +89,17 @@ async def run_solve_pipeline(
 
         if full_answer is None:
             full_answer = "I was unable to generate a response. The model may be unavailable."
+            transcript += f"\n\n[System] Fallback triggered. Final answer: {full_answer}"
+
+        # ── Step 4: Session Persistence ──
+        solve_dir = f"data/user/solve/{session_id}"
+        os.makedirs(solve_dir, exist_ok=True)
+        
+        with open(f"{solve_dir}/final_answer.md", "w", encoding="utf-8") as f:
+            f.write(full_answer)
+            
+        with open(f"{solve_dir}/transcript.md", "w", encoding="utf-8") as f:
+            f.write(transcript)
 
         elapsed = time.time() - start_time
         await ws_send({
@@ -115,12 +130,15 @@ async def _run_dual_loop(
     query: str,
     kb_name: str,
     mode: str,
+    retrieval_pipeline: str,
     lm_client: LMStudioClient,
     model_id: str,
     session_id: str,
     ws_send,
-) -> str | None:
-    """Run Analysis Loop + Solve Loop, streaming frames."""
+) -> tuple[str | None, str]:
+    """Run Analysis Loop + Solve Loop, streaming frames. Returns (final_answer, transcript)."""
+
+    transcript = f"# Smart Solver Session: {session_id}\n\n## Query\n{query}\n\n"
 
     # ── Analysis Loop ──
     analysis_steps = [
@@ -130,9 +148,33 @@ async def _run_dual_loop(
     analysis_context = []
 
     for agent_key, agent_label in analysis_steps:
+        # Step 2: Use RAG tool during investigate
+        tool_context = ""
+        if agent_key == "investigate" and kb_name:
+            await ws_send({
+                "type": "agent_step",
+                "agent": "investigate",
+                "delta": f"\n[System: Running {retrieval_pipeline} retrieval pipeline...]\n",
+                "timestamp": time.time(),
+            })
+            
+            req = RetrieveRequest(query=query, kb_name=kb_name, retrieval_pipeline=retrieval_pipeline, top_k=3)
+            retrieval_resp = await run_retrieval(req)
+            rag_results = retrieval_resp.get("results", [])
+            
+            if rag_results:
+                tool_context = "Extracted Knowledge Base Context:\n"
+                for i, res in enumerate(rag_results):
+                    content = res.get('content', '') or res.get('summary', '')
+                    tool_context += f"--- Chunk {i+1} ---\n{content}\n\n"
+        
+        user_prompt = query
+        if tool_context:
+            user_prompt = f"Original query: {query}\n\n{tool_context}"
+            
         messages = [
             {"role": "system", "content": AGENT_PROMPTS[agent_key]},
-            {"role": "user", "content": query},
+            {"role": "user", "content": user_prompt},
         ]
 
         # Stream tokens from LLM
@@ -146,6 +188,7 @@ async def _run_dual_loop(
 
         if step_content:
             analysis_context.append(step_content)
+            transcript += f"### Agent: {agent_label}\n{step_content}\n\n"
 
     # ── Solve Loop ──
     solve_steps = [
@@ -181,8 +224,11 @@ async def _run_dual_loop(
             final_answer = step_content
         elif step_content:
             context_summary += f" | {step_content[:100]}"
+            
+        if step_content:
+            transcript += f"### Agent: {agent_label}\n{step_content}\n\n"
 
-    return final_answer
+    return final_answer, transcript
 
 
 async def _stream_agent_step(
@@ -193,10 +239,21 @@ async def _stream_agent_step(
     ws_send,
 ) -> str:
     """Call LLM and stream content as agent_step frames. Returns full content."""
+    
+    async def on_chunk(tok: str):
+        # Stream the delta token over WebSocket
+        await ws_send({
+            "type": "agent_step",
+            "agent": agent_label.replace(" ", "").lower(),
+            "delta": tok,
+            "timestamp": time.time(),
+        })
+
     result = await lm_client.stream_chat_completion(
         model=model_id,
         messages=messages,
         max_tokens=2048,
+        chunk_callback=on_chunk,
     )
 
     if result is None or result.get("error"):
@@ -205,7 +262,7 @@ async def _stream_agent_step(
         await ws_send({
             "type": "agent_step",
             "agent": agent_label.replace(" ", "").lower(),
-            "content": content,
+            "delta": content,
             "timestamp": time.time(),
         })
         return content

@@ -1,0 +1,228 @@
+import os
+import json
+import time
+import asyncio
+import logging
+from typing import Dict, Any, List
+
+from app.services.lm_studio_client import LMStudioClient
+from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+
+logger = logging.getLogger(__name__)
+
+class DeepResearchService:
+    def __init__(self, lm_client: LMStudioClient):
+        self.lm_client = lm_client
+        self.sessions_dir = "data/user/research"
+        os.makedirs(self.sessions_dir, exist_ok=True)
+        # We store active background tasks here so they don't get garbage collected
+        self.active_tasks = set()
+
+    def _get_session_path(self, session_id: str) -> str:
+        return os.path.join(self.sessions_dir, f"session_{session_id}.json")
+
+    def _load_session(self, session_id: str) -> Dict[str, Any]:
+        path = self._get_session_path(session_id)
+        if not os.path.exists(path):
+            raise ValueError(f"Session {session_id} not found.")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _save_session(self, session_id: str, data: Dict[str, Any]):
+        path = self._get_session_path(session_id)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    async def start_research(
+        self, kb_name: str, query: str, mode: str = "parallel", retrieval_pipeline: str = "combined", model_id: str = "Qwen3-1.7B-Q4_K_M"
+    ) -> str:
+        """Phase 1: Planning. Returns session_id immediately and starts background research."""
+        session_id = f"research_{int(time.time())}"
+        
+        # 1. Rephrase & Decompose
+        system_prompt = (
+            "You are the DecomposeAgent for a Deep Research system.\n"
+            "Analyze the user's research query and break it down into 3 to 5 distinct, focused subtopics.\n"
+            "Return a raw JSON array of strings, where each string is a subtopic query.\n"
+            "Do not include markdown blocks or any other text."
+        )
+
+        response = await self.lm_client.stream_chat_completion(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Research Query: {query}"}
+            ],
+            max_tokens=1000
+        )
+        
+        content = response.get("content", "").strip()
+        if content.startswith("```json"): content = content[7:]
+        if content.startswith("```"): content = content[3:]
+        if content.endswith("```"): content = content[:-3]
+        content = content.strip()
+
+        try:
+            subtopics = json.loads(content)
+            if not isinstance(subtopics, list):
+                subtopics = [f"Overview of {query}", f"Key details of {query}"]
+        except Exception:
+            subtopics = [f"Overview of {query}", f"Key details of {query}"]
+
+        # 2. Initialize State
+        queue = [{"id": f"sub_{i}", "query": st, "status": "PENDING", "notes": ""} for i, st in enumerate(subtopics)]
+        
+        session_data = {
+            "session_id": session_id,
+            "query": query,
+            "kb_name": kb_name,
+            "retrieval_pipeline": retrieval_pipeline,
+            "model_id": model_id,
+            "mode": mode,
+            "queue": queue,
+            "status": "RESEARCHING",
+            "final_report": None
+        }
+        self._save_session(session_id, session_data)
+
+        # 3. Kick off Phase 2 in the background
+        task = asyncio.create_task(self._process_queue(session_id))
+        self.active_tasks.add(task)
+        task.add_done_callback(self.active_tasks.discard)
+
+        return session_id
+
+    async def _process_queue(self, session_id: str):
+        """Phase 2: Researching. Processes the subtopic queue."""
+        session_data = self._load_session(session_id)
+        mode = session_data.get("mode", "parallel")
+        queue = session_data["queue"]
+
+        if mode == "parallel":
+            # Process up to 5 concurrently
+            sem = asyncio.Semaphore(5)
+            
+            async def bounded_research(subtopic):
+                async with sem:
+                    await self._research_subtopic(session_id, subtopic["id"])
+
+            tasks = [bounded_research(st) for st in queue]
+            await asyncio.gather(*tasks)
+        else:
+            # Series
+            for st in queue:
+                await self._research_subtopic(session_id, st["id"])
+
+        # Phase 3: Reporting
+        await self._generate_report(session_id)
+
+    async def _research_subtopic(self, session_id: str, subtopic_id: str):
+        """ResearchAgent + NoteAgent: Retrieves context and synthesizes notes for one subtopic."""
+        session_data = self._load_session(session_id)
+        
+        # Find the subtopic
+        subtopic = next((st for st in session_data["queue"] if st["id"] == subtopic_id), None)
+        if not subtopic: return
+
+        # Update status
+        subtopic["status"] = "RESEARCHING"
+        self._save_session(session_id, session_data)
+
+        kb_name = session_data["kb_name"]
+        retrieval_pipeline = session_data["retrieval_pipeline"]
+        model_id = session_data["model_id"]
+        topic_query = subtopic["query"]
+
+        # 1. Retrieval
+        try:
+            req = RetrieveRequest(
+                query=topic_query, 
+                kb_name=kb_name, 
+                retrieval_pipeline=retrieval_pipeline, 
+                top_k=5
+            )
+            retrieval_resp = await run_retrieval(req)
+            rag_results = retrieval_resp.get("results", [])
+            
+            context_text = ""
+            for i, res in enumerate(rag_results):
+                content = res.get('content', '') or res.get('summary', '')
+                doc_id = res.get('doc_id', 'unknown')
+                page = res.get('page', 'unknown')
+                context_text += f"--- Source {i+1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
+
+            if not context_text.strip():
+                context_text = "No document context available."
+
+            # 2. NoteAgent Synthesizes
+            system_prompt = (
+                "You are the NoteAgent. Review the context below and write concise, well-structured notes "
+                "addressing the specific subtopic query. Include source citations where possible."
+            )
+            
+            response = await self.lm_client.stream_chat_completion(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Subtopic: {topic_query}\n\nContext:\n{context_text}"}
+                ],
+                max_tokens=1500
+            )
+            
+            notes = response.get("content", "Failed to generate notes.")
+            subtopic["status"] = "COMPLETED"
+            subtopic["notes"] = notes
+
+        except Exception as e:
+            logger.error(f"Error researching subtopic {subtopic_id}: {e}")
+            subtopic["status"] = "FAILED"
+            subtopic["notes"] = f"Error: {str(e)}"
+
+        # Reload and save to avoid race conditions in parallel mode
+        current_data = self._load_session(session_id)
+        for st in current_data["queue"]:
+            if st["id"] == subtopic_id:
+                st["status"] = subtopic["status"]
+                st["notes"] = subtopic["notes"]
+                break
+        self._save_session(session_id, current_data)
+
+
+    async def _generate_report(self, session_id: str):
+        """Phase 3: Reporting. Aggregates notes into a final report."""
+        session_data = self._load_session(session_id)
+        model_id = session_data["model_id"]
+        main_query = session_data["query"]
+
+        all_notes = ""
+        for st in session_data["queue"]:
+            if st["status"] == "COMPLETED":
+                all_notes += f"### {st['query']}\n{st['notes']}\n\n"
+
+        system_prompt = (
+            "You are the ReportAgent. Compile the provided research notes into a final, comprehensive Markdown report.\n"
+            "Structure it with an Introduction, Body Paragraphs based on the subtopics, and a Conclusion.\n"
+            "Ensure citations from the notes are preserved."
+        )
+
+        user_prompt = f"Main Research Query: {main_query}\n\nAggregated Notes:\n{all_notes}"
+
+        response = await self.lm_client.stream_chat_completion(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=4000
+        )
+        
+        final_report = response.get("content", "Failed to generate report.")
+        
+        session_data = self._load_session(session_id)
+        session_data["final_report"] = final_report
+        session_data["status"] = "COMPLETED"
+        self._save_session(session_id, session_data)
+
+    def get_status(self, session_id: str) -> Dict[str, Any]:
+        """Returns the current state of the research session."""
+        return self._load_session(session_id)

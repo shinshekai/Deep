@@ -1,8 +1,8 @@
 """Model Manager — three-tier lifecycle with TTL-based unloading and fallback cascade.
 
-Tier 1 (Always Resident): Qwen3-0.6B, Qwen3-1.7B — VRAM 0.5-1.2 GB
-Tier 2 (Semi-Resident):   Qwen3-4B, Qwen3-8B   — VRAM 2.5-5.5 GB, TTL 600s
-Tier 3 (On-Demand):       Qwen3-14B, 30B-A3B    — VRAM 8.5-18 GB, TTL 300s
+Tier 1 (Always Resident): liquid/lfm2.5-1.2b, jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf — VRAM 1-3.5 GB
+Tier 2 (Semi-Resident):   nvidia/nemotron-3-nano-4b, deepseek/deepseek-r1-0528-qwen3-8b   — VRAM 4-9.5 GB, TTL 600s
+Tier 3 (On-Demand):       google/gemma-4-26b-a4b, qwen/qwen3.6-35b-a3b    — VRAM 25-40 GB, TTL 300s
 """
 
 import asyncio
@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Fallback cascade (CLAUDE.md Section 6.3)
 FALLBACK_CASCADE = [
-    "Qwen3-30B-A3B-Q4_K_M",
-    "Qwen3-14B-Q4_K_M",
-    "Qwen3-8B-Q5_K_M",
-    "Qwen3-4B-Q4_K_M",
-    "Qwen3-1.7B-Q4_K_M",
-    "Qwen3-0.6B-Q4_K_M",
+    "qwen/qwen3.6-35b-a3b",
+    "google/gemma-4-26b-a4b",
+    "deepseek/deepseek-r1-0528-qwen3-8b",
+    "nvidia/nemotron-3-nano-4b",
+    "jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf",
+    "liquid/lfm2.5-1.2b",
 ]
 
 TTL_DEFAULTS = {
@@ -33,20 +33,20 @@ TTL_DEFAULTS = {
 MODEL_TIERS = {
     # tier -> (models, vram_range_mb, kv_config, max_concurrent)
     1: {
-        "models": ["Qwen3-0.6B-Q4_K_M", "Qwen3-1.7B-Q4_K_M"],
-        "vram_range": (500, 1200),
+        "models": ["liquid/lfm2.5-1.2b", "jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf"],
+        "vram_range": (1000, 3500),
         "kv_cache": {"cache_type_k": "q4_0", "cache_type_v": "q4_0"},
         "max_concurrent": 4,
     },
     2: {
-        "models": ["Qwen3-4B-Q4_K_M", "Qwen3-8B-Q5_K_M"],
-        "vram_range": (2500, 5500),
+        "models": ["nvidia/nemotron-3-nano-4b", "deepseek/deepseek-r1-0528-qwen3-8b"],
+        "vram_range": (4000, 9500),
         "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q4_0"},
         "max_concurrent": 2,
     },
     3: {
-        "models": ["Qwen3-14B-Q4_K_M", "Qwen3-30B-A3B-Q4_K_M"],
-        "vram_range": (8500, 18000),
+        "models": ["google/gemma-4-26b-a4b", "qwen/qwen3.6-35b-a3b"],
+        "vram_range": (25000, 40000),
         "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q8_0"},
         "max_concurrent": 1,
     },

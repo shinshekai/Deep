@@ -56,7 +56,7 @@ class CacheConfigUpdate(BaseModel):
 
 @router.get("/health")
 async def health_check():
-    from app.main import vram_monitor, lm_client
+    from app.state import vram_monitor, lm_client
 
     # Check LM Studio
     lm_available = await lm_client.check_health()
@@ -67,7 +67,7 @@ async def health_check():
 
     # Calculate uptime from module-level startup time
     try:
-        from app.main import _startup_time
+        from app.state import _startup_time
         uptime = time.time() - _startup_time
     except Exception:
         uptime = 0
@@ -152,7 +152,7 @@ async def update_config(payload: SystemConfigUpdate):
 
 @router.get("/models")
 async def list_models():
-    from app.main import lm_client, model_manager
+    from app.state import lm_client, model_manager
 
     # Get models from LM Studio
     lm_models = await lm_client.list_models()
@@ -197,7 +197,7 @@ async def list_models():
 
 @router.post("/models/{model_id}/load")
 async def load_model(model_id: str):
-    from app.main import lm_client, model_manager
+    from app.state import lm_client, model_manager
 
     success = await lm_client.load_model(model_id)
 
@@ -218,7 +218,7 @@ async def load_model(model_id: str):
 
 @router.post("/models/{model_id}/unload")
 async def unload_model(model_id: str):
-    from app.main import lm_client, model_manager
+    from app.state import lm_client, model_manager
 
     success = await lm_client.unload_model(model_id)
 
@@ -236,7 +236,7 @@ async def unload_model(model_id: str):
 
 @router.get("/vram/status")
 async def get_vram_status():
-    from app.main import vram_monitor
+    from app.state import vram_monitor
 
     data = await vram_monitor.poll_once()
 
@@ -270,7 +270,7 @@ async def get_vram_status():
 
 @router.get("/cache/status")
 async def cache_status():
-    from app.main import model_manager
+    from app.state import model_manager
 
     s = settings
     models_info = {}
@@ -342,7 +342,7 @@ async def get_metrics_history():
 
 @router.post("/metrics/benchmarks/run")
 async def run_benchmarks(payload: Optional[dict] = None):
-    from app.main import benchmark_runner
+    from app.state import benchmark_runner
     category = "all"
     if payload and "category" in payload:
         category = payload["category"]
@@ -354,7 +354,7 @@ async def run_benchmarks(payload: Optional[dict] = None):
 
 @router.get("/metrics/benchmarks/{run_id}")
 async def get_benchmark_status(run_id: str):
-    from app.main import benchmark_runner
+    from app.state import benchmark_runner
     run = benchmark_runner.get_run(run_id)
     if run is None:
         return {"run_id": run_id, "status": "not_found"}
@@ -383,7 +383,7 @@ async def get_benchmark_status(run_id: str):
 
 @router.get("/metrics/benchmarks/latest")
 async def get_latest_benchmark():
-    from app.main import benchmark_runner
+    from app.state import benchmark_runner
     run = benchmark_runner.get_latest_run()
     if run is None:
         return {"status": "no_runs"}

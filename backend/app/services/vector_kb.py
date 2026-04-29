@@ -1,52 +1,227 @@
-"""VectorKBService — vector and keyword retrieval over knowledge bases.
+"""VectorKBService — local numpy-based vector storage and retrieval.
 
-Provides interfaces for:
-- naive_search: Pure vector similarity (returns empty until FR-1.3)
-- hybrid_search: Vector + keyword RRF merge (returns empty until FR-1.3)
-- keyword_search: BM25-style search over raw document text
+Storage layout per knowledge base:
+  data/knowledge_bases/{kb}/vectors/{doc_id}_embeddings.npy   — float32 array (N × dim)
+  data/knowledge_bases/{kb}/vectors/{doc_id}_metadata.json    — list of chunk dicts
 
-When vector data is unavailable (FR-1.3 not implemented), returns empty
-results with an info log. Interface is ready for when data arrives.
+Provides:
+- store_vectors()   Save embeddings + metadata for a document
+- delete_vectors()  Remove a document's vector data
+- naive_search()    Pure cosine-similarity vector search
+- hybrid_search()   Vector + keyword RRF merge
+- keyword_search()  BM25-style keyword-only search
+
+Vector ops require numpy. If numpy is not installed or LM Studio is
+unavailable for query embedding, methods degrade gracefully to [].
 """
 
+import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.lm_studio_client import LMStudioClient
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_BASE = Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases" / "uploads"
+UPLOAD_BASE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "data"
+    / "knowledge_bases"
+    / "uploads"
+)
 
 
 class VectorKBService:
-    """Vector and keyword retrieval service."""
+    """Vector and keyword retrieval service backed by local numpy files."""
 
-    def __init__(self, kb_base: Path):
+    def __init__(
+        self,
+        kb_base: Path,
+        lm_client: "LMStudioClient | None" = None,
+    ):
         self.kb_base = kb_base
+        self.lm_client = lm_client
 
-    def naive_search(
-        self, query: str, kb_name: str, top_k: int = 5, min_score: float = 0.3
-    ) -> list[dict]:
-        """Pure vector similarity search."""
-        vector_dir = self.kb_base / kb_name / "vectors"
-        if not vector_dir.exists() or not any(vector_dir.iterdir()):
-            logger.info(
-                f"VectorKB: no vector data in {vector_dir}, "
-                "returning empty results for naive search"
+    # ── Storage ──────────────────────────────────────────────────────────────
+
+    async def store_vectors(
+        self,
+        kb_name: str,
+        doc_id: str,
+        embeddings,  # np.ndarray (N × dim)
+        chunks: list[dict],
+    ) -> int:
+        """Persist embeddings + metadata for one document.
+
+        Args:
+            kb_name:    Knowledge base name.
+            doc_id:     Document identifier (filename).
+            embeddings: numpy float32 array of shape (N, dim).
+            chunks:     Parallel list of chunk dicts (metadata).
+
+        Returns:
+            Number of vectors stored, or 0 on failure.
+        """
+        try:
+            import numpy as np  # noqa: PLC0415
+        except ImportError:
+            logger.error("numpy is required for vector storage. Run: pip install numpy")
+            return 0
+
+        if embeddings is None or len(embeddings) == 0:
+            logger.warning(f"store_vectors: no embeddings for {doc_id}")
+            return 0
+
+        vec_dir = self.kb_base / kb_name / "vectors"
+        vec_dir.mkdir(parents=True, exist_ok=True)
+
+        npy_path = vec_dir / f"{doc_id}_embeddings.npy"
+        meta_path = vec_dir / f"{doc_id}_metadata.json"
+
+        try:
+            np.save(str(npy_path), embeddings.astype(np.float32))
+            meta_path.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
+            count = len(embeddings)
+            logger.info(f"Stored {count} vectors for {kb_name}/{doc_id}")
+            return count
+        except Exception as e:
+            logger.error(f"store_vectors failed for {doc_id}: {e}")
+            return 0
+
+    def delete_vectors(self, kb_name: str, doc_id: str) -> bool:
+        """Remove vector data files for a single document."""
+        vec_dir = self.kb_base / kb_name / "vectors"
+        npy_path = vec_dir / f"{doc_id}_embeddings.npy"
+        meta_path = vec_dir / f"{doc_id}_metadata.json"
+
+        removed = False
+        for p in (npy_path, meta_path):
+            if p.exists():
+                p.unlink()
+                removed = True
+
+        if removed:
+            logger.info(f"Deleted vector data for {kb_name}/{doc_id}")
+        return removed
+
+    # ── Loading ───────────────────────────────────────────────────────────────
+
+    def _load_all_vectors(self, kb_name: str):
+        """Load all embeddings + metadata across every doc in a KB.
+
+        Returns:
+            (embeddings: np.ndarray | None, chunks: list[dict])
+        """
+        try:
+            import numpy as np  # noqa: PLC0415
+        except ImportError:
+            return None, []
+
+        vec_dir = self.kb_base / kb_name / "vectors"
+        if not vec_dir.exists():
+            return None, []
+
+        all_embeddings = []
+        all_chunks = []
+
+        for npy_path in sorted(vec_dir.glob("*_embeddings.npy")):
+            meta_path = npy_path.with_name(
+                npy_path.name.replace("_embeddings.npy", "_metadata.json")
             )
+            if not meta_path.exists():
+                continue
+            try:
+                emb = np.load(str(npy_path))
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if len(emb) != len(meta):
+                    logger.warning(f"Shape mismatch in {npy_path.name} — skipping")
+                    continue
+                all_embeddings.append(emb)
+                all_chunks.extend(meta)
+            except Exception as e:
+                logger.error(f"Failed to load {npy_path}: {e}")
+
+        if not all_embeddings:
+            return None, []
+
+        combined = np.concatenate(all_embeddings, axis=0).astype(np.float32)
+        return combined, all_chunks
+
+    # ── Search ────────────────────────────────────────────────────────────────
+
+    async def naive_search(
+        self,
+        query: str,
+        kb_name: str,
+        top_k: int = 5,
+        min_score: float = 0.3,
+    ) -> list[dict]:
+        """Pure cosine-similarity vector search.
+
+        Embeds the query via LM Studio, computes cosine similarity against
+        all stored vectors, and returns the top_k above min_score.
+        Returns [] when no vector data or LM Studio is unavailable.
+        """
+        if not self.lm_client:
+            logger.warning("naive_search: no lm_client set — returning empty")
             return []
 
-        # When FR-1.3 (Vector KB Builder) creates vector data:
-        # 1. Embed the query
-        # 2. Compute cosine similarity against all stored vectors
-        # 3. Return top_k above min_score
-        return []
+        embeddings, chunks = self._load_all_vectors(kb_name)
+        if embeddings is None or len(chunks) == 0:
+            logger.info(f"naive_search: no vector data for KB '{kb_name}'")
+            return []
 
-    def hybrid_search(
-        self, query: str, kb_name: str, top_k: int = 5, min_score: float = 0.3
+        try:
+            import numpy as np  # noqa: PLC0415
+        except ImportError:
+            logger.error("numpy not installed — cannot run vector search")
+            return []
+
+        # Embed the query
+        vecs = await self.lm_client.embed([query])
+        if not vecs:
+            logger.warning("naive_search: query embedding returned empty")
+            return []
+
+        query_vec = np.array(vecs[0], dtype=np.float32)
+
+        # Cosine similarity
+        query_norm = np.linalg.norm(query_vec)
+        if query_norm == 0:
+            return []
+
+        norms = np.linalg.norm(embeddings, axis=1)
+        norms[norms == 0] = 1e-9  # prevent division by zero
+
+        scores = (embeddings @ query_vec) / (norms * query_norm)
+
+        # Get top_k above threshold
+        top_indices = np.argsort(scores)[::-1]
+        results = []
+        for idx in top_indices:
+            score = float(scores[idx])
+            if score < min_score:
+                break
+            if len(results) >= top_k:
+                break
+            chunk = dict(chunks[idx])
+            chunk["relevance_score"] = round(score, 4)
+            chunk["score"] = round(score, 4)
+            results.append(chunk)
+
+        return results
+
+    async def hybrid_search(
+        self,
+        query: str,
+        kb_name: str,
+        top_k: int = 5,
+        min_score: float = 0.3,
     ) -> list[dict]:
         """Hybrid vector + keyword retrieval with RRF merge."""
-        vector_results = self.naive_search(query, kb_name, top_k * 2, min_score)
+        vector_results = await self.naive_search(query, kb_name, top_k * 2, min_score)
         keyword_results = self._keyword_search(query, kb_name, top_k * 2)
 
         if not vector_results and not keyword_results:
@@ -55,25 +230,33 @@ class VectorKBService:
         return _rrf_merge(vector_results, keyword_results, top_k)
 
     def keyword_search(
-        self, query: str, kb_name: str, top_k: int = 5
+        self,
+        query: str,
+        kb_name: str,
+        top_k: int = 5,
     ) -> list[dict]:
         """Pure keyword search over raw document text."""
         return self._keyword_search(query, kb_name, top_k)
 
     def _keyword_search(
-        self, query: str, kb_name: str, top_k: int
+        self,
+        query: str,
+        kb_name: str,
+        top_k: int,
     ) -> list[dict]:
-        """Search over uploaded document files."""
+        """BM25-style term-overlap search over uploaded document files."""
         upload_dir = UPLOAD_BASE / kb_name
         if not upload_dir.exists():
             return []
-
         return self._keyword_search_in_directory(query, upload_dir, top_k)
 
     def _keyword_search_in_directory(
-        self, query: str, search_dir: Path, top_k: int
+        self,
+        query: str,
+        search_dir: Path,
+        top_k: int,
     ) -> list[dict]:
-        """Search all text files in a directory."""
+        """Search all text/PDF files in a directory by term overlap."""
         query_terms = set(query.lower().split())
         if not query_terms:
             return []
@@ -88,37 +271,37 @@ class VectorKBService:
 
             try:
                 if file_path.suffix == ".pdf":
-                    import fitz
+                    import fitz  # noqa: PLC0415
+
                     doc = fitz.open(str(file_path))
-                    text = "\n".join(
-                        page.get_text("text") for page in doc
-                    )
+                    text = "\n".join(page.get_text("text") for page in doc)
                     doc.close()
                 else:
-                    text = file_path.read_text(encoding="utf-8")
-            except (OSError, Exception):
+                    text = file_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
                 continue
 
-            score = sum(
-                1 for t in query_terms if t in text.lower()
-            )
+            score = sum(1 for t in query_terms if t in text.lower())
             if score > 0:
                 max_possible = len(query_terms)
-                results.append({
-                    "doc_id": file_path.stem,
-                    "section": file_path.name,
-                    "content": text[:500],
-                    "relevance_score": round(score / max_possible, 3),
-                    "score": round(score / max_possible, 3),
-                    "page": 0,
-                    "page_end": 0,
-                    "node_id": "",
-                })
+                results.append(
+                    {
+                        "doc_id": file_path.stem,
+                        "section": file_path.name,
+                        "content": text[:500],
+                        "relevance_score": round(score / max_possible, 3),
+                        "score": round(score / max_possible, 3),
+                        "page": 0,
+                        "page_end": 0,
+                        "node_id": "",
+                    }
+                )
 
-        results.sort(
-            key=lambda r: r.get("relevance_score", 0), reverse=True
-        )
+        results.sort(key=lambda r: r.get("relevance_score", 0), reverse=True)
         return results[:top_k]
+
+
+# ── RRF merge (module-level, used by both VectorKBService and HybridRAGSearch) ──
 
 
 def _rrf_merge(
@@ -128,19 +311,16 @@ def _rrf_merge(
 ) -> list[dict]:
     """Reciprocal Rank Fusion merge of two ranked result lists.
 
-    Uses default k=60 as established in RRF literature.
-    Deduplicates by (doc_id, section) key, keeping higher RRF score.
+    k=60 per the original RRF paper (Cormack et al., 2009).
+    Deduplicates by (doc_id, section) key, accumulating RRF scores.
     """
     k = 60
-
-    # Compute ranks
     scores: dict[tuple, tuple[float, dict]] = {}
 
     def process(results: list[dict]):
         for rank, result in enumerate(results):
             key = (result.get("doc_id", ""), result.get("section", ""))
             rrf = 1.0 / (k + rank + 1)
-
             if key in scores:
                 old_score, old_result = scores[key]
                 scores[key] = (old_score + rrf, result)
@@ -151,7 +331,7 @@ def _rrf_merge(
     process(keyword_results)
 
     merged = []
-    for key, (rrf_score, result) in scores.items():
+    for _key, (rrf_score, result) in scores.items():
         r = dict(result)
         r["rrf_score"] = round(rrf_score, 4)
         r["relevance_score"] = round(rrf_score, 4)
@@ -159,4 +339,3 @@ def _rrf_merge(
 
     merged.sort(key=lambda r: r.get("rrf_score", 0), reverse=True)
     return merged[:top_k]
-

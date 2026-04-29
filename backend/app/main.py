@@ -1,7 +1,8 @@
 """UDIP Backend — FastAPI application entry point.
 
-Services: VRAMMonitor, LMStudioClient, ModelManager
-Routers: knowledge, system, agent
+Services: VRAMMonitor, LMStudioClient, ModelManager, EmbeddingService,
+          TextChunker, VectorKBService
+Routers: knowledge, system, agent, retrieval, query
 WebSockets: /api/v1/solve (Smart Solve dual-loop), /ws/metrics (broadcast)
 """
 
@@ -14,45 +15,25 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.services.vram_monitor import VRAMMonitor
-from app.services.lm_studio_client import LMStudioClient
-from app.services.model_manager import ModelManager
-from app.services.pageindex_generator import PageIndexTreeGenerator
-from app.services.benchmark_runner import BenchmarkRunner
-from app.routers.knowledge import router as knowledge_router
-from app.routers.system import router as system_router
-from app.routers.agent import router as agent_router
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+from app.state import (
+    vram_monitor, lm_client, model_manager, pageindex_generator,
+    benchmark_runner, embedding_service, text_chunker, vector_kb_service,
+    update_metrics, add_ws, remove_ws, get_ws_set, get_metrics,
 )
+
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Global services
-vram_monitor = VRAMMonitor()
-lm_client = LMStudioClient()
-model_manager = ModelManager(lm_client)
-pageindex_generator = PageIndexTreeGenerator(lm_client)
-benchmark_runner = BenchmarkRunner(lm_client, vram_monitor, model_manager)
+# Services are initialized in lifespan()
+_startup_time: float = 0.0
 
-# Startup timestamp — set to module load, reset in lifespan() for uptime after server started
-_startup_time: float = time.time()
-
-
-# Metrics subscribers + latest broadcast frame
-_metrics_ws: set[WebSocket] = set()
-_latest_metrics: dict = {
-    "vram_used_mb": 0,
-    "vram_total_mb": 0,
-    "pressure_level": "green",
-    "active_models": [],
-    "queue_depths": {"retrieval": 0, "reasoning": 0, "generation": 0},
-    "latency_ms": 0,
-    "throughput_tps": 0,
-}
+# Metrics history for system router
+_metrics_history: list = []
+METRICS_DIR = "data/metrics"
+import os
+from pathlib import Path
+os.makedirs(METRICS_DIR, exist_ok=True)
 
 
 # ─── Lifespan ───
@@ -63,6 +44,31 @@ async def lifespan(app: FastAPI):
     _startup_time = time.time()
     logger.info("Starting UDIP Backend on :8001")
 
+    # Initialize services
+    from app.services.vram_monitor import VRAMMonitor
+    from app.services.lm_studio_client import LMStudioClient
+    from app.services.model_manager import ModelManager
+    from app.services.pageindex_generator import PageIndexTreeGenerator
+    from app.services.benchmark_runner import BenchmarkRunner
+    from app.services.embedding_service import EmbeddingService
+    from app.services.text_chunker import TextChunker
+    from app.services.vector_kb import VectorKBService
+
+    # Create service instances and update shared state
+    from app import state
+
+    state.vram_monitor = VRAMMonitor()
+    state.lm_client = LMStudioClient(metrics_callback=update_metrics)
+    state.model_manager = ModelManager(state.lm_client)
+    state.pageindex_generator = PageIndexTreeGenerator(state.lm_client)
+    state.benchmark_runner = BenchmarkRunner(state.lm_client, state.vram_monitor, state.model_manager)
+    state.embedding_service = EmbeddingService(state.lm_client, batch_size=32)
+    state.text_chunker = TextChunker(chunk_size=512, chunk_overlap=64)
+
+    _KB_BASE = Path("data/knowledge_bases")
+    state.vector_kb_service = VectorKBService(kb_base=_KB_BASE, lm_client=state.lm_client)
+
+    # Initialize VRAM monitor
     gpu_ok = await vram_monitor.initialize()
     logger.info(f"GPU monitor: {'active' if gpu_ok else 'unavailable (no pynvml)'}")
 
@@ -80,6 +86,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"Model registered: {mid} (tier {tier})")
 
     def on_vram(data: dict):
+        from app.state import _latest_metrics
         _latest_metrics["vram_used_mb"] = data.get("vram_used_mb", 0)
         _latest_metrics["vram_total_mb"] = data.get("vram_total_mb", 0)
         _latest_metrics["pressure_level"] = data.get("pressure_level", "green")
@@ -102,27 +109,28 @@ async def lifespan(app: FastAPI):
 
 async def _broadcast_loop():
     """Broadcast metrics every 2s to /ws/metrics subscribers."""
-    history = []
     while True:
         await asyncio.sleep(2.0)
+        from app.state import _latest_metrics, _metrics_ws
         dead = []
         for ws in list(_metrics_ws):
             try:
-                await ws.send_json(_latest_metrics)
+                await ws.send_json(dict(_latest_metrics))
             except Exception:
                 dead.append(ws)
         for ws in dead:
             _metrics_ws.discard(ws)
-        history.append(dict(_latest_metrics))
-        if len(history) > 30:
-            history = history[-30:]
+        _metrics_history.append(dict(_latest_metrics))
+        if len(_metrics_history) > 30:
+            _metrics_history = _metrics_history[-30:]
         from app.routers import system as sm
-        sm._metrics_history = history
+        sm._metrics_history = _metrics_history
 
 
 async def _ttl_loop():
     while True:
         await asyncio.sleep(60)
+        from app.state import model_manager
         evicted = model_manager.check_ttl_evictions()
         if evicted:
             logger.info(f"TTL evictions: {evicted}")
@@ -145,10 +153,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import Request
+
+@app.middleware("http")
+async def benchmark_middleware(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    elapsed_ms = (time.time() - start_time) * 1000
+    from app.state import _latest_metrics
+    _latest_metrics["latency_ms"] = int(elapsed_ms)
+    response.headers["X-E2E-Latency-ms"] = str(round(elapsed_ms, 2))
+    return response
+
+
+# Import routers after middleware setup
+from app.routers.knowledge import router as knowledge_router
+from app.routers.system import router as system_router
+from app.routers.agent import router as agent_router
+from app.routers.retrieval import router as retrieval_router
+from app.routers.query import router as query_router
+
 app.include_router(knowledge_router)
 app.include_router(system_router)
 app.include_router(agent_router)
-
+app.include_router(retrieval_router)
+app.include_router(query_router)
 
 
 # ─── Smart Solve WS ───
@@ -167,26 +196,29 @@ async def ws_solve(ws: WebSocket):
             session_id = data.get("session_id", f"solve_{int(time.time())}")
             kb_name = data.get("kb_name", "")
             mode = data.get("mode", "auto")
+            retrieval_pipeline = data.get("retrieval_pipeline", "tree")
 
-            # Send investigation step
             await ws.send_json({
                 "type": "agent_step", "agent": "investigate",
                 "content": f"Analyzing query: {query[:100]}...", "timestamp": time.time(),
             })
             await asyncio.sleep(0.4)
 
-            # Compute complexity and route to tier
+            from app.state import lm_client, model_manager
             lm_ok = await lm_client.check_health()
             if lm_ok:
-                # Full pipeline: analysis loop → solve loop
-                full_answer = await _run_llm_solve(ws, query, kb_name, mode, session_id)
-                if full_answer:
-                    await ws.send_json({
-                        "type": "complete", "answer": full_answer,
-                        "citations": [], "session_id": session_id,
-                        "solve_dir": f"data/user/solve/{session_id}",
-                    })
-                    continue
+                from app.services.solve_orchestrator import run_solve_pipeline
+                await run_solve_pipeline(
+                    query=query,
+                    kb_name=kb_name,
+                    mode=mode,
+                    retrieval_pipeline=retrieval_pipeline,
+                    lm_client=lm_client,
+                    model_manager=model_manager,
+                    session_id=session_id,
+                    ws_send=ws.send_json,
+                )
+                continue
 
             # Fallback: simulated agent steps
             steps = [
@@ -217,69 +249,13 @@ async def ws_solve(ws: WebSocket):
         logger.error(f"Solve WS error: {e}", exc_info=True)
 
 
-async def _run_llm_solve(ws, query, kb_name, mode, session_id):
-    """Stream real LLM response through agent step frames."""
-    # Analysis: system prompt for investigation
-    analysis_prompt = (
-        f"Analyze this query from a document intelligence context. "
-        f"Break it down into key concepts and a plan. Query: {query}"
-    )
-    result = await lm_client.stream_chat(
-        messages=[
-            {"role": "system", "content": "You are a document analysis agent. Investigate the user's query."},
-            {"role": "user", "content": query},
-        ]
-    )
-    if result:
-        await ws.send_json({
-            "type": "agent_step", "agent": "investigate",
-            "content": result[:300], "timestamp": time.time(),
-        })
-        await asyncio.sleep(0.2)
-
-        await ws.send_json({
-            "type": "agent_step", "agent": "note",
-            "content": f"Synthesized findings from analysis.", "timestamp": time.time(),
-        })
-        await asyncio.sleep(0.2)
-
-    # Plan
-    await ws.send_json({
-        "type": "agent_step", "agent": "plan",
-        "content": "Planning approach based on analysis...", "timestamp": time.time(),
-    })
-    await asyncio.sleep(0.2)
-
-    # Solve — stream full answer
-    solve_result = await lm_client.stream_chat(
-        messages=[
-            {"role": "system", "content": "You are an expert document intelligence assistant. Provide a thorough, well-structured answer."},
-            {"role": "user", "content": query},
-        ]
-    )
-    if solve_result:
-        await ws.send_json({
-            "type": "agent_step", "agent": "solve",
-            "content": solve_result[:300], "timestamp": time.time(),
-        })
-        await asyncio.sleep(0.2)
-
-        await ws.send_json({
-            "type": "agent_step", "agent": "check",
-            "content": "Answer validated.", "timestamp": time.time(),
-        })
-        await asyncio.sleep(0.2)
-
-        return solve_result
-    return None
-
-
 # ─── Metrics WS ───
 
 @app.websocket("/ws/metrics")
 async def ws_metrics(ws: WebSocket):
     await ws.accept()
-    _metrics_ws.add(ws)
+    from app.state import add_ws
+    add_ws(ws)
     try:
         while True:
             await asyncio.sleep(10)
@@ -288,4 +264,5 @@ async def ws_metrics(ws: WebSocket):
     except Exception:
         pass
     finally:
-        _metrics_ws.discard(ws)
+        from app.state import remove_ws
+        remove_ws(ws)
