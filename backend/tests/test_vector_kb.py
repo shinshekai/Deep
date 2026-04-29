@@ -1,33 +1,37 @@
-"""Vector KB service tests."""
+"""Vector KB service tests — updated for async naive_search/hybrid_search."""
 
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 VECTOR_BASE = Path("data/knowledge_bases")
 
 
-def test_naive_search_returns_empty_when_no_vectors():
+@pytest.mark.asyncio
+async def test_naive_search_returns_empty_when_no_vectors():
     """Returns empty list when vector data doesn't exist."""
     from app.services.vector_kb import VectorKBService
 
-    svc = VectorKBService(VECTOR_BASE)
-    result = svc.naive_search("query", "nonexistent_kb", top_k=5)
+    svc = VectorKBService(VECTOR_BASE, lm_client=None)
+    result = await svc.naive_search("query", "nonexistent_kb", top_k=5)
     assert result == []
 
 
-def test_hybrid_search_returns_empty_when_no_vectors():
+@pytest.mark.asyncio
+async def test_hybrid_search_returns_empty_when_no_vectors():
     """Returns empty list when vector data doesn't exist."""
     from app.services.vector_kb import VectorKBService
 
-    svc = VectorKBService(VECTOR_BASE)
-    result = svc.hybrid_search("query", "nonexistent_kb", top_k=5)
+    lm = MagicMock()
+    lm.embed = AsyncMock(return_value=[[1.0, 0.0]])
+    svc = VectorKBService(VECTOR_BASE, lm_client=lm)
+    result = await svc.hybrid_search("query", "nonexistent_kb", top_k=5)
     assert result == []
 
 
 def test_rrf_merge_combines_two_rankings():
     """RRF correctly merges vector and keyword results."""
-    from app.services.vector_kb import VectorKBService, _rrf_merge
+    from app.services.vector_kb import _rrf_merge
 
     vector_results = [
         {"doc_id": "d1", "section": "A", "content": "vector match 1"},
