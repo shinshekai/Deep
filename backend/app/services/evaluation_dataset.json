@@ -1,0 +1,146 @@
+{
+  "metadata": {
+    "name": "UDIP RAGAS Evaluation Dataset",
+    "version": "1.0",
+    "created": "2026-05-03",
+    "description": "Test queries with ground truth for RAGAS faithfulness and relevancy evaluation",
+    "models_evaluated": ["Qwen3-30B-A3B", "Qwen3-14B", "Qwen3-8B"]
+  },
+  "test_cases": [
+    {
+      "id": "faith_001",
+      "category": "faithfulness",
+      "query": "What are the main benefits of using PageIndex over traditional vector-based RAG?",
+      "expected_contexts": [
+        "PageIndex provides page-level traceability and reasoning-based hierarchical document indexing without requiring vector embeddings.",
+        "Unlike vector RAG, PageIndex uses tree search with LLM reasoning over document structure to return precise citations."
+      ],
+      "ground_truth": "PageIndex offers page-level traceability and reasoning-based hierarchical indexing without requiring vector embeddings, using tree search with LLM reasoning for precise citations.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "faith_002",
+      "category": "faithfulness",
+      "query": "How does TurboQuant reduce VRAM usage during inference?",
+      "expected_contexts": [
+        "TurboQuant uses asymmetric KV cache quantization with 3-4 bit precision, reducing memory by approximately 59% with only 0.86% perplexity loss.",
+        "Keys use higher precision (q8_0) than values (q4_0) because keys are more sensitive to quantization."
+      ],
+      "ground_truth": "TurboQuant reduces VRAM usage through asymmetric KV cache quantization at 3-4 bit precision, achieving approximately 59% memory reduction with minimal perplexity impact, with keys quantized higher than values.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "faith_003",
+      "category": "faithfulness",
+      "query": "What is the three-tier model system and how are models assigned?",
+      "expected_contexts": [
+        "T1 (Always Resident): Embedding and retrieval models like Qwen3-0.6B and Qwen3-1.7B using 0.5-1.2 GB VRAM.",
+        "T2 (Semi-Resident): Reasoning models like Qwen3-4B and Qwen3-8B using 2.5-5.5 GB VRAM, unload after TTL.",
+        "T3 (On-Demand): High-capability models like Qwen3-14B and Qwen3-30B-A3B using 8.5-18 GB VRAM, loaded only when needed."
+      ],
+      "ground_truth": "The three-tier model system consists of T1 (always resident, embedding/retrieval, 0.5-1.2GB), T2 (semi-resident, reasoning, 2.5-5.5GB), and T3 (on-demand, high-capability, 8.5-18GB), with models assigned based on query complexity and VRAM availability.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "faith_004",
+      "category": "faithfulness",
+      "query": "How does the VRAM pressure management system work?",
+      "expected_contexts": [
+        "GREEN (<70%): All tiers available, T3 loads on-demand.",
+        "YELLOW (70-85%): Downgrade T3 KV cache, reduce T2 context by 50%.",
+        "ORANGE (85-93%): Unload T3, route generation to T2, reduce T1 concurrency.",
+        "RED (>93%): Emergency unload T2, T1-only with 2K token truncation."
+      ],
+      "ground_truth": "VRAM pressure management uses four levels: GREEN (<70%, all tiers available), YELLOW (70-85%, downgrade T3 KV cache), ORANGE (85-93%, unload T3 and route to T2), RED (>93%, emergency T1-only mode with token truncation).",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "faith_005",
+      "category": "faithfulness",
+      "query": "What are the four retrieval pipeline modes and when should each be used?",
+      "expected_contexts": [
+        "tree (default for single-doc): PageIndex hierarchical tree search with LLM reasoning, returns page-level citations.",
+        "hybrid (for multi-doc breadth): Vector similarity + keyword retrieval merged and ranked.",
+        "naive: Pure vector similarity search.",
+        "combined: Tree search for precision + vector search for recall, results merged and deduplicated."
+      ],
+      "ground_truth": "The four retrieval modes are: tree (single-doc, PageIndex hierarchical with citations), hybrid (multi-doc, vector+keyword), naive (pure vector), and combined (tree+vector merged).",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "rel_001",
+      "category": "relevancy",
+      "query": "Can you explain how RecursiveMAS works in the solve pipeline?",
+      "expected_contexts": [
+        "RecursiveMAS implements three patterns: Sequential (Planner-Critic-Solver), Deliberation (Reflector-ToolCaller loops), and Mixture (parallel domain-specialized agents).",
+        "Convergence detection uses embedding similarity between rounds, with compressed 200-token summaries transferred between agents."
+      ],
+      "ground_truth": "RecursiveMAS integrates three collaboration patterns into the solve pipeline: Sequential (planner-critic-solver with recursion rounds), Deliberation (reflector-toolcaller recursive loops), and Mixture (parallel domain-specialized agents with summarizer).",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "rel_002",
+      "category": "relevancy",
+      "query": "What is ARA and how does it improve knowledge retrieval?",
+      "expected_contexts": [
+        "ARA (Artifact-Based Retrieval Augmentation) compiles knowledge artifacts in three layers: Logic (claims, concepts, experiments), Solution (architecture, heuristics, constraints), and Trace (exploration DAG with dead-end preservation).",
+        "ARA Rigor Reviewer provides quality benchmarking that replaces RAGAS stubs for production readiness validation."
+      ],
+      "ground_truth": "ARA (Artifact-Based Retrieval Augmentation) improves knowledge retrieval by compiling documents into three layered artifacts (Logic, Solution, Trace) and providing rigorous quality review through the ARA Rigor Reviewer.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "rel_003",
+      "category": "relevancy",
+      "query": "How does the complexity scorer determine which model tier to use?",
+      "expected_contexts": [
+        "Four weighted signals: Query Complexity (0.35), Document Size (0.25), Retrieved Chunk Count (0.15), Available VRAM (0.25).",
+        "Decision: score <0.3 → T1 (fast path), 0.3-0.6 → T2 (balanced), >0.6 → T3 (quality path)."
+      ],
+      "ground_truth": "The complexity scorer uses four weighted signals (query complexity 0.35, document size 0.25, chunk count 0.15, VRAM 0.25) to route queries to T1 (<0.3), T2 (0.3-0.6), or T3 (>0.6).",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "prec_001",
+      "category": "retrieval_precision",
+      "query": "What is the performance target for PageIndex tree search latency?",
+      "expected_contexts": [
+        "PageIndex tree generation: <60s for 100-page document.",
+        "PageIndex tree search: <5s per retrieval."
+      ],
+      "ground_truth": "The performance target for PageIndex tree search is under 5 seconds per retrieval, with tree generation under 60 seconds for a 100-page document.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "prec_002",
+      "category": "retrieval_precision",
+      "query": "What token throughput is expected with TurboQuant on RTX 3090/4090?",
+      "expected_contexts": [
+        "Token throughput (TurboQuant): ≥15 tok/s on RTX 3090/4090 at 8K+ context."
+      ],
+      "ground_truth": "TurboQuant targets at least 15 tokens per second on RTX 3090/4090 GPUs at 8K+ context lengths.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "hall_001",
+      "category": "hallucination",
+      "query": "Does UDIP require an internet connection to function?",
+      "expected_contexts": [
+        "The application ingests documents and enables multi-modal AI interactions entirely on local hardware with no cloud dependencies.",
+        "Web search is explicitly opt-in. Core pipeline works fully offline. Requires SEARCH_API_KEY and enable_web_search:true per request."
+      ],
+      "ground_truth": "UDIP does not require an internet connection for core functionality. It operates entirely locally with no cloud dependencies. Web search is opt-in only.",
+      "relevant_kb": "default"
+    },
+    {
+      "id": "hall_002",
+      "category": "hallucination",
+      "query": "Can UDIP handle multi-GPU setups?",
+      "expected_contexts": [
+        "Single GPU (device index 0) — Multi-GPU deferred to v2."
+      ],
+      "ground_truth": "UDIP currently supports only a single GPU (device index 0). Multi-GPU support is deferred to version 2.",
+      "relevant_kb": "default"
+    }
+  ]
+}

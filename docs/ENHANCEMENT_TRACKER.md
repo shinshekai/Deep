@@ -1,7 +1,7 @@
 # UDIP Enhancement Tracker
 
 **Created:** 2026-05-03  
-**Status:** COMPLETE  
+**Status:** IN PROGRESS  
 
 ---
 
@@ -75,6 +75,19 @@
 - [x] **5.5** Update STATUS.md with current state (L1)
 - [x] **5.6** Add frontend tests for Solve, Dashboard, WebSocket (H7)
 
+## Phase 6: RAGAS Evaluation (Independent Validation)
+
+- [x] **6.1** Add `ragas>=0.2.0` to `backend/pyproject.toml` dependencies
+- [x] **6.2** Create RAGAS evaluation dataset (`evaluation_dataset.json`) with 12 test Q&A pairs
+- [x] **6.3** Implement real RAGAS evaluation in `benchmark_runner.py` — replace stubs with `ragas.evaluate()`
+- [x] **6.4** Add RAGAS metrics: Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall
+- [x] **6.5** Implement fallback quality scoring when RAGAS unavailable (keyword-overlap heuristic)
+- [x] **6.6** Wire dataset loading into `BenchmarkRunner.__init__()` from `evaluation_dataset.json`
+- [x] **6.7** Add hallucination detection tests (check answers against ground truth + contexts)
+- [ ] **6.8** Run RAGAS evaluation on Qwen3-30B-A3B — target faithfulness ≥ 0.85 ( Assumption A6)
+- [ ] **6.9** Generate RAGAS evaluation report with per-metric scores and pass/fail status
+- [x] **6.10** Update `test_benchmark_runner.py` with tests for RAGAS implementation
+
 ---
 
 ## Progress Summary
@@ -87,4 +100,5 @@
 | 3 — RecursiveMAS | 10 | 10 | ✅ Complete |
 | 4 — ARA Integration | 12 | 12 | ✅ Complete |
 | 5 — Operational | 6 | 6 | ✅ Complete |
-| **TOTAL** | **52** | **52** | **100%** |
+| 6 — RAGAS Evaluation | 10 | 8 | 🔄 In Progress |
+| **TOTAL** | **62** | **60** | **97%** |
