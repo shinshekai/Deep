@@ -17,6 +17,12 @@ class DeepResearchService:
         os.makedirs(self.sessions_dir, exist_ok=True)
         # We store active background tasks here so they don't get garbage collected
         self.active_tasks = set()
+        self._locks: Dict[str, asyncio.Lock] = {}
+
+    def _get_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._locks:
+            self._locks[session_id] = asyncio.Lock()
+        return self._locks[session_id]
 
     def _get_session_path(self, session_id: str) -> str:
         return os.path.join(self.sessions_dir, f"session_{session_id}.json")
@@ -118,20 +124,21 @@ class DeepResearchService:
 
     async def _research_subtopic(self, session_id: str, subtopic_id: str):
         """ResearchAgent + NoteAgent: Retrieves context and synthesizes notes for one subtopic."""
-        session_data = self._load_session(session_id)
-        
-        # Find the subtopic
-        subtopic = next((st for st in session_data["queue"] if st["id"] == subtopic_id), None)
-        if not subtopic: return
+        async with self._get_lock(session_id):
+            session_data = self._load_session(session_id)
+            
+            # Find the subtopic
+            subtopic = next((st for st in session_data["queue"] if st["id"] == subtopic_id), None)
+            if not subtopic: return
 
-        # Update status
-        subtopic["status"] = "RESEARCHING"
-        self._save_session(session_id, session_data)
+            # Update status
+            subtopic["status"] = "RESEARCHING"
+            self._save_session(session_id, session_data)
 
-        kb_name = session_data["kb_name"]
-        retrieval_pipeline = session_data["retrieval_pipeline"]
-        model_id = session_data["model_id"]
-        topic_query = subtopic["query"]
+            kb_name = session_data["kb_name"]
+            retrieval_pipeline = session_data["retrieval_pipeline"]
+            model_id = session_data["model_id"]
+            topic_query = subtopic["query"]
 
         # 1. Retrieval
         try:
@@ -179,13 +186,14 @@ class DeepResearchService:
             subtopic["notes"] = f"Error: {str(e)}"
 
         # Reload and save to avoid race conditions in parallel mode
-        current_data = self._load_session(session_id)
-        for st in current_data["queue"]:
-            if st["id"] == subtopic_id:
-                st["status"] = subtopic["status"]
-                st["notes"] = subtopic["notes"]
-                break
-        self._save_session(session_id, current_data)
+        async with self._get_lock(session_id):
+            current_data = self._load_session(session_id)
+            for st in current_data["queue"]:
+                if st["id"] == subtopic_id:
+                    st["status"] = subtopic["status"]
+                    st["notes"] = subtopic["notes"]
+                    break
+            self._save_session(session_id, current_data)
 
 
     async def _generate_report(self, session_id: str):
@@ -218,10 +226,11 @@ class DeepResearchService:
         
         final_report = response.get("content", "Failed to generate report.")
         
-        session_data = self._load_session(session_id)
-        session_data["final_report"] = final_report
-        session_data["status"] = "COMPLETED"
-        self._save_session(session_id, session_data)
+        async with self._get_lock(session_id):
+            session_data = self._load_session(session_id)
+            session_data["final_report"] = final_report
+            session_data["status"] = "COMPLETED"
+            self._save_session(session_id, session_data)
 
     def get_status(self, session_id: str) -> Dict[str, Any]:
         """Returns the current state of the research session."""

@@ -32,7 +32,8 @@ class FakeDoc:
 
 
 @patch("fitz.open")
-def test_extract_for_pages_returns_text(mock_fitz_open):
+@pytest.mark.asyncio
+async def test_extract_for_pages_returns_text(mock_fitz_open):
     from app.services.text_extractor import TextExtractor
 
     fake_doc = FakeDoc({
@@ -45,7 +46,7 @@ def test_extract_for_pages_returns_text(mock_fitz_open):
     mock_fitz_open.return_value = fake_doc
 
     extractor = TextExtractor(TEST_KB_BASE)
-    result = extractor.extract_for_pages(
+    result = await extractor.extract_for_pages(
         "/fake/path.pdf", page_start=1, page_end=3
     )
     assert "Introduction text here" in result
@@ -55,34 +56,37 @@ def test_extract_for_pages_returns_text(mock_fitz_open):
 
 
 @patch("fitz.open")
-def test_extract_for_pages_handles_missing_file(mock_fitz_open):
+@pytest.mark.asyncio
+async def test_extract_for_pages_handles_missing_file(mock_fitz_open):
     from app.services.text_extractor import TextExtractor
 
     mock_fitz_open.side_effect = FileNotFoundError("not found")
     extractor = TextExtractor(TEST_KB_BASE)
-    result = extractor.extract_for_pages("/nonexistent.pdf", 0, 2)
+    result = await extractor.extract_for_pages("/nonexistent.pdf", 0, 2)
     assert result is None
 
 
 @patch("fitz.open")
-def test_extract_for_pages_handles_out_of_range(mock_fitz_open):
+@pytest.mark.asyncio
+async def test_extract_for_pages_handles_out_of_range(mock_fitz_open):
     from app.services.text_extractor import TextExtractor
 
     fake_doc = FakeDoc({0: "Only page"})
     mock_fitz_open.return_value = fake_doc
 
     extractor = TextExtractor(TEST_KB_BASE)
-    result = extractor.extract_for_pages(
+    result = await extractor.extract_for_pages(
         "/fake/path.pdf", page_start=0, page_end=10
     )
     assert "Only page" in result
     fake_doc.close()
 
 
-def test_extract_for_node_returns_none_when_doc_missing():
+@pytest.mark.asyncio
+async def test_extract_for_node_returns_none_when_doc_missing():
     from app.services.text_extractor import TextExtractor
 
     extractor = TextExtractor(TEST_KB_BASE)
     node = {"page_start": 0, "page_end": 2}
-    result = extractor.extract_for_node("unknown_kb", "nonexistent", {}, node)
+    result = await extractor.extract_for_node("unknown_kb", "nonexistent", {}, node)
     assert result is None

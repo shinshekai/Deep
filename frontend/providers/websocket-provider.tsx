@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { WebSocketManager, fetchVramStatus, fetchMetricsHistory } from "@/lib/websocket";
+import { WebSocketManager } from "@/lib/websocket";
 import type { CacheTelemetry, MetricsFrame, VramPressureLevel } from "@/types/api";
 
 // ─────────────────────────────────────────────
@@ -111,21 +111,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     });
   }, [ws]);
 
-  // Poll VRAM status via REST every 2s (matches backend pynvml poll rate)
-  useEffect(() => {
-    const poll = async () => {
-      const data = await fetchVramStatus();
-      if (data) {
-        setVram(data as unknown as CacheTelemetry);
-        if (data.pressure_level) {
-          setPressure(data.pressure_level as VramPressureLevel);
-        }
-      }
-    };
-    poll();
-    const interval = setInterval(poll, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  // VRAM telemetry comes exclusively from the metrics_frame WebSocket event (set above).
+  // No REST polling needed — eliminates duplicate traffic and pressure flickering.
 
   return (
     <WebSocketContext.Provider

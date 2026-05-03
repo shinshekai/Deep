@@ -2,7 +2,7 @@
 
 import time
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from app.services.model_manager import ModelManager, MODEL_TIERS, FALLBACK_CASCADE
 
@@ -13,15 +13,17 @@ def test_get_tier_for_model():
     assert mgr.get_tier_for_model("qwen/qwen3.6-35b-a3b") == 3
     assert mgr.get_tier_for_model("Unknown-Model") == 0
 
-def test_get_model_for_tier():
+@pytest.mark.asyncio
+async def test_get_model_for_tier():
     mgr = ModelManager(MagicMock())
+    mgr.lm_client.load_model = AsyncMock(return_value=False)
     mgr._loaded_models = {
         "nvidia/nemotron-3-nano-4b": {"tier": 2},
         "qwen/qwen3.6-35b-a3b": {"tier": 3}
     }
-    assert mgr.get_model_for_tier(2) == "nvidia/nemotron-3-nano-4b"
-    assert mgr.get_model_for_tier(3) == "qwen/qwen3.6-35b-a3b"
-    assert mgr.get_model_for_tier(1) is None
+    assert await mgr.get_model_for_tier(2) == "nvidia/nemotron-3-nano-4b"
+    assert await mgr.get_model_for_tier(3) == "qwen/qwen3.6-35b-a3b"
+    assert await mgr.get_model_for_tier(1) is None
 
 def test_get_tier_from_complexity():
     mgr = ModelManager(MagicMock())
@@ -52,6 +54,7 @@ def test_check_ttl_evictions():
 @pytest.mark.asyncio
 async def test_handle_pressure_red():
     mgr = ModelManager(MagicMock())
+    mgr.lm_client.unload_model = AsyncMock()
     mgr._loaded_models = {
         "liquid/lfm2.5-1.2b": {"tier": 1},
         "deepseek/deepseek-r1-0528-qwen3-8b": {"tier": 2},
@@ -65,7 +68,8 @@ async def test_handle_pressure_red():
     assert "deepseek/deepseek-r1-0528-qwen3-8b" not in mgr._loaded_models
     assert "qwen/qwen3.6-35b-a3b" not in mgr._loaded_models
 
-def test_get_best_available_model():
+@pytest.mark.asyncio
+async def test_get_best_available_model():
     mgr = ModelManager(MagicMock())
     mgr._loaded_models = {
         "nvidia/nemotron-3-nano-4b": {"tier": 2},
@@ -73,4 +77,83 @@ def test_get_best_available_model():
     }
     
     # From FALLBACK_CASCADE, the best one loaded should be nvidia/nemotron-3-nano-4b
-    assert mgr.get_best_available_model() == "nvidia/nemotron-3-nano-4b"
+    assert await mgr.get_best_available_model() == "nvidia/nemotron-3-nano-4b"
+
+@pytest.mark.asyncio
+async def test_get_best_available_model_none():
+    mgr = ModelManager(MagicMock())
+    mgr._loaded_models = {}
+    
+    # Needs a mock for lm_client.load_model to return False so it returns None
+    mgr.lm_client.load_model = AsyncMock(return_value=False)
+    
+    assert await mgr.get_best_available_model() is None
+
+def test_loaded_models_property():
+    mgr = ModelManager(MagicMock())
+    mgr._loaded_models = {"test_model": {"tier": 1}}
+    lm = mgr.loaded_models
+    assert len(lm) == 1
+    assert "test_model" in lm
+
+def test_get_kv_config():
+    mgr = ModelManager(MagicMock())
+    mgr._settings.turboquant_enabled = False
+    
+    assert mgr.get_kv_config(1) == {"cache_type_k": "q4_0", "cache_type_v": "q4_0"}
+    assert mgr.get_kv_config(99) == {"cache_type_k": "q8_0", "cache_type_v": "q8_0"}
+    
+    # Test turboquant enabled
+    mgr._settings.turboquant_enabled = True
+    mgr._settings.turboquant_bits = 4
+    mgr._settings.turboquant_tier = "auto"
+    assert mgr.get_kv_config(1) == {"cache_type_k": "q8_0", "cache_type_v": "turbo4"}
+
+def test_on_query_start():
+    mgr = ModelManager(MagicMock())
+    mgr._loaded_models = {"test_model": {"tier": 1, "last_used": 0}}
+    mgr.on_query_start("test_model")
+    assert mgr._loaded_models["test_model"]["last_used"] > 0
+    
+    # Non existent model
+    mgr.on_query_start("unknown")
+    assert "unknown" not in mgr._loaded_models
+
+@pytest.mark.asyncio
+async def test_handle_pressure_orange_yellow():
+    mgr = ModelManager(MagicMock())
+    mgr.lm_client.unload_model = AsyncMock()
+    mgr.lm_client.load_model = AsyncMock(return_value=True)
+    mgr._loaded_models = {
+        "liquid/lfm2.5-1.2b": {"tier": 1},
+        "deepseek/deepseek-r1-0528-qwen3-8b": {"tier": 2},
+        "qwen/qwen3.6-35b-a3b": {"tier": 3},
+    }
+    
+    await mgr.handle_pressure("yellow")
+    # No unloading happens in yellow
+    assert "qwen/qwen3.6-35b-a3b" in mgr._loaded_models
+    
+    await mgr.handle_pressure("orange")
+    # T3 is unloaded
+    assert "liquid/lfm2.5-1.2b" in mgr._loaded_models
+    assert "deepseek/deepseek-r1-0528-qwen3-8b" in mgr._loaded_models
+    assert "qwen/qwen3.6-35b-a3b" not in mgr._loaded_models
+
+def test_get_status():
+    mgr = ModelManager(MagicMock())
+    mgr._loaded_models = {
+        "liquid/lfm2.5-1.2b": {"tier": 1, "vram_mb": 1500},
+    }
+    status = mgr.get_status()
+    assert len(status) > 0
+    # Check that liquid is marked as loaded
+    liquid_info = next((s for s in status if s["id"] == "liquid/lfm2.5-1.2b"), None)
+    assert liquid_info is not None
+    assert liquid_info["status"] == "loaded"
+    assert liquid_info["vram_used_mb"] == 1500
+    
+    # Check another model is unloaded
+    deepseek_info = next((s for s in status if s["id"] == "deepseek/deepseek-r1-0528-qwen3-8b"), None)
+    assert deepseek_info is not None
+    assert deepseek_info["status"] == "unloaded"

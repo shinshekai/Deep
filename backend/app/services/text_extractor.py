@@ -24,10 +24,10 @@ class TextExtractor:
     def __init__(self, kb_base: Path):
         self.kb_base = kb_base
 
-    def extract_for_pages(
-        self, pdf_path: str, page_start: int = 0, page_end: int = 0
+    async def extract_for_pages(
+        self, file_path: str, page_start: int = 0, page_end: int = 0
     ) -> Optional[str]:
-        """Extract text from a PDF for the given page range (0-indexed).
+        """Extract text from a file for the given page range (0-indexed).
 
         Returns concatenated text for pages [page_start, page_end].
         Returns None if file cannot be opened.
@@ -39,7 +39,18 @@ class TextExtractor:
             page_end = page_start
 
         try:
-            doc = fitz.open(pdf_path)
+            ext = Path(file_path).suffix.lower()
+            if ext in (".txt", ".md", ".py", ".js", ".ts", ".cpp", ".c", ".h", ".java", ".json", ".yaml", ".yml", ".xml"):
+                # For flat files, we just return the whole content
+                return Path(file_path).read_text(encoding="utf-8", errors="ignore")
+            elif ext in (".xls", ".xlsx", ".csv", ".docx", ".jpg", ".png", ".bmp", ".gif", ".jpeg", ".pptx", ".html", ".htm", ".odt", ".rtf", ".epub", ".msg", ".eml", ".zip"):
+                from app.services.document_processor import extract_text
+                result = await extract_text(Path(file_path))
+                if result and result.get("content"):
+                    return result["content"]
+                return ""
+                
+            doc = fitz.open(file_path)
             pages_to_read = range(page_start, page_end + 1)
             texts = []
             for page_idx in pages_to_read:
@@ -48,10 +59,10 @@ class TextExtractor:
             doc.close()
             return "\n\n".join(texts) if texts else ""
         except Exception as e:
-            logger.warning(f"Cannot extract text from {pdf_path}: {e}")
+            logger.warning(f"Cannot extract text from {file_path}: {e}")
             return None
 
-    def extract_for_node(
+    async def extract_for_node(
         self, kb_name: str, doc_id: str, tree: dict, node: dict
     ) -> Optional[str]:
         """Extract raw text for a specific tree node.
@@ -66,7 +77,7 @@ class TextExtractor:
         upload_path = UPLOAD_BASE / kb_name / doc_id
         if not upload_path.exists():
             # Try with common extensions
-            for ext in [".pdf", ".txt", ".md"]:
+            for ext in [".pdf", ".txt", ".md", ".csv", ".xls", ".xlsx", ".docx", ".jpg", ".png", ".bmp", ".gif", ".jpeg", ".pptx", ".html", ".htm", ".odt", ".rtf", ".epub", ".msg", ".eml", ".zip"]:
                 candidate = UPLOAD_BASE / kb_name / (doc_id + ext)
                 if candidate.exists():
                     upload_path = candidate
@@ -76,4 +87,4 @@ class TextExtractor:
             logger.warning(f"Source document not found for {kb_name}/{doc_id}")
             return None
 
-        return self.extract_for_pages(str(upload_path), page_start, page_end)
+        return await self.extract_for_pages(str(upload_path), page_start, page_end)

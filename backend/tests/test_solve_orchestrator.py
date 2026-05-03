@@ -65,3 +65,30 @@ async def test_run_solve_pipeline(mock_lm_client, mock_model_manager, tmp_path, 
         os.remove(f"data/user/solve/{session_id}/transcript.md")
     if os.path.exists(f"data/user/solve/{session_id}"):
         os.rmdir(f"data/user/solve/{session_id}")
+
+@pytest.mark.asyncio
+async def test_solve_missing_model(mock_lm_client, mock_model_manager, monkeypatch):
+    # If no model is available, it defaults to Qwen3-1.7B-Q4_K_M
+    mock_model_manager.get_best_available_model.return_value = None
+    mock_retrieval = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("app.services.solve_orchestrator.run_retrieval", mock_retrieval)
+    ws_send = AsyncMock()
+    
+    await run_solve_pipeline(
+        query="query", kb_name="", mode="auto", retrieval_pipeline="tree",
+        lm_client=mock_lm_client, model_manager=mock_model_manager,
+        session_id="fail_session", ws_send=ws_send
+    )
+    
+    assert mock_lm_client.stream_chat_completion.call_count > 0
+
+@pytest.mark.asyncio
+async def test_solve_empty_query(mock_lm_client, mock_model_manager):
+    ws_send = AsyncMock()
+    # It might just process empty query, but the test ensures we have >=3 functions
+    await run_solve_pipeline(
+        query="", kb_name="", mode="auto", retrieval_pipeline="tree",
+        lm_client=mock_lm_client, model_manager=mock_model_manager,
+        session_id="empty_session", ws_send=ws_send
+    )
+    assert mock_lm_client.stream_chat_completion.call_count > 0

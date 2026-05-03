@@ -61,8 +61,8 @@ class CoWriterService:
     def __init__(self, lm_client: LMStudioClient):
         self.lm_client = lm_client
 
-    async def edit_text(self, text: str, action: str, instruction: str = "", model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
-        """Actions: rewrite, shorten, expand."""
+    async def edit_text(self, text: str, action: str, instruction: str = "", model_id: str = "Qwen3-1.7B-Q4_K_M") -> dict:
+        """Actions: rewrite, shorten, expand. Returns {text, provenance}."""
         system_prompt = "You are an expert AI Co-Writer. Your goal is to improve and edit the user's text based on their instructions."
         
         if action == "shorten":
@@ -72,7 +72,7 @@ class CoWriterService:
         elif action == "rewrite":
             user_prompt = f"Please rewrite the following text according to this instruction: '{instruction}'\n\nText:\n{text}"
         else:
-            return text
+            return {"text": text, "provenance": {"action": action, "model": model_id, "sources": []}}
 
         response = await self.lm_client.stream_chat_completion(
             model=model_id,
@@ -82,18 +82,38 @@ class CoWriterService:
             ],
             max_tokens=2000
         )
-        return response.get("content", text).strip()
+        result_text = response.get("content", text).strip()
+        return {
+            "text": result_text,
+            "provenance": {
+                "action": action,
+                "model": model_id,
+                "timestamp": time.time(),
+                "sources": [],
+            }
+        }
 
-    async def auto_annotate(self, text: str, kb_name: str, retrieval_pipeline: str = "tree", model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
-        """Suggests annotations/citations based on the Knowledge Base."""
+    async def auto_annotate(self, text: str, kb_name: str, retrieval_pipeline: str = "tree", model_id: str = "Qwen3-1.7B-Q4_K_M") -> dict:
+        """Suggests annotations/citations based on the Knowledge Base. Returns {text, provenance}."""
         req = RetrieveRequest(query=text, kb_name=kb_name, retrieval_pipeline=retrieval_pipeline, top_k=3)
         retrieval_resp = await run_retrieval(req)
         rag_results = retrieval_resp.get("results", [])
         
+        # Collect provenance sources
+        provenance_sources = []
         context_text = ""
         for i, res in enumerate(rag_results):
             content = res.get('content', '') or res.get('summary', '')
+            doc_id = res.get('doc_id', 'unknown')
+            page = res.get('page', 'unknown')
+            score = res.get('relevance_score', 0)
             context_text += f"--- Source {i+1} ---\n{content}\n\n"
+            provenance_sources.append({
+                "doc_id": doc_id,
+                "page": page,
+                "relevance_score": score,
+                "snippet": content[:200] if content else "",
+            })
 
         system_prompt = (
             "You are an annotation assistant. Review the user's text and the provided Knowledge Base context. "
@@ -111,7 +131,18 @@ class CoWriterService:
             ],
             max_tokens=2000
         )
-        return response.get("content", text).strip()
+        result_text = response.get("content", text).strip()
+        return {
+            "text": result_text,
+            "provenance": {
+                "action": "annotate",
+                "model": model_id,
+                "kb_name": kb_name,
+                "retrieval_pipeline": retrieval_pipeline,
+                "timestamp": time.time(),
+                "sources": provenance_sources,
+            }
+        }
 
 
 class IdeaGenService:

@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { BookOpen, MessageSquare, Target, ClipboardList, Loader2, Send, ChevronRight, PlayCircle, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { API_BASE_URL } from "@/lib/config";
+import DOMPurify from "dompurify";
 
 export default function GuidedLearningPage() {
   const [kbName, setKbName] = useState("default");
@@ -29,7 +31,7 @@ export default function GuidedLearningPage() {
   const [isEnding, setIsEnding] = useState(false);
 
   useEffect(() => {
-    fetch("/api/v1/knowledge/bases")
+    fetch(`${API_BASE_URL}/knowledge/bases`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -48,7 +50,7 @@ export default function GuidedLearningPage() {
     setSummary(null);
 
     try {
-      const res = await fetch("/api/v1/learning/start", {
+      const res = await fetch(`${API_BASE_URL}/learning/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kb_name: kbName, topic }),
@@ -73,7 +75,7 @@ export default function GuidedLearningPage() {
     setChatHistory([]); // Clear chat for new point
     
     try {
-      const res = await fetch(`/api/v1/learning/${sid}/page`, {
+      const res = await fetch(`${API_BASE_URL}/learning/${sid}/page`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ point_index: pIndex }),
@@ -105,7 +107,7 @@ export default function GuidedLearningPage() {
     setIsChatting(true);
 
     try {
-      const res = await fetch(`/api/v1/learning/${sessionId}/chat`, {
+      const res = await fetch(`${API_BASE_URL}/learning/${sessionId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ point_index: currentPointIndex, message: userMsg }),
@@ -123,7 +125,7 @@ export default function GuidedLearningPage() {
     if (!sessionId) return;
     setIsEnding(true);
     try {
-      const res = await fetch(`/api/v1/learning/${sessionId}/end`, {
+      const res = await fetch(`${API_BASE_URL}/learning/${sessionId}/end`, {
         method: "POST"
       });
       const data = await res.json();
@@ -203,7 +205,7 @@ export default function GuidedLearningPage() {
       {/* Sidebar: Learning Path */}
       <div className="w-80 border-r border-zinc-800 bg-zinc-950/50 flex flex-col">
         <div className="p-4 border-b border-zinc-800">
-          <Badge variant="outline" className="mb-2 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">Active Session</Badge>
+          <Badge variant="blue" className="mb-2">Active Session</Badge>
           <h2 className="text-sm font-semibold text-zinc-200 line-clamp-2">{topic}</h2>
         </div>
         
@@ -289,7 +291,7 @@ export default function GuidedLearningPage() {
                   <p className="text-sm">Generating interactive lesson...</p>
                 </div>
               ) : htmlContent ? (
-                <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="learning-content pb-20" />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmlContent) }} className="learning-content pb-20" />
               ) : (
                 <div className="h-full flex items-center justify-center text-zinc-500">
                   <p>Select a point from the learning path.</p>

@@ -14,13 +14,33 @@ interface Message {
   timestamp: number;
 }
 
+const STORAGE_KEY = "udip_chat_history";
+
 export default function ChatPage() {
   const { solveStatus, send, subscribe } = useWebSocket();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string>(crypto.randomUUID());
+
+  // Persist messages to localStorage on every change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      // Storage quota exceeded — silently ignore
+    }
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -29,12 +49,14 @@ export default function ChatPage() {
   // Subscribe to streaming responses
   useEffect(() => {
     return subscribe("agent_step", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setStreamingContent((prev) => prev + (data.content as string) + "\n");
     });
   }, [subscribe]);
 
   useEffect(() => {
     return subscribe("complete", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       const answer = (data as any).answer as string;
       setMessages((prev) => [
         ...prev,
@@ -52,6 +74,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     return subscribe("error", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setIsStreaming(false);
       setStreamingContent((prev) => prev + `\n\nError: ${(data as any).message}`);
     });
@@ -71,6 +94,7 @@ export default function ChatPage() {
 
     setIsStreaming(true);
     setStreamingContent("");
+    sessionIdRef.current = crypto.randomUUID();
 
     const query: SolveQuery = {
       query: input.trim(),
@@ -78,7 +102,7 @@ export default function ChatPage() {
       mode: "auto",
       retrieval_pipeline: "tree",
     };
-    send(query as unknown as Record<string, unknown>);
+    send({ ...query, session_id: sessionIdRef.current } as unknown as Record<string, unknown>);
     setInput("");
   };
 
@@ -86,6 +110,7 @@ export default function ChatPage() {
     setMessages([]);
     setStreamingContent("");
     setIsStreaming(false);
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
   };
 
   return (

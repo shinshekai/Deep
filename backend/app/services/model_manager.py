@@ -65,12 +65,25 @@ class ModelManager:
     def loaded_models(self) -> dict:
         return dict(self._loaded_models)
 
-    def get_model_for_tier(self, tier: int) -> Optional[str]:
-        """Return the first available model for the given tier."""
+    async def get_model_for_tier(self, tier: int) -> Optional[str]:
+        """Return the first available model for the given tier, loading it if necessary."""
         candidates = MODEL_TIERS.get(tier, {}).get("models", [])
         for model_id in candidates:
             if model_id in self._loaded_models:
                 return model_id
+        
+        # None loaded, try to load the first candidate
+        if candidates:
+            target_model = candidates[0]
+            kv_config = self.get_kv_config(tier)
+            success = await self.lm_client.load_model(
+                target_model, 
+                cache_type_k=kv_config.get("cache_type_k"),
+                cache_type_v=kv_config.get("cache_type_v")
+            )
+            if success:
+                self._loaded_models[target_model] = {"tier": tier, "loaded_at": time.time(), "last_used": time.time()}
+                return target_model
         return None
 
     def get_tier_for_model(self, model_id: str) -> int:
@@ -80,7 +93,21 @@ class ModelManager:
         return 0
 
     def get_kv_config(self, tier: int) -> dict:
-        return MODEL_TIERS.get(tier, {}).get("kv_cache", {})
+        """Get KV config based on tier and global TurboQuant settings."""
+        # Baseline from static tiers
+        base_config = dict(MODEL_TIERS.get(tier, {}).get("kv_cache", {"cache_type_k": "q8_0", "cache_type_v": "q8_0"}))
+        
+        if self._settings.turboquant_enabled:
+            bits = self._settings.turboquant_bits
+            # Recommendation: asymmetric is safest for general models (q8_0 K, turbo V)
+            turbo_type = f"turbo{bits}"
+            
+            # Optionally check turboquant_tier setting
+            if self._settings.turboquant_tier == "auto" or str(tier) == self._settings.turboquant_tier:
+                base_config["cache_type_k"] = "q8_0"
+                base_config["cache_type_v"] = turbo_type
+                
+        return base_config
 
     def get_tier_from_complexity(self, score: float) -> int:
         """Decide tier from complexity score."""
@@ -90,10 +117,23 @@ class ModelManager:
             return 2
         return 3
 
-    def get_best_available_model(self) -> Optional[str]:
+    async def get_best_available_model(self) -> Optional[str]:
         """Get best model considering VRAM pressure. Used for fallback cascade."""
         for model_id in FALLBACK_CASCADE:
             if model_id in self._loaded_models:
+                return model_id
+                
+        # If nothing loaded, try to load from cascade
+        for model_id in FALLBACK_CASCADE:
+            tier = self.get_tier_for_model(model_id)
+            kv_config = self.get_kv_config(tier)
+            success = await self.lm_client.load_model(
+                model_id,
+                cache_type_k=kv_config.get("cache_type_k"),
+                cache_type_v=kv_config.get("cache_type_v")
+            )
+            if success:
+                self._loaded_models[model_id] = {"tier": tier, "loaded_at": time.time(), "last_used": time.time()}
                 return model_id
         return None
 
@@ -132,6 +172,22 @@ class ModelManager:
         if pressure_level == "yellow":
             # Downgrade T3 KV cache, reduce T2 context by 50%
             logger.info("YELLOW pressure: downgrading T3 KV cache")
+            t3_models = [mid for mid, info in self._loaded_models.items() if info["tier"] == 3]
+            for mid in t3_models:
+                logger.info(f"Reloading {mid} with downgraded KV cache")
+                await self.lm_client.unload_model(mid)
+                # Determine downgraded config
+                kv_config = self.get_kv_config(3)
+                kv_config["cache_type_v"] = "q4_0" # Downgrade V cache
+                if self._settings.turboquant_enabled:
+                    kv_config["cache_type_v"] = "turbo2" # Max compression
+                await self.lm_client.load_model(
+                    mid,
+                    cache_type_k=kv_config.get("cache_type_k"),
+                    cache_type_v=kv_config.get("cache_type_v")
+                )
+                self._loaded_models[mid]["last_used"] = time.time()
+                
         elif pressure_level == "orange":
             # Unload T3 models, route to T2
             to_remove = [
@@ -139,6 +195,7 @@ class ModelManager:
                 if info["tier"] == 3
             ]
             for mid in to_remove:
+                await self.lm_client.unload_model(mid)
                 del self._loaded_models[mid]
                 logger.info(f"ORANGE pressure: unloaded T3 model {mid}")
         elif pressure_level == "red":
@@ -148,6 +205,7 @@ class ModelManager:
                 if info["tier"] in (2, 3)
             ]
             for mid in to_remove:
+                await self.lm_client.unload_model(mid)
                 del self._loaded_models[mid]
                 logger.info(f"RED pressure: unloaded {mid}")
 

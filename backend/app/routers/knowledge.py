@@ -127,7 +127,7 @@ async def _process_document(
         settings = get_settings()
         model_id = settings.pageindex_model or settings.llm_model or "Qwen3-4B-Q4_K_M"
 
-        # Run PageIndex tree + vector embedding in PARALLEL
+        # Run PageIndex tree + vector embedding + ARA compilation in PARALLEL
         tasks_to_run = [pageindex_generator.build_tree(doc_content, model_id, doc_id)]
         run_vectors = (
             embedding_service is not None
@@ -140,9 +140,18 @@ async def _process_document(
                                embedding_service, text_chunker, vector_kb_service)
             )
 
+        # Add ARA compilation
+        from app.services.ara_compiler import ARACompiler
+        from app.state import lm_client
+        ara_compiler = ARACompiler(lm_client)
+        tasks_to_run.append(
+            ara_compiler.compile(doc_id=doc_id, text=doc_content, model_id=model_id, title=doc_id)
+        )
+
         results = await asyncio.gather(*tasks_to_run, return_exceptions=True)
         tree = results[0]
-        vector_count = results[1] if run_vectors and len(results) > 1 else 0
+        vector_count = results[1] if run_vectors and len(results) > 2 else 0
+        ara_result = results[-1]
 
         if isinstance(tree, Exception):
             raise tree
@@ -158,23 +167,28 @@ async def _process_document(
         tree_path = DATA_DIR / kb_name / "pageindex" / f"{doc_id}.json"
         tree_path.parent.mkdir(parents=True, exist_ok=True)
         tree_path.write_text(json.dumps(tree, indent=2))
+        
+        # Save ARA artifact if successful
+        ara_status = "skipped"
+        if not isinstance(ara_result, Exception):
+            ara_compiler.persist(ara_result, DATA_DIR / kb_name)
+            ara_status = "completed"
+        else:
+            logger.error(f"ARA compilation failed (non-fatal): {ara_result}")
+            ara_status = f"failed ({ara_result})"
 
         _tasks[task_id]["status"] = "complete"
         _tasks[task_id]["progress"] = 100
 
         tree_sections = len(tree.get("root", {}).get("children", []))
         tree_pages = tree.get("total_pages", 0)
+        
+        msg_parts = [f"PageIndex tree ({tree_pages} pages)"]
         if vector_count:
-            _tasks[task_id]["message"] = (
-                f"Generated PageIndex tree ({tree_pages} pages, {tree_sections} sections) "
-                f"and vector KB ({vector_count} chunks embedded)"
-            )
-        else:
-            _tasks[task_id]["message"] = (
-                f"Generated PageIndex tree with {tree_pages} pages and "
-                f"{tree_sections} top-level sections"
-                + (" (vector embedding skipped — LM Studio unavailable)" if run_vectors else "")
-            )
+            msg_parts.append(f"Vector KB ({vector_count} chunks)")
+        msg_parts.append(f"ARA compilation: {ara_status}")
+        
+        _tasks[task_id]["message"] = "Generated: " + ", ".join(msg_parts)
 
         # Update KB registry
         if kb_name in _kb_registry:

@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { ModelInfo } from "@/types/api";
-
-const API_BASE = "http://localhost:8001";
+import { API_BASE_URL } from "@/lib/config";
 
 const TIER_COLORS = {
   1: "text-emerald-400",
@@ -23,7 +22,7 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/models`)
+    fetch(`${API_BASE_URL}/models`)
       .then((r) => r.json())
       .then((data) => setModels(data))
       .catch(() => setModels([]))

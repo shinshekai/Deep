@@ -1,6 +1,8 @@
-const SOLVE_WS_URL = "ws://localhost:8001/api/v1/solve";
-const METRICS_WS_URL = "ws://localhost:8001/ws/metrics";
-const API_BASE = "http://localhost:8001";
+import { API_BASE_URL, WS_BASE_URL, WS_AUTH_TOKEN } from "./config";
+
+const SOLVE_WS_URL = `${WS_BASE_URL}/api/v1/solve?token=${WS_AUTH_TOKEN}`;
+const METRICS_WS_URL = `${WS_BASE_URL}/ws/metrics?token=${WS_AUTH_TOKEN}`;
+const API_BASE = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 type MessageCallback = (data: Record<string, unknown>) => void;
 type Status = "connecting" | "open" | "closed" | "error";

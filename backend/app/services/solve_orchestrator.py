@@ -9,6 +9,7 @@ Streams agent_step, citation, and complete frames over WebSocket.
 import asyncio
 import json
 import time
+from app.services.telemetry import trace_span, add_event
 import logging
 import os
 from typing import AsyncGenerator
@@ -62,68 +63,103 @@ async def run_solve_pipeline(
     """Execute the dual-loop solve pipeline and stream frames to WebSocket."""
     start_time = time.time()
 
-    # ── Step 1: Complexity scoring and tier routing ──
-    score, target_tier = score_query_complexity(
-        query_text=query,
-        doc_pages=0,  # TODO: resolve from KB
-        retrieved_chunks=0,  # TODO: resolve from PageIndex
-        free_vram_mb=float("inf"),  # TODO: from VRAMMonitor
-    )
-    logger.info(f"Solve session {session_id}: score={score}, tier={target_tier}, mode={mode}")
+    with trace_span("solve.pipeline", {"session_id": session_id, "mode": mode, "kb_name": kb_name}):
 
-    # ── Step 2: Find the best available model ──
-    model_id = model_manager.get_best_available_model() or "Qwen3-1.7B-Q4_K_M"
+      # ── Step 1: Complexity scoring and tier routing ──
+      # Resolve real VRAM from monitor
+      from app.state import vram_monitor, get_metrics
+      free_vram_mb = float("inf")
+      try:
+          vram_status = await vram_monitor.poll_once()
+          total_mb = vram_status.get("vram_total_mb", 0)
+          used_mb = vram_status.get("vram_used_mb", 0)
+          free_vram_mb = (total_mb - used_mb) if total_mb > 0 else float("inf")
+      except Exception:
+          # Fall back to cached metrics
+          metrics = get_metrics()
+          total_mb = metrics.get("vram_total_mb", 0)
+          used_mb = metrics.get("vram_used_mb", 0)
+          if total_mb > 0:
+              free_vram_mb = total_mb - used_mb
 
-    # ── Step 3: Run the dual-loop ──
-    try:
-        full_answer, transcript = await _run_dual_loop(
-            query=query,
-            kb_name=kb_name,
-            mode=mode,
-            retrieval_pipeline=retrieval_pipeline,
-            lm_client=lm_client,
-            model_id=model_id,
-            session_id=session_id,
-            ws_send=ws_send,
-        )
+      # Resolve doc page count from KB PageIndex
+      doc_pages = 0
+      try:
+          from pathlib import Path as _P
+          pi_dir = _P("data/knowledge_bases") / kb_name / "pageindex"
+          if pi_dir.exists():
+              import json
+              for tree_file in pi_dir.glob("*.json"):
+                  tree_data = json.loads(tree_file.read_text())
+                  root = tree_data.get("root", {})
+                  doc_pages += root.get("page_end", 0) + 1
+      except Exception:
+          pass
 
-        if full_answer is None:
-            full_answer = "I was unable to generate a response. The model may be unavailable."
-            transcript += f"\n\n[System] Fallback triggered. Final answer: {full_answer}"
+      score, target_tier = score_query_complexity(
+          query_text=query,
+          doc_pages=doc_pages,
+          retrieved_chunks=0,
+          free_vram_mb=free_vram_mb,
+      )
+      add_event("complexity_scored", {"score": score, "tier": target_tier, "vram_free_mb": free_vram_mb, "doc_pages": doc_pages})
+      logger.info(f"Solve session {session_id}: score={score}, tier={target_tier}, mode={mode}, vram_free={free_vram_mb:.0f}MB, pages={doc_pages}")
 
-        # ── Step 4: Session Persistence ──
-        solve_dir = f"data/user/solve/{session_id}"
-        os.makedirs(solve_dir, exist_ok=True)
-        
-        with open(f"{solve_dir}/final_answer.md", "w", encoding="utf-8") as f:
-            f.write(full_answer)
-            
-        with open(f"{solve_dir}/transcript.md", "w", encoding="utf-8") as f:
-            f.write(transcript)
+      # ── Step 2: Find the best available model ──
+      model_id = await model_manager.get_best_available_model() or "Qwen3-1.7B-Q4_K_M"
+      add_event("model_selected", {"model_id": model_id})
 
-        elapsed = time.time() - start_time
-        await ws_send({
-            "type": "complete",
-            "answer": full_answer,
-            "citations": [],
-            "session_id": session_id,
-            "solve_dir": f"data/user/solve/{session_id}",
-            "metadata": {
-                "complexity_score": score,
-                "target_tier": target_tier,
-                "model_used": model_id,
-                "elapsed_seconds": round(elapsed, 2),
-            },
-        })
-        model_manager.on_query_start(model_id)
+      # ── Step 3: Run the dual-loop ──
+      try:
+          full_answer, transcript = await _run_dual_loop(
+              query=query,
+              kb_name=kb_name,
+              mode=mode,
+              retrieval_pipeline=retrieval_pipeline,
+              lm_client=lm_client,
+              model_id=model_id,
+              session_id=session_id,
+              ws_send=ws_send,
+          )
 
-    except Exception as e:
-        logger.error(f"Solve pipeline error: {e}", exc_info=True)
-        await ws_send({
-            "type": "error",
-            "error": "pipeline_failure",
-            "message": f"Failed to process query: {str(e)}",
-        })
+          if full_answer is None:
+              full_answer = "I was unable to generate a response. The model may be unavailable."
+              transcript += f"\n\n[System] Fallback triggered. Final answer: {full_answer}"
+
+          # ── Step 4: Session Persistence ──
+          solve_dir = f"data/user/solve/{session_id}"
+          os.makedirs(solve_dir, exist_ok=True)
+          
+          with open(f"{solve_dir}/final_answer.md", "w", encoding="utf-8") as f:
+              f.write(full_answer)
+              
+          with open(f"{solve_dir}/transcript.md", "w", encoding="utf-8") as f:
+              f.write(transcript)
+
+          elapsed = time.time() - start_time
+          add_event("solve_complete", {"elapsed_s": round(elapsed, 2), "model": model_id})
+          await ws_send({
+              "type": "complete",
+              "answer": full_answer,
+              "citations": [],
+              "session_id": session_id,
+              "solve_dir": f"data/user/solve/{session_id}",
+              "metadata": {
+                  "complexity_score": score,
+                  "target_tier": target_tier,
+                  "model_used": model_id,
+                  "elapsed_seconds": round(elapsed, 2),
+              },
+          })
+          model_manager.on_query_start(model_id)
+
+      except Exception as e:
+          logger.error(f"Solve pipeline error: {e}", exc_info=True)
+          await ws_send({
+              "type": "error",
+              "error": "pipeline_failure",
+              "message": f"Failed to process query: {str(e)}",
+          })
 
 
 async def _run_dual_loop(

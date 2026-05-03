@@ -1,6 +1,7 @@
 """VRAM Monitor tests."""
 
 import pytest
+import asyncio
 from app.services.vram_monitor import VRAMMonitor
 
 def test_pressure_level_calculation():
@@ -72,3 +73,43 @@ async def test_initialize_without_pynvml():
         assert result is False
     finally:
         del sys.modules['pynvml']
+
+@pytest.mark.asyncio
+async def test_start_and_stop_polling():
+    monitor = VRAMMonitor()
+    monitor._pynvml_available = False
+    
+    # Mock initialize
+    import sys
+    if 'pynvml' in sys.modules:
+        del sys.modules['pynvml']
+    class FakePynvml:
+        def nvmlInit(self): pass
+        def nvmlDeviceGetCount(self): return 1
+        def nvmlDeviceGetHandleByIndex(self, i): return "handle"
+        def nvmlDeviceGetMemoryInfo(self, handle):
+            class FakeInfo:
+                total = 16000 * (1024**2)
+                used = 8000 * (1024**2)
+            return FakeInfo()
+    sys.modules['pynvml'] = FakePynvml()
+    
+    try:
+        await monitor.initialize()
+        
+        called_data = None
+        def mock_callback(data):
+            nonlocal called_data
+            called_data = data
+            
+        monitor.on_update(mock_callback)
+        
+        task = asyncio.create_task(monitor.start_polling(0.1))
+        await asyncio.sleep(0.3)
+        # Verify it polled
+        assert called_data is not None
+        assert called_data["vram_used_mb"] > 0
+    finally:
+        del sys.modules['pynvml']
+        if 'task' in locals():
+            task.cancel()

@@ -126,9 +126,9 @@ async def http_query(request: QueryRequest):
     )
 
     # ── Step 3: Model selection ──
-    model_id = model_manager.get_model_for_tier(target_tier)
+    model_id = await model_manager.get_model_for_tier(target_tier)
     if not model_id:
-        model_id = model_manager.get_best_available_model()
+        model_id = await model_manager.get_best_available_model()
 
     model_tier = model_manager.get_tier_for_model(model_id) if model_id else target_tier
     model_tier_str = model_id or f"T{model_tier}"

@@ -107,7 +107,7 @@ class TreeSearch:
             if tree and result.get("node_id"):
                 node = self._find_node_by_id(tree.get("root", {}), result["node_id"])
                 if node:
-                    raw_text = self.text_extractor.extract_for_node(
+                    raw_text = await self.text_extractor.extract_for_node(
                         kb_name, result.get("doc_id", ""), tree, node
                     )
                     result["content"] = raw_text or ""

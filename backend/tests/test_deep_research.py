@@ -72,3 +72,27 @@ async def test_deep_research_workflow(mock_lm_client, monkeypatch, tmp_path):
     assert mock_lm_client.stream_chat_completion.call_count == 4
     # 2 calls to retrieval (one per subtopic)
     assert mock_retrieval.call_count == 2
+
+@pytest.mark.asyncio
+async def test_deep_research_invalid_session(mock_lm_client, tmp_path):
+    service = DeepResearchService(lm_client=mock_lm_client)
+    service.sessions_dir = str(tmp_path)
+    with pytest.raises(Exception):
+        service.get_status("does_not_exist")
+
+@pytest.mark.asyncio
+async def test_deep_research_empty_query(mock_lm_client, tmp_path, monkeypatch):
+    service = DeepResearchService(lm_client=mock_lm_client)
+    service.sessions_dir = str(tmp_path)
+    
+    mock_retrieval = AsyncMock(return_value={"results": []})
+    monkeypatch.setattr("app.services.deep_research.run_retrieval", mock_retrieval)
+    
+    session_id = await service.start_research("test_kb", "")
+    assert session_id
+    # We await the active task
+    if service.active_tasks:
+        await list(service.active_tasks)[0]
+        
+    data = service.get_status(session_id)
+    assert data["status"] == "COMPLETED"

@@ -1,25 +1,18 @@
-"""Agent routes: research, questions, learning (stub implementations)."""
+"""Agent routes: research, questions, learning, content creation (FR-4 to FR-7)."""
 
 import time
 from typing import Optional
 from fastapi import APIRouter
-from app.state import lm_client
+from app.state import lm_client, deep_research_service
 from app.services.question_generator import QuestionGenService
 from app.services.guided_learning import GuidedLearningService
-from app.services.deep_research import DeepResearchService
+
 from app.services.content_creation import NotebookService, CoWriterService, IdeaGenService
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
 
 
-@router.post("/query")
-async def query(payload: dict):
-    return {"answer": "Stub response. Connect LM Studio for real answers.", "citations": []}
-
-
-@router.post("/retrieve")
-async def retrieve(payload: dict):
-    return {"results": [], "total": 0}
+# NOTE: /query and /retrieve are handled by routers/query.py and routers/retrieval.py
 
 
 @router.post("/research")
@@ -30,7 +23,7 @@ async def start_research(payload: dict):
     retrieval_pipeline = payload.get("retrieval_pipeline", "combined")
     model_id = payload.get("model_id", "Qwen3-1.7B-Q4_K_M")
     
-    dr_service = DeepResearchService(lm_client=lm_client)
+    dr_service = deep_research_service
     session_id = await dr_service.start_research(
         kb_name=kb_name, query=query, mode=mode, retrieval_pipeline=retrieval_pipeline, model_id=model_id
     )
@@ -38,7 +31,7 @@ async def start_research(payload: dict):
 
 @router.get("/research/{session_id}")
 async def get_research_status(session_id: str):
-    dr_service = DeepResearchService(lm_client=lm_client)
+    dr_service = deep_research_service
     try:
         status = dr_service.get_status(session_id)
         return status
@@ -119,6 +112,7 @@ async def end_learning(session_id: str, payload: dict):
     model_id = payload.get("model_id", "Qwen3-1.7B-Q4_K_M")
     
     gl_service = GuidedLearningService(lm_client=lm_client)
+    return await gl_service.end_session(session_id, model_id=model_id)
 # --- Content Creation (FR-7) ---
 
 @router.post("/notebooks")
@@ -147,8 +141,8 @@ async def cowriter_edit(payload: dict):
     model_id = payload.get("model_id", "Qwen3-1.7B-Q4_K_M")
     
     cw_service = CoWriterService(lm_client=lm_client)
-    edited = await cw_service.edit_text(text, action, instruction, model_id)
-    return {"text": edited}
+    result = await cw_service.edit_text(text, action, instruction, model_id)
+    return {"text": result["text"], "provenance": result["provenance"]}
 
 @router.post("/cowriter/annotate")
 async def cowriter_annotate(payload: dict):
@@ -158,8 +152,8 @@ async def cowriter_annotate(payload: dict):
     model_id = payload.get("model_id", "Qwen3-1.7B-Q4_K_M")
     
     cw_service = CoWriterService(lm_client=lm_client)
-    annotated = await cw_service.auto_annotate(text, kb_name, retrieval_pipeline, model_id)
-    return {"text": annotated}
+    result = await cw_service.auto_annotate(text, kb_name, retrieval_pipeline, model_id)
+    return {"text": result["text"], "provenance": result["provenance"]}
 
 @router.post("/ideagen/generate")
 async def ideagen_generate(payload: dict):

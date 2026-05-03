@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { FileQuestion, GraduationCap, ListChecks, Loader2, BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { API_BASE_URL } from "@/lib/config";
 
 const QUESTION_TYPES = [
   { value: "mcq", label: "Multiple Choice" },
@@ -32,7 +33,7 @@ export default function QuestionsPage() {
   const [referenceExam, setReferenceExam] = useState("");
 
   useEffect(() => {
-    fetch("/api/v1/knowledge/bases")
+    fetch(`${API_BASE_URL}/knowledge/bases`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -54,7 +55,7 @@ export default function QuestionsPage() {
     setQuestions([]);
 
     try {
-      const res = await fetch("/api/v1/questions/generate", {
+      const res = await fetch(`${API_BASE_URL}/questions/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

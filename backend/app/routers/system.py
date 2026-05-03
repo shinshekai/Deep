@@ -185,7 +185,7 @@ async def list_models():
             "vram_used_mb": loaded_info.get("vram_mb", 0),
             "loaded_at": loaded_info.get("loaded_at"),
             "last_used": loaded_info.get("last_used"),
-            "kv_cache_config": kv,
+            "turboquant_config": kv,
         })
 
     # If no models found, return tier defaults as available

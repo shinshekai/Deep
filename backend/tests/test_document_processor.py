@@ -25,7 +25,7 @@ async def test_extract_text_md(tmp_path):
 @pytest.mark.asyncio
 async def test_extract_text_unsupported(tmp_path):
     bad_file = tmp_path / "test.xyz"
-    bad_file.write_text("Not supported")
+    bad_file.write_bytes(b"\x89PNG\r\n\x1a\n")  # Binary data that is not valid utf-8
     
     res = await extract_text(bad_file)
     assert res is None

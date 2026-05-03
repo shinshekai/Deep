@@ -51,16 +51,22 @@ async def test_cowriter_service(mock_lm_client, monkeypatch):
     
     # Edit text
     res = await service.edit_text("hello", "shorten")
-    assert res == "Edited text."
+    assert res["text"] == "Edited text."
+    assert "provenance" in res
+    assert res["provenance"]["action"] == "shorten"
     
     # Annotate
     mock_retrieval = AsyncMock(return_value={
-        "results": [{"content": "Topic info", "doc_id": "doc1", "page": 1}]
+        "results": [{"content": "Topic info", "doc_id": "doc1", "page": 1, "relevance_score": 0.9}]
     })
     monkeypatch.setattr("app.services.content_creation.run_retrieval", mock_retrieval)
     
     res = await service.auto_annotate("hello", "kb")
-    assert res == "Text [Citation 1]."
+    assert res["text"] == "Text [Citation 1]."
+    assert "provenance" in res
+    assert res["provenance"]["action"] == "annotate"
+    assert len(res["provenance"]["sources"]) == 1
+    assert res["provenance"]["sources"][0]["doc_id"] == "doc1"
 
 @pytest.mark.asyncio
 async def test_ideagen_service(mock_lm_client, tmp_path):

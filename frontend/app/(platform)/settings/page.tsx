@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Settings as SettingsIcon, Save, RefreshCw, Database } from "lucide-react";
-
-const API_BASE = "http://localhost:8001";
+import { API_BASE_URL } from "@/lib/config";
 
 type Config = {
   // LM Studio
@@ -57,6 +56,18 @@ const DEFAULT_CONFIG: Config = {
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Load current config from backend on mount
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/config`)
+      .then((res) => res.json())
+      .then((data) => {
+        setConfig((prev) => ({ ...prev, ...data }));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const set = <K extends keyof Config>(key: K, value: Config[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -64,7 +75,7 @@ export default function SettingsPage() {
   };
 
   const handleSave = () => {
-    fetch(`${API_BASE}/api/v1/config`, {
+    fetch(`${API_BASE_URL}/config`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config),

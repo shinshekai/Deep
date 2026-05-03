@@ -14,6 +14,7 @@ benchmark_runner = None
 embedding_service = None
 text_chunker = None
 vector_kb_service = None
+deep_research_service = None
 
 # Metrics state
 _latest_metrics: dict[str, Any] = {

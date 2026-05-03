@@ -70,3 +70,23 @@ async def test_guided_learning_workflow(mock_lm_client, monkeypatch, tmp_path):
         data = json.load(f)
         assert data["status"] == "completed"
         assert len(data["chat_history"]) == 2 # 1 user, 1 assistant
+
+@pytest.mark.asyncio
+async def test_guided_learning_missing_session(mock_lm_client, tmp_path):
+    service = GuidedLearningService(lm_client=mock_lm_client)
+    service.sessions_dir = str(tmp_path)
+    # Trying to generate page for missing session should raise error or return None
+    with pytest.raises(Exception):
+        await service.generate_interactive_page("invalid_id", 0)
+
+@pytest.mark.asyncio
+async def test_guided_learning_invalid_point(mock_lm_client, tmp_path):
+    service = GuidedLearningService(lm_client=mock_lm_client)
+    service.sessions_dir = str(tmp_path)
+    os.makedirs(service.sessions_dir, exist_ok=True)
+    session_file = os.path.join(service.sessions_dir, "session_test1.json")
+    with open(session_file, "w") as f:
+        json.dump({"points": ["only_one_point"]}, f)
+
+    with pytest.raises(Exception):
+        await service.generate_interactive_page("test1", 5) # Point 5 doesn't exist

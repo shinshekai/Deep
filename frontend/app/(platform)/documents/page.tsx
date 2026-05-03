@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList } from "@/components/documents/document-list";
 import { fetchKnowledgeBases, type UploadTask } from "@/lib/knowledge";
+import { API_BASE_URL } from "@/lib/config";
 
 type ActiveUpload = {
   taskId: string;
@@ -12,10 +13,18 @@ type ActiveUpload = {
   task: UploadTask | null;
 };
 
+type DocumentInfo = {
+  doc_id: string;
+  page_count?: number;
+  status: "indexed" | "processing" | "failed";
+};
+
 export default function DocumentsPage() {
   const [kbNames, setKbNames] = useState<string[]>([]);
   const [selectedKb, setSelectedKb] = useState("");
   const [activeUploads, setActiveUploads] = useState<ActiveUpload[]>([]);
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
 
   // Load available KB names
   const loadKbs = useCallback(async () => {
@@ -31,6 +40,28 @@ export default function DocumentsPage() {
   useEffect(() => {
     loadKbs();
   }, [loadKbs]);
+
+  // Fetch documents when selected KB changes
+  useEffect(() => {
+    if (!selectedKb) {
+      setDocuments([]);
+      return;
+    }
+    setLoadingDocs(true);
+    fetch(`${API_BASE_URL}/knowledge/${selectedKb}/documents`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setDocuments(data);
+        } else if (data.documents && Array.isArray(data.documents)) {
+          setDocuments(data.documents);
+        } else {
+          setDocuments([]);
+        }
+      })
+      .catch(() => setDocuments([]))
+      .finally(() => setLoadingDocs(false));
+  }, [selectedKb]);
 
   const handleUploadStart = useCallback(
     (taskId: string, fileName: string) => {
@@ -54,9 +85,19 @@ export default function DocumentsPage() {
           return true;
         })
       );
+      // Refresh document list after uploads complete
+      if (selectedKb) {
+        fetch(`${API_BASE_URL}/knowledge/${selectedKb}/documents`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (Array.isArray(data)) setDocuments(data);
+            else if (data.documents) setDocuments(data.documents);
+          })
+          .catch(() => {});
+      }
     }, 3000);
     return () => clearInterval(interval);
-  }, [activeUploads.length]);
+  }, [activeUploads.length, selectedKb]);
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-4xl">
@@ -121,8 +162,14 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {/* Document list — placeholder until backend is running */}
-      <DocumentList documents={[]} />
+      {/* Document list */}
+      {loadingDocs ? (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-6 text-center text-sm text-zinc-600">
+          Loading documents...
+        </div>
+      ) : (
+        <DocumentList documents={documents} />
+      )}
     </div>
   );
 }

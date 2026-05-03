@@ -30,6 +30,7 @@ export default function SolvePage() {
   // Subscribe to agent steps
   useEffect(() => {
     return subscribe("agent_step", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setSteps((prev) => [
         ...prev,
         { ...data, timestamp: data.timestamp ?? Date.now() / 1000 } as AgentStepFrame,
@@ -40,6 +41,7 @@ export default function SolvePage() {
   // Subscribe to citations
   useEffect(() => {
     return subscribe("citation", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       if (data.citation) {
         setCitations((prev) => [...prev, data.citation as Citation]);
       }
@@ -49,6 +51,7 @@ export default function SolvePage() {
   // Subscribe to completion
   useEffect(() => {
     return subscribe("complete", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setAnswer(data as CompleteFrame);
       setState("complete");
     });
@@ -57,6 +60,7 @@ export default function SolvePage() {
   // Subscribe to errors
   useEffect(() => {
     return subscribe("error", (data) => {
+      if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setErrorMsg((data as ErrorFrame).message ?? "Unknown error");
       setState("error");
     });

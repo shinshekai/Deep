@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { FileText, Brain, Activity, Settings as SettingsIcon, Zap, BarChart3, Database } from "lucide-react";
 import { useWebSocket } from "@/providers/websocket-provider";
 import { Badge } from "@/components/ui/badge";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const navSections = [
   {
@@ -109,7 +110,11 @@ export default function PlatformLayout({
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto bg-background">{children}</main>
+      <main className="flex-1 overflow-auto bg-background">
+        <ErrorBoundary fallbackTitle="Page Error">
+          {children}
+        </ErrorBoundary>
+      </main>
     </div>
   );
 }

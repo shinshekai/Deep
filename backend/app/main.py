@@ -14,6 +14,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    # Set up basic tracer provider
+    trace.set_tracer_provider(TracerProvider())
+    tracer = trace.get_tracer(__name__)
+except ImportError:
+    tracer = None
+
 from app.config import get_settings
 from app.state import (
     vram_monitor, lm_client, model_manager, pageindex_generator,
@@ -63,7 +73,10 @@ async def lifespan(app: FastAPI):
     state.pageindex_generator = PageIndexTreeGenerator(state.lm_client)
     state.benchmark_runner = BenchmarkRunner(state.lm_client, state.vram_monitor, state.model_manager)
     state.embedding_service = EmbeddingService(state.lm_client, batch_size=32)
+    from app.services.deep_research import DeepResearchService
+    
     state.text_chunker = TextChunker(chunk_size=512, chunk_overlap=64)
+    state.deep_research_service = DeepResearchService(lm_client=state.lm_client)
 
     _KB_BASE = Path("data/knowledge_bases")
     state.vector_kb_service = VectorKBService(kb_base=_KB_BASE, lm_client=state.lm_client)
@@ -145,6 +158,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if tracer:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    FastAPIInstrumentor.instrument_app(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3782", "http://127.0.0.1:3782", "http://localhost:3000"],
@@ -172,18 +189,27 @@ from app.routers.system import router as system_router
 from app.routers.agent import router as agent_router
 from app.routers.retrieval import router as retrieval_router
 from app.routers.query import router as query_router
+from app.validation.validation_routes import router as validation_router
 
 app.include_router(knowledge_router)
 app.include_router(system_router)
 app.include_router(agent_router)
 app.include_router(retrieval_router)
 app.include_router(query_router)
+app.include_router(validation_router)
 
 
 # ─── Smart Solve WS ───
 
 @app.websocket("/api/v1/solve")
 async def ws_solve(ws: WebSocket):
+    from app.config import get_settings
+    settings = get_settings()
+    token = ws.query_params.get("token")
+    if settings.ws_auth_token and token != settings.ws_auth_token:
+        await ws.close(code=1008, reason="Unauthorized")
+        return
+
     await ws.accept()
     try:
         while True:
@@ -208,16 +234,66 @@ async def ws_solve(ws: WebSocket):
             lm_ok = await lm_client.check_health()
             if lm_ok:
                 from app.services.solve_orchestrator import run_solve_pipeline
-                await run_solve_pipeline(
-                    query=query,
-                    kb_name=kb_name,
-                    mode=mode,
-                    retrieval_pipeline=retrieval_pipeline,
-                    lm_client=lm_client,
-                    model_manager=model_manager,
-                    session_id=session_id,
-                    ws_send=ws.send_json,
-                )
+                from app.services.recursive_solver import RecursiveSolver
+                
+                # Check if recursive mode is requested explicitly, or if auto mode selects it
+                if mode == "recursive" or (mode == "auto" and "recursive" in query.lower()):
+                    solver = RecursiveSolver(lm_client)
+                    # Use complexity scorer to select pattern
+                    from app.services.complexity_scorer import score_query_complexity
+                    score, _ = score_query_complexity(query)
+                    pattern = solver.select_pattern(query, score)
+                    
+                    await ws.send_json({
+                        "type": "agent_step", "agent": "system",
+                        "content": f"[RecursiveMAS Activated: {pattern} pattern]\n", "timestamp": time.time(),
+                    })
+                    
+                    # Optional: retrieve context first if kb_name provided
+                    context = ""
+                    if kb_name:
+                        from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+                        req = RetrieveRequest(query=query, kb_name=kb_name, retrieval_pipeline=retrieval_pipeline, top_k=3)
+                        retrieval_resp = await run_retrieval(req)
+                        rag_results = retrieval_resp.get("results", [])
+                        if rag_results:
+                            for i, res in enumerate(rag_results):
+                                context += f"--- Chunk {i+1} ---\n{res.get('content', '')}\n\n"
+                                
+                    model_id = await model_manager.get_best_available_model() or "Qwen3-1.7B-Q4_K_M"
+                    result = await solver.solve(
+                        query=query,
+                        context=context,
+                        pattern=pattern,
+                        model_id=model_id,
+                        ws_send=ws.send_json
+                    )
+                    
+                    await ws.send_json({
+                        "type": "complete",
+                        "answer": result.answer,
+                        "citations": [],
+                        "session_id": session_id,
+                        "solve_dir": f"data/user/solve/{session_id}",
+                        "metadata": {
+                            "pattern": result.pattern,
+                            "rounds_used": result.rounds_used,
+                            "converged": result.converged,
+                            "token_savings_pct": result.token_savings_pct,
+                            "elapsed_seconds": result.elapsed_seconds,
+                        }
+                    })
+                else:
+                    await run_solve_pipeline(
+                        query=query,
+                        kb_name=kb_name,
+                        mode=mode,
+                        retrieval_pipeline=retrieval_pipeline,
+                        lm_client=lm_client,
+                        model_manager=model_manager,
+                        session_id=session_id,
+                        ws_send=ws.send_json,
+                    )
                 continue
 
             # Fallback: simulated agent steps
@@ -253,6 +329,13 @@ async def ws_solve(ws: WebSocket):
 
 @app.websocket("/ws/metrics")
 async def ws_metrics(ws: WebSocket):
+    from app.config import get_settings
+    settings = get_settings()
+    token = ws.query_params.get("token")
+    if settings.ws_auth_token and token != settings.ws_auth_token:
+        await ws.close(code=1008, reason="Unauthorized")
+        return
+
     await ws.accept()
     from app.state import add_ws
     add_ws(ws)

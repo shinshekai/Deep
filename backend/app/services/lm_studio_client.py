@@ -56,53 +56,69 @@ class LMStudioClient:
             logger.error(f"list_models failed: {e}")
             return []
 
-    async def load_model(self, model_id: str) -> bool:
+    async def load_model(self, model_id: str, cache_type_k: str | None = None, cache_type_v: str | None = None) -> bool:
         """Load a model into LM Studio via REST API or CLI fallback."""
         logger.info(f"Loading model: {model_id}")
+        
+        payload = {"model": model_id}
+        if cache_type_k:
+            payload["cache_type_k"] = cache_type_k
+        if cache_type_v:
+            payload["cache_type_v"] = cache_type_v
+            
+        load_success = False
         # Try REST API first
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{self.base_url}/api/v0/models/load",
-                    json={"model": model_id},
+                    json=payload,
                     headers=self._headers,
                 )
                 if resp.status_code == 200:
-                    logger.info(f"Model {model_id} loaded via REST API")
-                    return True
+                    logger.info(f"Model {model_id} load requested via REST API")
+                    load_success = True
                 else:
-                    logger.warning(
-                        f"REST API load failed with status {resp.status_code}: {resp.text[:200]}"
-                    )
+                    logger.warning(f"REST API load failed: {resp.status_code} {resp.text[:200]}")
         except Exception as e:
             logger.warning(f"REST API load failed: {e}")
 
-        # Fallback to lms CLI
-        logger.info(f"Falling back to CLI for loading {model_id}")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "lms", "load", model_id,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info(f"Model {model_id} loaded via CLI")
-                return True
-            else:
-                err_msg = stderr.decode().strip() if stderr else "No error output"
-                logger.error(
-                    f"CLI load failed (exit code {proc.returncode}): {err_msg}"
+        # Fallback to CLI
+        if not load_success:
+            logger.info(f"Falling back to CLI for loading {model_id}")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "lms", "load", model_id,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                return False
-        except Exception as e:
-            logger.error(f"CLI load failed: {e}")
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    logger.info(f"Model {model_id} load requested via CLI")
+                    load_success = True
+                else:
+                    logger.error(f"CLI load failed: {stderr.decode().strip() if stderr else ''}")
+            except Exception as e:
+                logger.error(f"CLI load failed: {e}")
+                
+        if not load_success:
             return False
+            
+        # Verify load via /v1/models poll
+        for _ in range(5):
+            await asyncio.sleep(2.0)
+            models = await self.list_models()
+            if any(m.get("id") == model_id for m in models):
+                logger.info(f"Verified model {model_id} is loaded and ready.")
+                return True
+        logger.error(f"Failed to verify load of {model_id}")
+        return False
 
     async def unload_model(self, model_id: str) -> bool:
         """Unload a model from LM Studio via REST API or CLI fallback."""
         logger.info(f"Unloading model: {model_id}")
-        # Try REST API first
+        
+        unload_success = False
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
@@ -111,36 +127,54 @@ class LMStudioClient:
                     headers=self._headers,
                 )
                 if resp.status_code == 200:
-                    logger.info(f"Model {model_id} unloaded via REST API")
-                    return True
+                    logger.info(f"Model {model_id} unload requested via REST API")
+                    unload_success = True
                 else:
-                    logger.warning(
-                        f"REST API unload failed with status {resp.status_code}: {resp.text[:200]}"
-                    )
+                    logger.warning(f"REST API unload failed: {resp.status_code} {resp.text[:200]}")
         except Exception as e:
             logger.warning(f"REST API unload failed: {e}")
 
-        # Fallback to lms CLI
-        logger.info(f"Falling back to CLI for unloading {model_id}")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "lms", "unload", model_id,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info(f"Model {model_id} unloaded via CLI")
-                return True
-            else:
-                err_msg = stderr.decode().strip() if stderr else "No error output"
-                logger.error(
-                    f"CLI unload failed (exit code {proc.returncode}): {err_msg}"
+        if not unload_success:
+            logger.info(f"Falling back to CLI for unloading {model_id}")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "lms", "unload", model_id,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                return False
-        except Exception as e:
-            logger.error(f"CLI unload failed: {e}")
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    logger.info(f"Model {model_id} unload requested via CLI")
+                    unload_success = True
+                else:
+                    logger.error(f"CLI unload failed: {stderr.decode().strip() if stderr else ''}")
+            except Exception as e:
+                logger.error(f"CLI unload failed: {e}")
+                
+        if not unload_success:
             return False
+            
+        # Verify VRAM reclamation via pynvml
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            logger.info(f"pynvml check after unload: {info.free / 1024**2:.0f} MB free VRAM")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"pynvml verification failed: {e}")
+            
+        # Verify unload via /v1/models poll
+        for _ in range(5):
+            await asyncio.sleep(2.0)
+            models = await self.list_models()
+            if not any(m.get("id") == model_id for m in models):
+                logger.info(f"Verified model {model_id} is unloaded.")
+                return True
+        logger.error(f"Failed to verify unload of {model_id}")
+        return False
 
     async def embed(
         self,
