@@ -528,12 +528,14 @@ class BenchmarkRunner:
 
         context_text = "\n".join(contexts)
         try:
+            # Use higher max_tokens for Qwen3 models with thinking mode
+            # Thinking can use 50-100 tokens, so we need plenty of room for the actual answer
             response = await self.lm_client.stream_chat(
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant. Answer the question based only on the provided context."},
                     {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}"},
                 ],
-                max_tokens=512,
+                max_tokens=4096,
             )
             return str(response) if response else ""
         except Exception as e:

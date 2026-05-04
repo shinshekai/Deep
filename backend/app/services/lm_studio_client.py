@@ -278,6 +278,7 @@ class LMStudioClient:
                         "stream": True,
                         "max_tokens": max_tokens,
                         "temperature": temperature,
+                        "enable_thinking": False,  # Disable Qwen3 thinking mode
                     }
                     if model:
                         body["model"] = model
@@ -300,6 +301,8 @@ class LMStudioClient:
                                         chunk = json.loads(data)
                                         delta = chunk.get("choices", [{}])[0].get("delta", {})
                                         tok = delta.get("content", "")
+                                        # Qwen3 thinking mode: also capture reasoning_content
+                                        reason_tok = delta.get("reasoning_content", "")
                                         if tok:
                                             content.append(tok)
                                             if chunk_callback:
@@ -307,6 +310,10 @@ class LMStudioClient:
                                                     await chunk_callback(tok)
                                                 else:
                                                     chunk_callback(tok)
+                                        if reason_tok:
+                                            # Append reasoning to a separate list or same list
+                                            # We'll append to content for now (can be filtered later)
+                                            pass  # Skip reasoning tokens for the final result
                                     except json.JSONDecodeError:
                                         pass
                     future.set_result("".join(content) if content else None)
@@ -324,14 +331,8 @@ class LMStudioClient:
                         }
                     })
 
-        # Put task in priority queue
-        await self._queue.put((priority, time.time(), _execute))
-        
-        # We need a worker to process the queue if it's not already running.
-        # But instead of a background worker, let's just create a task to process it
-        # immediately so it executes according to priority.
-        _ = asyncio.create_task(self._process_next())
-        
+        # Execute directly via task (semaphore inside _execute handles concurrency)
+        asyncio.create_task(_execute())
         try:
             return await future
         except Exception:
