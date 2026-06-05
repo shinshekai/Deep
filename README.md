@@ -1459,7 +1459,7 @@ A: Set `UDIP_LOG_LEVEL=DEBUG` and `UDIP_LOG_FORMAT=json` in `.env`. Check struct
 
 1. **VectifyAI/PageIndex** — DEEP's PageIndex system is a fork of this vectorless hierarchical document indexing project.
 
-2. **DeepTutor** (github.com/shinshekai/DeepTutor) — DEEP's agent system evolved from this multi-agent Q&A platform.
+2. **DeepTutor** ([github.com/HKUDS/DeepTutor](https://github.com/HKUDS/DeepTutor)) — DEEP's agent system evolved from this multi-agent Q&A platform.
 
 3. **llama.cpp** — DEEP builds on llama.cpp via LM Studio. TurboQuant+ has active PR preparation for llama.cpp upstream.
 
