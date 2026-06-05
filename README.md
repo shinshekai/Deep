@@ -1,6 +1,10 @@
-# DEEP
+<p align="center">
+  <img src="Deep.png" alt="DEEP Logo" width="400">
+</p>
 
-> Unified Document Intelligence Pipeline
+<h1 align="center">DEEP</h1>
+
+<p align="center"><em>Unified Document Intelligence Pipeline</em></p>
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
