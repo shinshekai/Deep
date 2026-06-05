@@ -212,114 +212,186 @@ graph LR
 
 ```
 Deep/
-├── backend/                         # FastAPI Python backend
-│   ├── app/
-│   │   ├── main.py                  # Primary entrypoint
-│   │   ├── config.py                # Settings (pydantic-settings)
-│   │   ├── state.py                 # Global singletons (module-level)
-│   │   ├── lifespan.py              # Startup/shutdown context manager
-│   │   ├── dependencies.py          # DI container
-│   │   ├── websocket_handlers.py    # WS endpoints (solve + metrics)
-│   │   ├── middleware/              # 5 middleware modules
-│   │   │   ├── auth.py              # Token validation (3 methods)
-│   │   │   ├── cors.py              # Localhost origin pinning
-│   │   │   ├── rate_limit.py        # SlowAPI 100/min per IP
-│   │   │   ├── correlation.py       # Request ID tracking
-│   │   │   └── headers.py           # Security headers (CSP, HSTS)
-│   │   ├── routers/                 # 7 API routers
-│   │   │   ├── knowledge.py         # Document upload + KB management
-│   │   │   ├── system.py            # Health, config, models, backups
-│   │   │   ├── agent.py             # Research, questions, learning
-│   │   │   ├── retrieval.py         # 5-mode retrieval pipeline
-│   │   │   ├── query.py             # HTTP query (non-streaming)
-│   │   │   ├── memory.py            # Recall, episodes, facts, profiles
-│   │   │   └── validation_routes.py # Self-validation framework
-│   │   ├── services/                # 40+ business logic services
-│   │   │   ├── lm_studio_client.py  # OpenAI-compatible API client
-│   │   │   ├── model_manager.py     # 3-tier model lifecycle
-│   │   │   ├── vram_monitor.py      # pynvml VRAM pressure detection
-│   │   │   ├── solve_orchestrator.py # Dual-loop smart solver
-│   │   │   ├── recursive_solver.py  # 4-pattern multi-agent
-│   │   │   ├── deep_research.py     # 3-phase research pipeline
-│   │   │   ├── guided_learning.py   # 4-agent tutoring
-│   │   │   ├── question_generator.py # 2-agent question gen
-│   │   │   ├── content_creation.py  # Notebook, CoWriter, IdeaGen
-│   │   │   ├── memory_service.py    # SQLite + FTS5 memory
-│   │   │   ├── fact_extractor.py    # LLM fact extraction
-│   │   │   ├── tree_search.py       # PageIndex tree traversal
-│   │   │   ├── vector_kb.py         # Vector similarity search
-│   │   │   ├── hybrid_rag.py        # RRF vector + keyword merge
-│   │   │   ├── query_router.py      # Auto-select retrieval mode
-│   │   │   ├── complexity_scorer.py # 4-signal complexity scoring
-│   │   │   ├── pageindex_generator.py # Tree generation
-│   │   │   ├── embedding_service.py # Vector embeddings
-│   │   │   ├── document_processor.py # PDF, DOCX, TXT, MD
-│   │   │   ├── ocr_engine.py        # pytesseract / easyocr
-│   │   │   ├── ara_compiler.py      # 4-layer ARA conversion
-│   │   │   ├── security.py          # SSRF, path sanitize, auth
-│   │   │   ├── secrets.py           # OS keyring integration
-│   │   │   ├── metrics.py           # Prometheus metrics
-│   │   │   ├── telemetry.py         # OpenTelemetry tracing
-│   │   │   ├── alerting.py          # VRAM + error rate alerts
-│   │   │   └── ... (25+ more)
-│   │   └── validation/              # Self-validation framework
-│   ├── tests/                       # 61 test files
-│   ├── scripts/
-│   │   └── migrate_to_memory.py     # Legacy data migration
-│   ├── turboquant_plus/             # TurboQuant KV cache quantization
-│   │   ├── turboquant/              # Core algorithms (PolarQuant, QJL)
-│   │   ├── refract/                 # Fidelity scoring framework
-│   │   ├── tests/                   # 13 test files
-│   │   ├── benchmarks/              # Performance benchmarks
-│   │   ├── docs/                    # 34 research documents
-│   │   └── proof/                   # NIAH proof results
+├── .env.example                        # Environment template (40+ vars)
+├── .gitignore                          # Git ignore rules
+├── .github/workflows/
+│   └── production-readiness.yml        # CI: lint, typecheck, 107 tests, SAST, SBOM, Docker, Locust
+├── docker-compose.yml                  # Development
+├── docker-compose.prod.yml             # Production (hardened)
+├── docker-compose.blue-green.yml       # Blue-green (zero-downtime)
+├── scripts/
+│   ├── deploy-blue-green.sh            # Zero-downtime deployment
+│   ├── nginx-blue-green.conf           # Nginx config for blue-green
+│   └── generate_hashed_requirements.py # Hashed requirements for SBOM
+├── backend/                            # FastAPI Python 3.14 backend
+│   ├── Dockerfile
 │   ├── pyproject.toml
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/                        # Next.js 16 TypeScript frontend
+│   ├── requirements.txt                # 67 pinned packages
+│   ├── requirements-dev.txt            # 12 dev/test packages
 │   ├── app/
-│   │   ├── layout.tsx               # Root layout
-│   │   ├── page.tsx                 # Redirects to /chat
-│   │   └── (platform)/
-│   │       ├── layout.tsx           # App shell (sidebar, panels)
-│   │       ├── chat/page.tsx        # Chat interface
-│   │       ├── solve/page.tsx       # Smart Solver
-│   │       ├── research/page.tsx    # Deep Research
-│   │       ├── guide/page.tsx       # Guided Learning
-│   │       ├── questions/page.tsx   # Question Generator
-│   │       ├── notebooks/page.tsx   # Notebooks
-│   │       ├── cowriter/page.tsx    # Co-Writer
-│   │       ├── documents/page.tsx   # Document management
-│   │       ├── knowledge/page.tsx   # Knowledge base viewer
-│   │       ├── dashboard/page.tsx   # Analytics dashboard
-│   │       ├── models/page.tsx      # Model management
-│   │       └── settings/page.tsx    # Configuration
-│   ├── components/                  # 12 reusable components
-│   ├── providers/                   # WebSocket + Memory providers
-│   ├── lib/                         # Config, API clients, utils
-│   ├── types/                       # TypeScript definitions
-│   ├── __tests__/                   # 8 test files
-│   ├── package.json
+│   │   ├── __init__.py
+│   │   ├── main.py                     # Primary entrypoint
+│   │   ├── config.py                   # Settings (pydantic-settings)
+│   │   ├── state.py                    # Global singletons (module-level)
+│   │   ├── lifespan.py                 # Startup/shutdown context manager
+│   │   ├── dependencies.py             # DI container
+│   │   ├── websocket_handlers.py       # WS endpoints (solve + metrics)
+│   │   ├── middleware/                  # 5 middleware modules
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py                 # Token validation (3 methods)
+│   │   │   ├── cors.py                 # Localhost origin pinning
+│   │   │   ├── rate_limit.py           # SlowAPI 100/min per IP
+│   │   │   ├── correlation.py          # Request ID tracking
+│   │   │   └── headers.py             # Security headers (CSP, HSTS)
+│   │   ├── routers/                    # 6 API routers
+│   │   │   ├── __init__.py
+│   │   │   ├── knowledge.py            # Document upload + KB management
+│   │   │   ├── system.py               # Health, config, models, backups
+│   │   │   ├── agent.py                # Research, questions, learning
+│   │   │   ├── retrieval.py            # 5-mode retrieval pipeline
+│   │   │   ├── query.py                # HTTP query (non-streaming)
+│   │   │   └── memory.py               # Recall, episodes, facts, profiles
+│   │   ├── services/                   # 34 business logic services
+│   │   │   ├── __init__.py
+│   │   │   ├── lm_studio_client.py     # OpenAI-compatible API client
+│   │   │   ├── model_manager.py        # 3-tier model lifecycle
+│   │   │   ├── vram_monitor.py         # pynvml VRAM pressure detection
+│   │   │   ├── solve_orchestrator.py   # Dual-loop smart solver
+│   │   │   ├── recursive_solver.py     # 4-pattern multi-agent
+│   │   │   ├── deep_research.py        # 3-phase research pipeline
+│   │   │   ├── guided_learning.py      # 4-agent tutoring
+│   │   │   ├── question_generator.py   # 2-agent question gen
+│   │   │   ├── content_creation.py     # Notebook, CoWriter, IdeaGen
+│   │   │   ├── memory_service.py       # SQLite + FTS5 memory
+│   │   │   ├── memory_context.py       # 2000-token memory budget builder
+│   │   │   ├── memory_maintenance.py   # Hourly decay/compaction loop
+│   │   │   ├── fact_extractor.py       # LLM fact extraction + profiles
+│   │   │   ├── tree_search.py          # PageIndex tree traversal
+│   │   │   ├── vector_kb.py            # Vector similarity search
+│   │   │   ├── hybrid_rag.py           # RRF vector + keyword merge
+│   │   │   ├── query_router.py         # Auto-select retrieval mode
+│   │   │   ├── complexity_scorer.py    # 4-signal complexity scoring
+│   │   │   ├── pageindex_generator.py  # Tree generation
+│   │   │   ├── embedding_service.py    # Vector embeddings
+│   │   │   ├── document_processor.py   # PDF, DOCX, TXT, MD
+│   │   │   ├── text_extractor.py       # Text extraction pipeline
+│   │   │   ├── text_chunker.py         # Text chunking for indexing
+│   │   │   ├── ocr_engine.py           # pytesseract / easyocr
+│   │   │   ├── ara_compiler.py         # 4-layer ARA conversion
+│   │   │   ├── security.py             # SSRF, path sanitize, auth
+│   │   │   ├── secrets.py              # OS keyring integration
+│   │   │   ├── metrics.py              # Prometheus metrics
+│   │   │   ├── telemetry.py            # OpenTelemetry tracing
+│   │   │   ├── alerting.py             # VRAM + error rate alerts
+│   │   │   ├── audit.py                # Audit logging
+│   │   │   ├── backup.py               # KB backup service
+│   │   │   ├── base.py                 # ServiceRegistry + DI
+│   │   │   ├── benchmark_runner.py     # Benchmark execution
+│   │   │   ├── logging_config.py       # Structured logging setup
+│   │   │   ├── model_discovery.py      # Auto-discover models
+│   │   │   ├── rag_eval.py             # RAG evaluation
+│   │   │   ├── session_cleanup.py      # Stale session cleanup
+│   │   │   ├── evaluation_dataset.json # Evaluation test data
+│   │   │   └── __init__.py
+│   │   └── validation/                 # Self-validation framework
+│   │       ├── __init__.py
+│   │       ├── __main__.py
+│   │       ├── baselines.py
+│   │       ├── config_validator.py
+│   │       ├── coverage_tracker.py
+│   │       ├── health_checker.py
+│   │       ├── remediation_tracker.py
+│   │       ├── runner.py
+│   │       └── validation_routes.py
+│   ├── reports/
+│   │   └── ragas_evaluation.json       # RAG evaluation results
+│   ├── scripts/
+│   │   └── migrate_to_memory.py        # Legacy data migration
+│   ├── tests/                          # 50+ test files
+│   │   ├── conftest.py
+│   │   ├── test_memory_service.py
+│   │   ├── test_memory_router.py
+│   │   ├── test_memory_integration.py
+│   │   ├── test_memory_learning.py
+│   │   ├── test_memory_security.py
+│   │   ├── test_memory_performance.py
+│   │   └── ... (44 more test files)
+│   └── turboquant_plus/                # Git submodule: TurboQuant KV cache
+├── frontend/                           # Next.js 16.2 TypeScript frontend
+│   ├── Dockerfile
+│   ├── package.json                    # 20 dependencies + 7 devDependencies
+│   ├── package-lock.json
 │   ├── next.config.ts
-│   └── Dockerfile
-├── data/                            # Runtime storage
-│   ├── knowledge_bases/             # Uploaded documents + PageIndex trees
-│   ├── memory/                      # SQLite memory database
-│   ├── user/                        # Session artifacts
-│   └── metrics/
-├── scripts/                         # Deployment scripts
-│   ├── deploy-blue-green.sh         # Zero-downtime deployment
-│   ├── nginx-blue-green.conf        # Nginx config for blue-green
-│   └── generate_hashed_requirements.py
-├── test_documents/                  # Sample test documents
-├── tests/                           # Load tests (Locust)
-├── reference/                       # Reference docs, guide repo
-├── .github/workflows/               # CI/CD (production-readiness.yml)
-├── docker-compose.yml               # Development
-├── docker-compose.prod.yml          # Production (hardened)
-├── docker-compose.blue-green.yml    # Blue-green (zero-downtime)
-├── .env.example                     # Environment template
-├── AGENTS.md                        # Memory architecture docs
+│   ├── tsconfig.json
+│   ├── postcss.config.mjs
+│   ├── eslint.config.mjs
+│   ├── vitest.config.ts
+│   ├── AGENTS.md                       # Frontend agent docs
+│   ├── README.md                       # Frontend docs
+│   ├── app/
+│   │   ├── favicon.ico
+│   │   ├── globals.css                 # Tailwind + custom utilities
+│   │   ├── layout.tsx                  # Root layout (MemoryProvider)
+│   │   ├── page.tsx                    # Redirects to /chat
+│   │   └── (platform)/
+│   │       ├── layout.tsx              # App shell (sidebar, panels)
+│   │       ├── chat/page.tsx           # Chat interface
+│   │       ├── solve/page.tsx          # Smart Solver
+│   │       ├── research/page.tsx       # Deep Research
+│   │       ├── guide/page.tsx          # Guided Learning
+│   │       ├── questions/page.tsx      # Question Generator
+│   │       ├── notebooks/page.tsx      # Notebooks
+│   │       ├── cowriter/page.tsx       # Co-Writer
+│   │       ├── documents/page.tsx      # Document management
+│   │       ├── knowledge/page.tsx      # Knowledge base viewer
+│   │       ├── dashboard/page.tsx      # Analytics dashboard
+│   │       ├── models/page.tsx         # Model management
+│   │       └── settings/page.tsx       # Configuration
+│   ├── components/
+│   │   ├── error-boundary.tsx
+│   │   ├── dashboard/
+│   │   │   ├── index.ts
+│   │   │   ├── global-resource-monitor.tsx
+│   │   │   ├── inference-throughput-grid.tsx
+│   │   │   └── router-effectiveness-matrix.tsx
+│   │   ├── documents/
+│   │   │   ├── document-list.tsx
+│   │   │   └── document-upload.tsx
+│   │   ├── solve/
+│   │   │   ├── agent-step-display.tsx
+│   │   │   ├── citation-list.tsx
+│   │   │   └── solve-input.tsx
+│   │   └── ui/
+│   │       ├── badge.tsx
+│   │       └── card.tsx
+│   ├── providers/
+│   │   ├── memory-provider.tsx         # MemoryContext + useMemory() hook
+│   │   └── websocket-provider.tsx      # WebSocket connection manager
+│   ├── lib/
+│   │   ├── config.ts
+│   │   ├── knowledge.ts
+│   │   ├── memory.ts                   # Memory API client
+│   │   ├── use-upload-polling.ts
+│   │   └── websocket.ts
+│   ├── types/
+│   │   └── api.ts
+│   ├── __tests__/
+│   │   ├── setup.ts
+│   │   ├── components/
+│   │   │   ├── badge.test.tsx
+│   │   │   ├── dashboard/global-resource-monitor.test.tsx
+│   │   │   └── solve/solve-input.test.tsx
+│   │   ├── lib/websocket.test.ts
+│   │   └── pages/
+│   │       ├── chat-page.test.tsx
+│   │       ├── guide-page.test.tsx
+│   │       └── settings-page.test.tsx
+│   └── public/
+│       ├── file.svg
+│       ├── globe.svg
+│       ├── next.svg
+│       ├── vercel.svg
+│       └── window.svg
 └── README.md
 ```
 
