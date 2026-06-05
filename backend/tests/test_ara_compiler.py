@@ -210,3 +210,46 @@ def test_get_exploration_trace(sample_artifact):
     trace = compiler.get_exploration_trace(sample_artifact)
     assert len(trace) == 1
     assert trace[0].node_id == "EXP-001"
+
+
+# ── Day 9b: File I/O error handling in persist() ──────────────────────────
+
+def test_persist_continues_when_one_file_fails(tmp_path, sample_artifact, monkeypatch):
+    """If one write_text() fails (e.g. disk full), the other files still
+    persist — we don't want one transient I/O error to lose the whole
+    manifest."""
+    compiler = ARACompiler(lm_client=MagicMock())
+    real_write_text = Path.write_text
+
+    def maybe_failing_write(self, *args, **kwargs):
+        # Fail only on the claims.json path; everything else works.
+        if self.name == "claims.json":
+            raise OSError("disk full")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", maybe_failing_write)
+
+    saved_path = compiler.persist(sample_artifact, tmp_path)
+    # The directory still exists; the function returned a Path.
+    assert saved_path == tmp_path / "ara" / "test_doc_123"
+    # Other files are present.
+    assert (saved_path / "PAPER.md").exists()
+    assert (saved_path / "logic" / "concepts.json").exists()
+    # The claims.json is the one that failed — its absence is the assertion.
+    assert not (saved_path / "logic" / "claims.json").exists()
+
+
+def test_persist_raises_when_directory_creation_fails(tmp_path, sample_artifact, monkeypatch):
+    """If the top-level directories cannot be created, persist() raises
+    OSError so the caller knows nothing was persisted."""
+    compiler = ARACompiler(lm_client=MagicMock())
+
+    def failing_mkdir(self, *args, **kwargs):
+        raise PermissionError("read-only filesystem")
+
+    monkeypatch.setattr(Path, "mkdir", failing_mkdir)
+
+    with pytest.raises(OSError):
+        compiler.persist(sample_artifact, tmp_path)
+    # The directory should not have been created (mkdir was blocked).
+    assert not (tmp_path / "ara" / "test_doc_123").exists()

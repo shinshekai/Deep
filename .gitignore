@@ -1,7 +1,64 @@
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Environment files - NEVER commit
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+frontend/.env.local
+
+# Codex / agent tooling secrets
+.codex/
+
+# Build artifacts
+dist/
+build/
+.next/
+node_modules/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
 reference/
 .claude/
 data/
 backend/data/
 docs_old/
+coverage.json
+validation-report.json
+full-validation-report.json
+validation-summary.md
+weekly-report.md
+test-output.txt
+*.log
+logs/
+scripts/.bg-state/
+
+# QA, logs and prompt/telemetry docs
+docs/
+claude_resume_bash.txt
+directory_tree.txt
+CLAUDE.md
+claude.md
+

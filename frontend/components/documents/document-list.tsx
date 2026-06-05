@@ -59,6 +59,7 @@ export function DocumentList({ documents, onViewTree }: DocumentListProps) {
             {doc.status === "indexed" && onViewTree && (
               <button
                 onClick={() => onViewTree(doc.doc_id)}
+                aria-label="Toggle document tree view"
                 className="rounded px-2 py-0.5 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
               >
                 Tree

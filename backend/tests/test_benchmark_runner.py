@@ -275,7 +275,7 @@ async def test_throughput_results_without_client():
 
 def test_threshold_constants_exist():
     assert "simple_qa_e2e" in LATENCY_THRESHOLDS
-    assert "ragas_faithfulness" in QUALITY_THRESHOLDS
+    assert "faithfulness" in QUALITY_THRESHOLDS
     assert "single_user_tps" in THROUGHPUT_THRESHOLDS
 
 
@@ -378,13 +378,10 @@ async def test_run_category_quality_without_dataset():
 
 @pytest.mark.anyio
 async def test_run_category_quality_with_dataset(runner_with_dataset):
-    """Test quality run with dataset (RAGAS unavailable, uses fallback)."""
+    """Test quality run with dataset uses custom evaluator."""
     runner = runner_with_dataset
-    # Mock the RAGAS_AVAILABLE to False to test fallback
-    import app.services.benchmark_runner as bm_module
-
-    original = bm_module.RAGAS_AVAILABLE
-    bm_module.RAGAS_AVAILABLE = False
+    runner.lm_client = AsyncMock()
+    runner.lm_client.stream_chat.return_value = "Test answer about PageIndex."
 
     run = BenchmarkRun(
         run_id="test_quality_real",
@@ -394,17 +391,10 @@ async def test_run_category_quality_with_dataset(runner_with_dataset):
     )
     runner._runs[run.run_id] = run
 
-    # Mock the LM client for answer generation
-    runner.lm_client = AsyncMock()
-    runner.lm_client.stream_chat.return_value = "Test answer about PageIndex."
-
     await runner._run_category_quality(run)
 
-    # Should have results from fallback scoring
     assert len(run.results) >= 1
     assert run.progress_pct == 75
-
-    bm_module.RAGAS_AVAILABLE = original
 
 
 @pytest.mark.anyio
@@ -491,32 +481,23 @@ async def test_hallucination_detection_high_overlap(runner_with_dataset):
 
 
 @pytest.mark.anyio
-async def test_run_ragas_evaluation_ragas_unavailable(runner_with_dataset):
-    """Test RAGAS evaluation when ragas is not available."""
+async def test_run_quality_evaluation_with_client(runner_with_dataset):
+    """Test quality evaluation when LM client is available."""
     runner = runner_with_dataset
     runner.lm_client = AsyncMock()
     runner.lm_client.stream_chat.return_value = "Test answer."
 
     run = BenchmarkRun(
-        run_id="test_ragas_unavail",
+        run_id="test_quality_eval",
         category="quality",
         status="queued",
         progress_pct=0,
     )
     runner._runs[run.run_id] = run
 
-    # Ensure RAGAS is marked as unavailable
-    import app.services.benchmark_runner as bm_module
+    await runner._run_quality_evaluation(run, runner._dataset)
 
-    original = bm_module.RAGAS_AVAILABLE
-    bm_module.RAGAS_AVAILABLE = False
-
-    await runner._run_ragas_evaluation(run, runner._dataset)
-
-    # Should have added results (from fallback)
-    assert len(run.results) >= 0  # May add 0-2 results depending on categories
-
-    bm_module.RAGAS_AVAILABLE = original
+    assert len(run.results) == 2
 
 
 @pytest.mark.anyio

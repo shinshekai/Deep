@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, type DragEvent, type FormEvent } from "react";
+import { useUploadPolling } from "@/lib/use-upload-polling";
 import { Upload, FileText, X } from "lucide-react";
 import { uploadDocument, pollUploadTask, type UploadTask } from "@/lib/knowledge";
 
@@ -12,8 +13,28 @@ interface DocumentUploadProps {
 export function DocumentUpload({ kbName, onUploadStart }: DocumentUploadProps) {
   const [dragging, setDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState<string | null>(null); // file name while uploading
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useUploadPolling<typeof pollUploadTask>(activeTaskId, {
+    fetcher: pollUploadTask,
+    intervalMs: 2000,
+    maxAttempts: 60,
+    onComplete: () => {
+      setUploading(null);
+      setSelectedFile(null);
+      setActiveTaskId(null);
+    },
+    onFailed: () => {
+      setUploading(null);
+      setActiveTaskId(null);
+    },
+    onError: () => {
+      setUploading(null);
+      setActiveTaskId(null);
+    },
+  });
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -34,15 +55,7 @@ export function DocumentUpload({ kbName, onUploadStart }: DocumentUploadProps) {
     const result = await uploadDocument(selectedFile, kbName);
     if (result && result.task_id) {
       onUploadStart(result.task_id, selectedFile.name);
-      // Poll for completion
-      const poll = setInterval(async () => {
-        const task = await pollUploadTask(result.task_id);
-        if (task && (task.status === "complete" || task.status === "failed")) {
-          clearInterval(poll);
-          setUploading(null);
-          setSelectedFile(null);
-        }
-      }, 2000);
+      setActiveTaskId(result.task_id);
     } else {
       setUploading(null);
     }
@@ -69,6 +82,7 @@ export function DocumentUpload({ kbName, onUploadStart }: DocumentUploadProps) {
         type="file"
         accept=".pdf,.txt,.md"
         onChange={handleFileSelect}
+        aria-label="Upload document file"
         className="hidden"
       />
 
@@ -97,6 +111,7 @@ export function DocumentUpload({ kbName, onUploadStart }: DocumentUploadProps) {
           <button
             type="button"
             onClick={() => setSelectedFile(null)}
+            aria-label="Remove selected file"
             className="rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
           >
             <X className="h-4 w-4" />
@@ -108,6 +123,7 @@ export function DocumentUpload({ kbName, onUploadStart }: DocumentUploadProps) {
         <button
           type="submit"
           disabled={!kbName || !!uploading}
+          aria-label="Upload to knowledge base"
           className="mt-4 rounded bg-zinc-100 px-4 py-1.5 text-xs font-semibold text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           {uploading ? "Uploading..." : "Upload to KB"}

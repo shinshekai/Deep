@@ -1,4 +1,4 @@
-import { API_BASE_URL, WS_BASE_URL, WS_AUTH_TOKEN } from "./config";
+import { API_BASE_URL, WS_BASE_URL, WS_AUTH_TOKEN, secureFetch } from "./config";
 
 const SOLVE_WS_URL = `${WS_BASE_URL}/api/v1/solve?token=${WS_AUTH_TOKEN}`;
 const METRICS_WS_URL = `${WS_BASE_URL}/ws/metrics?token=${WS_AUTH_TOKEN}`;
@@ -202,7 +202,7 @@ export class WebSocketManager {
 /** GET /api/v1/metrics/history — timeseries for dashboard charts */
 export async function fetchMetricsHistory(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/metrics/history`);
+    const res = await secureFetch(`${API_BASE}/api/v1/metrics/history`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -213,7 +213,7 @@ export async function fetchMetricsHistory(): Promise<Record<string, unknown> | n
 /** GET /api/v1/vram/status — current GPU VRAM pressure level */
 export async function fetchVramStatus(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/vram/status`);
+    const res = await secureFetch(`${API_BASE}/api/v1/vram/status`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -224,7 +224,7 @@ export async function fetchVramStatus(): Promise<Record<string, unknown> | null>
 /** GET /api/v1/models — list all models with tier assignments */
 export async function fetchModels(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/models`);
+    const res = await secureFetch(`${API_BASE}/api/v1/models`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -235,7 +235,7 @@ export async function fetchModels(): Promise<Record<string, unknown> | null> {
 /** GET /api/v1/health — system health check */
 export async function fetchHealth(): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/health`);
+    const res = await secureFetch(`${API_BASE}/api/v1/health`);
     if (!res.ok) return null;
     return res.json();
   } catch {

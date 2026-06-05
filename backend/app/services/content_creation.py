@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 
 from app.services.lm_studio_client import LMStudioClient
@@ -27,21 +28,54 @@ class NotebookService:
             "created_at": time.time(),
             "updated_at": time.time()
         }
-        with open(self._get_path(nb_id), "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        try:
+            with open(self._get_path(nb_id), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            logger.error(f"Failed to create notebook {nb_id}: {e}")
+            raise
+        from app import state
+        if state.memory_service:
+            try:
+                asyncio.create_task(state.memory_service.store_episode(
+                    device_id="default", query=f"Create notebook: {title}", answer="",
+                    agents=["content_creator"], session_type="content",
+                ))
+            except Exception:
+                pass
         return data
 
     def list_notebooks(self) -> List[Dict[str, Any]]:
         notebooks = []
-        for filename in os.listdir(self.notebooks_dir):
-            if filename.endswith(".json"):
-                with open(os.path.join(self.notebooks_dir, filename), "r", encoding="utf-8") as f:
+        try:
+            entries = os.listdir(self.notebooks_dir)
+        except OSError as e:
+            logger.error(f"Failed to list notebooks directory: {e}")
+            return notebooks
+        for filename in entries:
+            if not filename.endswith(".json"):
+                continue
+            path = os.path.join(self.notebooks_dir, filename)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
                     notebooks.append(json.load(f))
+            except (OSError, json.JSONDecodeError) as e:
+                # Skip corrupted files but keep going so one bad apple
+                # doesn't sink the entire list endpoint.
+                logger.warning(f"Skipping unreadable notebook {path}: {e}")
+                continue
         return notebooks
 
     def get_notebook(self, notebook_id: str) -> Dict[str, Any]:
-        with open(self._get_path(notebook_id), "r", encoding="utf-8") as f:
-            return json.load(f)
+        path = self._get_path(notebook_id)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Notebook {notebook_id} not found.")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"Notebook {notebook_id} is corrupted: {e}")
+            raise ValueError(f"Notebook {notebook_id} is corrupted.") from e
 
     def add_note(self, notebook_id: str, content: str, source: str = "manual") -> Dict[str, Any]:
         data = self.get_notebook(notebook_id)
@@ -53,8 +87,24 @@ class NotebookService:
         }
         data["notes"].append(note)
         data["updated_at"] = time.time()
-        with open(self._get_path(notebook_id), "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        try:
+            with open(self._get_path(notebook_id), "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            logger.error(f"Failed to persist note for {notebook_id}: {e}")
+            raise
+        from app import state
+        if state.memory_service:
+            try:
+                asyncio.create_task(state.memory_service.store_fact(
+                    device_id="default",
+                    content=f"Note '{content[:50]}': {content[:200]}",
+                    source_type="note",
+                    source_id=note["id"],
+                    confidence=0.6,
+                ))
+            except Exception:
+                pass
         return note
 
 class CoWriterService:

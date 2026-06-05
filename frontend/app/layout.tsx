@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WebSocketProvider } from "@/providers/websocket-provider";
+import { MemoryProvider } from "@/providers/memory-provider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -30,7 +31,9 @@ export default function RootLayout({
       className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <WebSocketProvider>{children}</WebSocketProvider>
+        <MemoryProvider>
+          <WebSocketProvider>{children}</WebSocketProvider>
+        </MemoryProvider>
       </body>
     </html>
   );

@@ -2,7 +2,7 @@
 
 Category A — Latency: end-to-end Q&A timing
 Category B — KV cache efficiency: memory measurements across quantization modes
-Category C — Quality: RAGAS faithfulness/relevancy, retrieval precision/recall
+Category C — Quality: faithfulness/relevancy, retrieval precision/recall
 Category D — Throughput: concurrent load testing
 
 Runs asynchronously in background, results pollable by run_id.
@@ -18,19 +18,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# RAGAS imports — optional, only used when ragas is installed
-try:
-    from ragas import evaluate
-    from ragas.metrics import (
-        Faithfulness,
-        AnswerRelevancy,
-        ContextPrecision,
-        ContextRecall,
-    )
-    RAGAS_AVAILABLE = True
-except ImportError:
-    RAGAS_AVAILABLE = False
-    logger.warning("ragas not installed; quality metrics will use fallback scoring")
+from app.services.rag_eval import faithfulness, answer_relevancy
 
 
 @dataclass
@@ -66,8 +54,8 @@ LATENCY_THRESHOLDS = {
 }
 
 QUALITY_THRESHOLDS = {
-    "ragas_faithfulness": 0.85,
-    "ragas_relevancy": 0.80,
+    "faithfulness": 0.85,
+    "answer_relevancy": 0.80,
     "retrieval_precision_at_5": 0.90,
     "retrieval_recall_at_5": 0.75,
     "citation_accuracy": 0.90,
@@ -98,7 +86,7 @@ class BenchmarkRunner:
         self._dataset = self._load_dataset()
 
     def _load_dataset(self) -> list[dict]:
-        """Load RAGAS evaluation dataset from JSON file."""
+        """Load evaluation dataset from JSON file."""
         try:
             with open(self.DATASET_PATH, "r") as f:
                 data = json.load(f)
@@ -298,16 +286,16 @@ class BenchmarkRunner:
     # ── Category C: Quality ──
 
     async def _run_category_quality(self, run: BenchmarkRun):
-        """RAGAS faithfulness/relevancy, retrieval precision/recall."""
+        """Faithfulness/relevancy, retrieval precision/recall."""
         if not self._dataset:
             logger.warning("No evaluation dataset available; skipping quality benchmarks")
             self._add_result(run, BenchmarkResult(
                 test_id="quality_no_dataset",
                 category="quality",
                 test_case="no_dataset",
-                metric="ragas_faithfulness",
+                metric="faithfulness",
                 value=0.0,
-                threshold=QUALITY_THRESHOLDS["ragas_faithfulness"],
+                threshold=QUALITY_THRESHOLDS["faithfulness"],
                 passed=False,
             ))
             run.progress_pct = 75
@@ -322,9 +310,9 @@ class BenchmarkRunner:
         total_cases = len(self._dataset)
         processed = 0
 
-        # ── Faithfulness & Relevancy via RAGAS ──
-        if RAGAS_AVAILABLE and self.lm_client:
-            await self._run_ragas_evaluation(run, faith_cases + relev_cases)
+        # ── Faithfulness & Relevancy ──
+        if self.lm_client:
+            await self._run_quality_evaluation(run, faith_cases + relev_cases)
         else:
             await self._run_quality_fallback(run, faith_cases, "faithfulness")
             await self._run_quality_fallback(run, relev_cases, "relevancy")
@@ -358,21 +346,14 @@ class BenchmarkRunner:
             ))
         run.progress_pct = 75
 
-    async def _run_ragas_evaluation(self, run: BenchmarkRun, cases: list[dict]):
-        """Run RAGAS evaluation for faithfulness and relevancy."""
+    async def _run_quality_evaluation(self, run: BenchmarkRun, cases: list[dict]):
+        """Run quality evaluation for faithfulness and relevancy."""
         try:
-            from ragas import evaluate
-            from ragas.metrics import Faithfulness, AnswerRelevancy
-
-            # Prepare datasets for RAGAS
             faith_data = {"question": [], "answer": [], "contexts": []}
             relev_data = {"question": [], "answer": [], "contexts": []}
 
             for case in cases:
-                # Generate answer using LLM with contexts
                 contexts = case.get("expected_contexts", [])
-                context_text = "\n".join(contexts)
-
                 if self.lm_client:
                     answer = await self._generate_answer(case["query"], contexts)
                 else:
@@ -387,61 +368,44 @@ class BenchmarkRunner:
                     relev_data["answer"].append(answer)
                     relev_data["contexts"].append(contexts)
 
-            # Run Faithfulness evaluation
             if faith_data["question"]:
-                try:
-                    faith_result = evaluate(
-                        faith_data,
-                        metrics=[Faithfulness()],
-                    )
-                    faith_score = faith_result["faithfulness"]
-                    if isinstance(faith_score, (list, tuple)):
-                        faith_score = sum(faith_score) / len(faith_score)
-                except Exception as e:
-                    logger.error(f"RAGAS Faithfulness evaluation failed: {e}")
-                    faith_score = 0.0
-
+                scores = [
+                    faithfulness(a, c)
+                    for a, c in zip(faith_data["answer"], faith_data["contexts"])
+                ]
+                faith_score = sum(scores) / len(scores) if scores else 0.0
                 self._add_result(run, BenchmarkResult(
-                    test_id="quality_ragas_faithfulness",
+                    test_id="quality_faithfulness",
                     category="quality",
                     test_case="faithfulness",
-                    metric="ragas_faithfulness",
+                    metric="faithfulness",
                     value=round(faith_score, 3),
-                    threshold=QUALITY_THRESHOLDS["ragas_faithfulness"],
-                    passed=faith_score >= QUALITY_THRESHOLDS["ragas_faithfulness"],
+                    threshold=QUALITY_THRESHOLDS["faithfulness"],
+                    passed=faith_score >= QUALITY_THRESHOLDS["faithfulness"],
                 ))
 
-            # Run AnswerRelevancy evaluation
             if relev_data["question"]:
-                try:
-                    relev_result = evaluate(
-                        relev_data,
-                        metrics=[AnswerRelevancy()],
-                    )
-                    relev_score = relev_result["answer_relevancy"]
-                    if isinstance(relev_score, (list, tuple)):
-                        relev_score = sum(relev_score) / len(relev_score)
-                except Exception as e:
-                    logger.error(f"RAGAS AnswerRelevancy evaluation failed: {e}")
-                    relev_score = 0.0
-
+                scores = [
+                    answer_relevancy(q, a)
+                    for q, a in zip(relev_data["question"], relev_data["answer"])
+                ]
+                relev_score = sum(scores) / len(scores) if scores else 0.0
                 self._add_result(run, BenchmarkResult(
-                    test_id="quality_ragas_relevancy",
+                    test_id="quality_answer_relevancy",
                     category="quality",
                     test_case="relevancy",
-                    metric="ragas_relevancy",
+                    metric="answer_relevancy",
                     value=round(relev_score, 3),
-                    threshold=QUALITY_THRESHOLDS["ragas_relevancy"],
-                    passed=relev_score >= QUALITY_THRESHOLDS["ragas_relevancy"],
+                    threshold=QUALITY_THRESHOLDS["answer_relevancy"],
+                    passed=relev_score >= QUALITY_THRESHOLDS["answer_relevancy"],
                 ))
 
         except Exception as e:
-            logger.error(f"RAGAS evaluation failed: {e}")
-            # Fallback to stub results
-            await self._run_quality_fallback(run, cases, "ragas_error")
+            logger.error(f"Quality evaluation failed: {e}")
+            await self._run_quality_fallback(run, cases, "eval_error")
 
     async def _run_quality_fallback(self, run: BenchmarkRun, cases: list[dict], metric_type: str):
-        """Fallback quality scoring when RAGAS is unavailable."""
+        """Fallback quality scoring when evaluator is unavailable."""
         for case in cases:
             # Simple heuristic: check if ground truth keywords appear in answer
             contexts = case.get("expected_contexts", [])
@@ -459,8 +423,7 @@ class BenchmarkRunner:
             score = min(1.0, overlap * 1.5)  # Scale up slightly
 
             threshold = QUALITY_THRESHOLDS.get(
-                f"ragas_{metric_type}" if metric_type in ("faithfulness", "relevancy") else metric_type,
-                QUALITY_THRESHOLDS["ragas_faithfulness"]
+                metric_type, QUALITY_THRESHOLDS["faithfulness"]
             )
 
             self._add_result(run, BenchmarkResult(
@@ -504,7 +467,7 @@ class BenchmarkRunner:
         answer = await self._generate_answer(case["query"], contexts)
 
         # Check if answer contradicts ground truth (simple heuristic)
-        # In production, this would use RAGAS ContextRelevance or similar
+        # Simple heuristic: if >30% of answer words are not in context/ground truth
         gt_words = set(ground_truth.lower().split())
         ans_words = set(answer.lower().split())
 

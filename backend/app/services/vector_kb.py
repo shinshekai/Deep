@@ -17,6 +17,8 @@ unavailable for query embedding, methods degrade gracefully to [].
 
 import json
 import logging
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +45,10 @@ class VectorKBService:
     ):
         self.kb_base = kb_base
         self.lm_client = lm_client
+        # LRU cache for loaded vectors: {kb_name: (timestamp, embeddings, chunks)}
+        self._vector_cache: OrderedDict[str, tuple[float, object, list]] = OrderedDict()
+        self._cache_max = 8       # max KBs cached
+        self._cache_ttl = 300.0   # seconds
 
     # ── Storage ──────────────────────────────────────────────────────────────
 
@@ -81,10 +87,18 @@ class VectorKBService:
         meta_path = vec_dir / f"{doc_id}_metadata.json"
 
         try:
+            # Save vectors and metadata. Use atomic writes where possible:
+            # write metadata to a temp file first, then os.replace. For numpy
+            # .npy files, direct write is used (numpy handles its own atomicity
+            # via file creation flags on most platforms).
+            meta_tmp = meta_path.with_suffix(".json.tmp")
+            meta_tmp.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
             np.save(str(npy_path), embeddings.astype(np.float32))
-            meta_path.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
+            import os
+            os.replace(str(meta_tmp), str(meta_path))
             count = len(embeddings)
             logger.info(f"Stored {count} vectors for {kb_name}/{doc_id}")
+            self._vector_cache.pop(kb_name, None)
             return count
         except Exception as e:
             logger.error(f"store_vectors failed for {doc_id}: {e}")
@@ -104,6 +118,7 @@ class VectorKBService:
 
         if removed:
             logger.info(f"Deleted vector data for {kb_name}/{doc_id}")
+            self._vector_cache.pop(kb_name, None)
         return removed
 
     # ── Loading ───────────────────────────────────────────────────────────────
@@ -111,9 +126,23 @@ class VectorKBService:
     def _load_all_vectors(self, kb_name: str):
         """Load all embeddings + metadata across every doc in a KB.
 
+        Uses an in-memory LRU cache (TTL-based) to avoid re-reading from
+        disk on repeated queries against the same knowledge base.
+
         Returns:
             (embeddings: np.ndarray | None, chunks: list[dict])
         """
+        # Check cache
+        now = time.monotonic()
+        if kb_name in self._vector_cache:
+            ts, emb, chunks = self._vector_cache[kb_name]
+            if now - ts < self._cache_ttl:
+                self._vector_cache.move_to_end(kb_name)
+                logger.debug(f"Cache hit for KB '{kb_name}'")
+                return emb, chunks
+            else:
+                del self._vector_cache[kb_name]
+
         try:
             import numpy as np  # noqa: PLC0415
         except ImportError:
@@ -147,6 +176,14 @@ class VectorKBService:
             return None, []
 
         combined = np.concatenate(all_embeddings, axis=0).astype(np.float32)
+
+        # Store in cache
+        self._vector_cache[kb_name] = (now, combined, all_chunks)
+        self._vector_cache.move_to_end(kb_name)
+        while len(self._vector_cache) > self._cache_max:
+            self._vector_cache.popitem(last=False)
+        logger.debug(f"Cached vectors for KB '{kb_name}' ({len(combined)} vectors)")
+
         return combined, all_chunks
 
     # ── Search ────────────────────────────────────────────────────────────────

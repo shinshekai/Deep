@@ -1,0 +1,25 @@
+# Backend .dockerignore
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+.coverage
+coverage.json
+htmlcov/
+reports/
+data/
+tests/
+turboquant_plus/
+udip_backend.egg-info/
+*.egg-info/
+docs/
+reference/
+test_documents/
+.codex/
+.agents/
+.claude/

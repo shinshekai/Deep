@@ -18,6 +18,7 @@ from app.services.complexity_scorer import score_query_complexity
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
 from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+from app import state
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,8 @@ async def run_solve_pipeline(
     model_manager: ModelManager,
     session_id: str,
     ws_send,
+    device_id: str = "default",
+    memory_context: str = "",
 ):
     """Execute the dual-loop solve pipeline and stream frames to WebSocket."""
     start_time = time.time()
@@ -70,7 +73,7 @@ async def run_solve_pipeline(
       from app.state import vram_monitor, get_metrics
       free_vram_mb = float("inf")
       try:
-          vram_status = await vram_monitor.poll_once()
+          vram_status = await state.vram_monitor.poll_once()
           total_mb = vram_status.get("vram_total_mb", 0)
           used_mb = vram_status.get("vram_used_mb", 0)
           free_vram_mb = (total_mb - used_mb) if total_mb > 0 else float("inf")
@@ -106,7 +109,7 @@ async def run_solve_pipeline(
       logger.info(f"Solve session {session_id}: score={score}, tier={target_tier}, mode={mode}, vram_free={free_vram_mb:.0f}MB, pages={doc_pages}")
 
       # ── Step 2: Find the best available model ──
-      model_id = await model_manager.get_best_available_model() or "Qwen3-1.7B-Q4_K_M"
+      model_id = await model_manager.get_best_available_model(target_tier) or "Qwen3-1.7B-Q4_K_M"
       add_event("model_selected", {"model_id": model_id})
 
       # ── Step 3: Run the dual-loop ──
@@ -120,6 +123,7 @@ async def run_solve_pipeline(
               model_id=model_id,
               session_id=session_id,
               ws_send=ws_send,
+              memory_context=memory_context,
           )
 
           if full_answer is None:
@@ -153,6 +157,18 @@ async def run_solve_pipeline(
           })
           model_manager.on_query_start(model_id)
 
+          if state.memory_service:
+              from app.services.fact_extractor import extract_and_store_facts
+              asyncio.create_task(extract_and_store_facts(
+                  device_id=device_id, query=query, answer=full_answer or "",
+                  source_id=session_id, lm_client=lm_client, memory_service=state.memory_service,
+              ))
+              asyncio.create_task(state.memory_service.store_episode(
+                  device_id=device_id, query=query, answer=full_answer or "",
+                  agents=["investigate", "note", "plan", "solve", "check", "format"],
+                  model_used=model_id, session_type="solve",
+              ))
+
       except Exception as e:
           logger.error(f"Solve pipeline error: {e}", exc_info=True)
           await ws_send({
@@ -171,6 +187,7 @@ async def _run_dual_loop(
     model_id: str,
     session_id: str,
     ws_send,
+    memory_context: str = "",
 ) -> tuple[str | None, str]:
     """Run Analysis Loop + Solve Loop, streaming frames. Returns (final_answer, transcript)."""
 
@@ -205,8 +222,10 @@ async def _run_dual_loop(
                     tool_context += f"--- Chunk {i+1} ---\n{content}\n\n"
         
         user_prompt = query
+        if memory_context:
+            user_prompt = f"{memory_context}\n\nOriginal query: {query}"
         if tool_context:
-            user_prompt = f"Original query: {query}\n\n{tool_context}"
+            user_prompt += f"\n\n{tool_context}"
             
         messages = [
             {"role": "system", "content": AGENT_PROMPTS[agent_key]},
@@ -240,8 +259,13 @@ async def _run_dual_loop(
     for agent_key, agent_label in solve_steps:
         # Build messages with accumulated context
         user_prompt = query
+        if memory_context:
+            user_prompt = f"{memory_context}\n\nOriginal query: {query}"
         if agent_key in ("solve", "check", "format") and context_summary:
-            user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
+            if memory_context:
+                user_prompt = f"{memory_context}\n\nContext from analysis: {context_summary}\n\nOriginal query: {query}"
+            else:
+                user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
 
         messages = [
             {"role": "system", "content": AGENT_PROMPTS[agent_key]},

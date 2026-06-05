@@ -37,16 +37,16 @@ describe("GlobalResourceMonitor component", () => {
     render(<GlobalResourceMonitor />);
     
     // Total VRAM
-    expect(screen.getByText("24,000")).toBeInTheDocument();
+    expect(screen.getByText(/23\.4\s*GB/)).toBeInTheDocument();
     // Used VRAM
-    expect(screen.getByText("8,000")).toBeInTheDocument();
+    expect(screen.getByText(/7\.8\s*GB/)).toBeInTheDocument();
     // Free VRAM
-    expect(screen.getByText("16,000")).toBeInTheDocument();
+    expect(screen.getByText(/15\.6\s*GB/)).toBeInTheDocument();
     
     // Active models
     expect(screen.getByText(/Qwen3-1.7B/)).toBeInTheDocument();
     
-    // Pressure indicator
-    expect(screen.getByText(/GREEN — 33.3% — < 70% — Normal/i)).toBeInTheDocument();
+    // Pressure indicator (Math.round formats 33.3 to 33)
+    expect(screen.getByText(/GREEN\s*—\s*33%\s*—\s*<\s*70%\s*—\s*Normal/i)).toBeInTheDocument();
   });
 });

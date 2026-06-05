@@ -184,13 +184,15 @@ def _check_hardcoded_credentials(report: ValidationReport) -> None:
 def _check_cors_configuration(report: ValidationReport) -> None:
     """Verify CORS is configured correctly for local-first app."""
     main_path = _APP_DIR / "main.py"
+    cors_path = _APP_DIR / "middleware" / "cors.py"
     if not main_path.exists():
         return
 
     content = main_path.read_text(encoding="utf-8")
+    cors_content = cors_path.read_text(encoding="utf-8") if cors_path.exists() else ""
 
-    has_cors = "CORSMiddleware" in content
-    has_wildcard = 'allow_origins=["*"]' in content or "allow_origins=['*']" in content
+    has_cors = "CORSMiddleware" in content or "CORSMiddleware" in cors_content
+    has_wildcard = 'allow_origins=["*"]' in content or "allow_origins=['*']" in content or 'allow_origins=["*"]' in cors_content or "allow_origins=['*']" in cors_content
 
     report.add(ValidationResult(
         check_id="CFG-030",

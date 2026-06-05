@@ -1,4 +1,6 @@
-const API_BASE = "http://localhost:8001";
+import { API_BASE_URL, secureFetch } from "./config";
+
+const API_BASE = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 export interface UploadResult {
   task_id: string;
@@ -47,7 +49,7 @@ export async function uploadDocument(
     form.append("chunk_size", String(chunkSize));
     form.append("chunk_overlap", String(chunkOverlap));
 
-    const res = await fetch(`${API_BASE}/api/v1/knowledge/upload`, {
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/upload`, {
       method: "POST",
       body: form,
     });
@@ -61,7 +63,7 @@ export async function uploadDocument(
 /** GET /api/v1/knowledge/tasks/{task_id} — poll upload progress */
 export async function pollUploadTask(taskId: string): Promise<UploadTask | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/knowledge/tasks/${taskId}`);
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/tasks/${taskId}`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -72,7 +74,7 @@ export async function pollUploadTask(taskId: string): Promise<UploadTask | null>
 /** GET /api/v1/knowledge/bases — list all knowledge bases */
 export async function fetchKnowledgeBases(): Promise<KnowledgeBase[] | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/knowledge/bases`);
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/bases`);
     if (!res.ok) return null;
     const data = await res.json();
     return Array.isArray(data) ? data : data.bases ?? null;
@@ -81,10 +83,26 @@ export async function fetchKnowledgeBases(): Promise<KnowledgeBase[] | null> {
   }
 }
 
+/** POST /api/v1/knowledge/bases — create a new KB */
+export async function createKnowledgeBase(kbName: string): Promise<KnowledgeBase | null> {
+  try {
+    const form = new FormData();
+    form.append("kb_name", kbName);
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/bases`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 /** GET /api/v1/knowledge/bases/{kb_name} — get KB details */
 export async function fetchKnowledgeBase(kbName: string): Promise<KnowledgeBase | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/knowledge/bases/${encodeURIComponent(kbName)}`);
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/bases/${encodeURIComponent(kbName)}`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -95,7 +113,7 @@ export async function fetchKnowledgeBase(kbName: string): Promise<KnowledgeBase 
 /** DELETE /api/v1/knowledge/bases/{kb_name} — delete a KB */
 export async function deleteKnowledgeBase(kbName: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/knowledge/bases/${encodeURIComponent(kbName)}`, {
+    const res = await secureFetch(`${API_BASE}/api/v1/knowledge/bases/${encodeURIComponent(kbName)}`, {
       method: "DELETE",
     });
     return res.ok;
@@ -110,7 +128,7 @@ export async function fetchPageIndexTree(
   docId: string
 ): Promise<PageIndexTree | null> {
   try {
-    const res = await fetch(
+    const res = await secureFetch(
       `${API_BASE}/api/v1/knowledge/bases/${encodeURIComponent(kbName)}/pageindex/${encodeURIComponent(docId)}`
     );
     if (!res.ok) return null;

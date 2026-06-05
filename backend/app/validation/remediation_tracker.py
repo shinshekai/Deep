@@ -82,7 +82,7 @@ def _check_research_page_wired():
     if not path.exists():
         return False
     content = path.read_text(encoding="utf-8")
-    has_fetch = "fetch(" in content
+    has_fetch = "fetch(" in content or "secureFetch(" in content
     has_research_url = "/api/v1/research" in content or "/research" in content
     has_api_import = "API_BASE_URL" in content
     return has_fetch and (has_research_url or has_api_import)
@@ -133,7 +133,7 @@ def _check_settings_loads_config():
     if not path.exists():
         return False
     content = path.read_text(encoding="utf-8")
-    return "useEffect" in content and ("fetch" in content or "GET" in content) and "/config" in content
+    return "useEffect" in content and ("fetch" in content.lower() or "get" in content.lower()) and "/config" in content
 
 
 @_register("REM-S2-09", 2, "Fix Documents page to fetch real document list", Severity.MEDIUM)

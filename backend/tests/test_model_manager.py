@@ -72,12 +72,39 @@ async def test_handle_pressure_red():
 async def test_get_best_available_model():
     mgr = ModelManager(MagicMock())
     mgr._loaded_models = {
+        "qwen/qwen3.6-35b-a3b": {"tier": 3},
         "nvidia/nemotron-3-nano-4b": {"tier": 2},
         "liquid/lfm2.5-1.2b": {"tier": 1},
     }
     
-    # From FALLBACK_CASCADE, the best one loaded should be nvidia/nemotron-3-nano-4b
-    assert await mgr.get_best_available_model() == "nvidia/nemotron-3-nano-4b"
+    # Safety default: without explicit selection, prefer the smallest loaded model.
+    assert await mgr.get_best_available_model() == "liquid/lfm2.5-1.2b"
+
+@pytest.mark.asyncio
+async def test_get_best_available_model_prefers_active_selection():
+    mgr = ModelManager(MagicMock())
+    mgr.lm_client.load_model = AsyncMock(return_value=True)
+    mgr._loaded_models = {
+        "qwen/qwen3.6-35b-a3b": {"tier": 3},
+        "nvidia/nemotron-3-nano-4b": {"tier": 2},
+    }
+    mgr.set_active_selection("local", "lm_studio", "nvidia/nemotron-3-nano-4b")
+
+    assert await mgr.get_best_available_model(2) == "nvidia/nemotron-3-nano-4b"
+
+@pytest.mark.asyncio
+async def test_get_model_for_tier_uses_active_selection_instead_of_auto_loading_t3():
+    mgr = ModelManager(MagicMock())
+    mgr.lm_client.load_model = AsyncMock(return_value=True)
+    mgr.set_active_selection("local", "lm_studio", "nvidia/nemotron-3-nano-4b")
+
+    assert await mgr.get_model_for_tier(3) == "nvidia/nemotron-3-nano-4b"
+    mgr.lm_client.load_model.assert_called_once_with(
+        "nvidia/nemotron-3-nano-4b",
+        cache_type_k="q8_0",
+        cache_type_v="turbo4",
+    )
+    assert "qwen/qwen3.6-35b-a3b" not in mgr._loaded_models
 
 @pytest.mark.asyncio
 async def test_get_best_available_model_none():
@@ -157,3 +184,31 @@ def test_get_status():
     deepseek_info = next((s for s in status if s["id"] == "deepseek/deepseek-r1-0528-qwen3-8b"), None)
     assert deepseek_info is not None
     assert deepseek_info["status"] == "unloaded"
+
+
+@pytest.mark.asyncio
+async def test_independent_tier_selections():
+    mgr = ModelManager(MagicMock())
+    mgr.lm_client.load_model = AsyncMock(return_value=True)
+
+    # Set separate selections for each tier
+    mgr.set_active_selection("T1", "local", "lm_studio", "liquid/lfm2.5-1.2b")
+    mgr.set_active_selection("T2", "local", "lm_studio", "nvidia/nemotron-3-nano-4b")
+    mgr.set_active_selection("T3", "local", "lm_studio", "qwen/qwen3.6-35b-a3b")
+
+    selections = mgr.get_active_selections()
+    assert selections["T1"]["model_id"] == "liquid/lfm2.5-1.2b"
+    assert selections["T2"]["model_id"] == "nvidia/nemotron-3-nano-4b"
+    assert selections["T3"]["model_id"] == "qwen/qwen3.6-35b-a3b"
+
+    # Verify that get_model_for_tier resolves the correct model
+    assert await mgr.get_model_for_tier(1) == "liquid/lfm2.5-1.2b"
+    assert await mgr.get_model_for_tier(2) == "nvidia/nemotron-3-nano-4b"
+    assert await mgr.get_model_for_tier(3) == "qwen/qwen3.6-35b-a3b"
+
+    # Clear T2 selection and check
+    mgr.clear_active_selection("T2")
+    selections = mgr.get_active_selections()
+    assert selections["T1"] is not None
+    assert selections["T2"] is None
+    assert selections["T3"] is not None

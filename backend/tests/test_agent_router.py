@@ -26,7 +26,7 @@ def test_start_research():
     mock_dr = MagicMock()
     mock_dr.start_research = AsyncMock(return_value="session_123")
 
-    with patch("app.routers.agent.deep_research_service", mock_dr):
+    with patch("app.state.deep_research_service", mock_dr):
         response = client.post("/api/v1/research", json={
             "kb_name": "test_kb",
             "query": "What is machine learning?",
@@ -50,7 +50,7 @@ def test_get_research_status():
         "final_report": "Research complete."
     })
 
-    with patch("app.routers.agent.deep_research_service", mock_dr):
+    with patch("app.state.deep_research_service", mock_dr):
         response = client.get("/api/v1/research/session_123")
 
     assert response.status_code == 200
@@ -66,7 +66,7 @@ def test_get_research_status_not_found():
     mock_dr = MagicMock()
     mock_dr.get_status = MagicMock(side_effect=ValueError("not found"))
 
-    with patch("app.routers.agent.deep_research_service", mock_dr):
+    with patch("app.state.deep_research_service", mock_dr):
         response = client.get("/api/v1/research/nonexistent")
 
     assert response.status_code == 404
@@ -79,16 +79,16 @@ def test_generate_questions():
     app = create_test_app()
     client = TestClient(app)
 
-    with patch("app.routers.agent.lm_client") as mock_lm:
+    # conftest already mocks app.state.lm_client; override stream_chat_completion
+    with patch("app.state.lm_client") as mock_lm:
         mock_lm.stream_chat_completion = AsyncMock(return_value={
             "content": '["Q1?", "Q2?", "Q3?"]'
         })
         mock_lm.check_health = AsyncMock(return_value=True)
-        with patch("app.state.lm_client", mock_lm):
-            response = client.post("/api/v1/questions/generate", json={
-                "kb_name": "test_kb",
-                "topic": "AI basics",
-            })
+        response = client.post("/api/v1/questions/generate", json={
+            "kb_name": "test_kb",
+            "topic": "AI basics",
+        })
 
     assert response.status_code == 200
 
@@ -139,7 +139,7 @@ def test_cowriter_edit():
     app = create_test_app()
     client = TestClient(app)
 
-    with patch("app.routers.agent.lm_client") as mock_lm:
+    with patch("app.state.lm_client") as mock_lm:
         mock_lm.stream_chat_completion = AsyncMock(return_value={
             "content": "Shortened version."
         })

@@ -334,17 +334,24 @@ async def test_image_extractor_handles_import_error():
 async def test_image_extractor_handles_corrupt_image():
     """Test image OCR returns None on non-image file."""
     from app.services.document_processor import extract_text_from_image
+    import asyncio
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         f.write(b"not an image at all")
         tmp_path = Path(f.name)
 
+    # delete=False above; manually delete after async call completes
     try:
         result = await extract_text_from_image(tmp_path)
         # Should return None (import error or processing error)
         assert result is None
     finally:
-        tmp_path.unlink(missing_ok=True)
+        import time
+        time.sleep(0.05)  # Let any file handles release on Windows
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass  # Windows: file still held by async worker, safe to ignore
 
 
 # ── 2.10 Code file extractor (.py/.js etc.) ─────────────────────────────────

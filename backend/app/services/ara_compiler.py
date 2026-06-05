@@ -153,12 +153,12 @@ class ARACompiler:
     async def compile(
         self,
         doc_id: str,
-        text: str,
+        text: str | dict,
         model_id: str = "Qwen3-1.7B-Q4_K_M",
         title: str = "",
     ) -> ARArtifact:
         """Compile text into an ARA artifact using the 4-stage epistemic protocol.
-        
+
         Stages:
           1. Semantic Deconstruction — extract raw knowledge atoms
           2. Cognitive Mapping — map to claims, concepts, experiments
@@ -166,7 +166,13 @@ class ARACompiler:
           4. Exploration Graph — reconstruct the research DAG
         """
         logger.info(f"ARA compilation started for doc {doc_id}")
-        
+
+        # Normalize input — extract_text returns dict, but compile expects string
+        if isinstance(text, dict):
+            text = text.get("content", "") or ""
+        elif not isinstance(text, str):
+            text = str(text)
+
         # Truncate to reasonable context for local models
         text_chunk = text[:8000]
 
@@ -315,7 +321,7 @@ class ARACompiler:
 
     def persist(self, artifact: ARArtifact, base_path: Path) -> Path:
         """Persist an ARA artifact to the filesystem in the ARA directory structure.
-        
+
         Creates:
           {base_path}/ara/{doc_id}/
             ├── PAPER.md           # ~200-token manifest
@@ -327,41 +333,53 @@ class ARACompiler:
             │   └── heuristics.json
             └── trace/
                 └── exploration.json
+
+        Each write is best-effort: an OSError (disk full, permission
+        denied, etc.) on one file is logged but does not abort the
+        other writes. Returns the directory path on success; if the
+        top-level directory cannot be created, raises ``OSError`` so
+        the caller knows nothing was persisted.
         """
         ara_dir = base_path / "ara" / artifact.doc_id
-        (ara_dir / "logic").mkdir(parents=True, exist_ok=True)
-        (ara_dir / "solution").mkdir(parents=True, exist_ok=True)
-        (ara_dir / "trace").mkdir(parents=True, exist_ok=True)
+        try:
+            (ara_dir / "logic").mkdir(parents=True, exist_ok=True)
+            (ara_dir / "solution").mkdir(parents=True, exist_ok=True)
+            (ara_dir / "trace").mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.error(f"Failed to create ARA directories under {ara_dir}: {e}")
+            raise
+
+        # Each write is isolated so one failure doesn't lose everything.
+        def _safe_write(path: Path, content: str) -> None:
+            try:
+                path.write_text(content, encoding="utf-8")
+            except OSError as e:
+                logger.error(f"Failed to write ARA file {path}: {e}")
 
         # PAPER.md — progressive disclosure manifest
-        (ara_dir / "PAPER.md").write_text(
-            f"# {artifact.title}\n\n{artifact.summary}\n",
-            encoding="utf-8",
-        )
+        _safe_write(ara_dir / "PAPER.md", f"# {artifact.title}\n\n{artifact.summary}\n")
 
         # Logic layer
-        (ara_dir / "logic" / "claims.json").write_text(
+        _safe_write(
+            ara_dir / "logic" / "claims.json",
             json.dumps([asdict(c) for c in artifact.claims], indent=2),
-            encoding="utf-8",
         )
-        (ara_dir / "logic" / "concepts.json").write_text(
+        _safe_write(
+            ara_dir / "logic" / "concepts.json",
             json.dumps([asdict(c) for c in artifact.concepts], indent=2),
-            encoding="utf-8",
         )
 
         # Solution layer
-        (ara_dir / "solution" / "architecture.md").write_text(
-            artifact.architecture, encoding="utf-8",
-        )
-        (ara_dir / "solution" / "heuristics.json").write_text(
+        _safe_write(ara_dir / "solution" / "architecture.md", artifact.architecture)
+        _safe_write(
+            ara_dir / "solution" / "heuristics.json",
             json.dumps([asdict(h) for h in artifact.heuristics], indent=2),
-            encoding="utf-8",
         )
 
         # Trace layer
-        (ara_dir / "trace" / "exploration.json").write_text(
+        _safe_write(
+            ara_dir / "trace" / "exploration.json",
             json.dumps([asdict(n) for n in artifact.exploration_nodes], indent=2),
-            encoding="utf-8",
         )
 
         logger.info(f"ARA artifact persisted to {ara_dir}")
@@ -394,8 +412,11 @@ class ARACompiler:
             return None
 
         try:
-            summary = (ara_dir / "PAPER.md").read_text(encoding="utf-8")
-            title = summary.split("\n")[0].lstrip("# ").strip() if summary else doc_id
+            paper_md = (ara_dir / "PAPER.md").read_text(encoding="utf-8")
+            lines = paper_md.split("\n")
+            title = lines[0].lstrip("# ").strip() if lines else doc_id
+            # Skip title line and join the rest as the summary
+            summary = "\n".join(lines[2:]) if len(lines) > 2 else ""
 
             claims_data = json.loads(
                 (ara_dir / "logic" / "claims.json").read_text(encoding="utf-8")

@@ -1,5 +1,6 @@
 """Document processor — extract text from PDF/TXT/MD files."""
 
+import io
 import logging
 import os
 from pathlib import Path
@@ -8,17 +9,44 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-async def extract_text_from_pdf(file_path: Path) -> Optional[str]:
-    """Extract text and page boundaries from PDF using PyMuPDF."""
+async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
+    """Extract text and page boundaries from PDF using PyMuPDF.
+
+    For image-only (scanned) pages where PyMuPDF returns no text,
+    falls back to OCR via pytesseract on embedded images.
+    """
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(file_path)
         pages = []
         for i in range(len(doc)):
             page = doc[i]
+            text = page.get_text("text", flags=0).strip()
+            # Fallback to OCR on image-only pages (scanned documents)
+            if not text:
+                images = page.get_images(full=True)
+                if images:
+                    try:
+                        import tempfile
+                        from app.services.ocr_engine import get_ocr_engine
+
+                        xref = images[0][0]
+                        base_image = doc.extract_image(xref)
+                        img_bytes = base_image["image"]
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                            tmp.write(img_bytes)
+                            tmp_path = Path(tmp.name)
+                        try:
+                            engine = get_ocr_engine()
+                            ocr_results = engine.recognize(tmp_path)
+                            text = " ".join(r["text"] for r in ocr_results)
+                        finally:
+                            tmp_path.unlink(missing_ok=True)
+                    except Exception as ocr_err:
+                        logger.warning(f"OCR failed for page {i + 1}: {ocr_err}")
             pages.append({
                 "page_num": i + 1,
-                "text": page.get_text(),
+                "text": text.strip() if isinstance(text, str) else "",
                 "width": page.rect.width,
                 "height": page.rect.height,
             })
@@ -67,27 +95,17 @@ async def extract_text_from_docx(file_path: Path) -> Optional[str]:
         return None
 
 async def extract_text_from_image(file_path: Path) -> Optional[str]:
-    """Extract text from images using OCR (easyocr/pytesseract)."""
+    """Extract text from images using OCR via the ocr_engine abstraction."""
     try:
-        from PIL import Image
-        import pytesseract
-        # Try pytesseract first
-        return pytesseract.image_to_string(Image.open(file_path))
-    except ImportError:
-        logger.warning("pytesseract/Pillow not installed")
-        return None
+        from app.services.ocr_engine import get_ocr_engine
+
+        engine = get_ocr_engine()
+        results = engine.recognize(file_path)
+        text = "\n".join(r["text"] for r in results)
+        return text or None
     except Exception as e:
-        # If tesseract is not in PATH, it throws TesseractNotFoundError
-        logger.info(f"pytesseract failed ({e}), trying easyocr fallback...")
-        try:
-            import easyocr
-            # Note: this will download models on first run
-            reader = easyocr.Reader(['en'], gpu=False) 
-            result = reader.readtext(str(file_path), detail=0)
-            return "\n".join(result)
-        except Exception as fallback_e:
-            logger.error(f"Image extraction failed entirely: {fallback_e}")
-            return None
+        logger.error(f"Image extraction failed: {e}")
+        return None
 
 async def extract_text_from_pptx(file_path: Path) -> Optional[str]:
     """Extract text from PowerPoint presentations."""

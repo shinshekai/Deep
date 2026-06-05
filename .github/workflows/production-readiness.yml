@@ -87,27 +87,17 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: backend
+        env:
+          UDIP_RATE_LIMIT: "10000/minute"
         run: |
           python -m pytest \
             --cov=app \
             --cov-report=json \
             --cov-report=term-missing \
             --cov-report=html \
-            --cov-fail-under=60 \
+            --cov-fail-under=80 \
             -v --tb=short \
             2>&1 | tee test-output.txt
-
-      - name: Check coverage threshold
-        working-directory: backend
-        run: |
-          python -c "
-          import json, sys
-          data = json.load(open('coverage.json'))
-          pct = data['totals']['percent_covered']
-          print(f'Coverage: {pct:.1f}%')
-          if pct < 80:
-              print(f'::warning::Backend coverage {pct:.1f}% is below 80% target')
-          "
 
       - name: Upload coverage report
         if: always()
@@ -138,17 +128,58 @@ jobs:
 
       - name: Type check
         working-directory: frontend
-        run: npx tsc --noEmit || true
+        run: npx tsc --noEmit
 
       - name: Lint
         working-directory: frontend
-        run: npm run lint || true
+        run: npm run lint
 
       - name: Build check
         working-directory: frontend
         run: npm run build
 
-  # ── Job 4: Full Validation (nightly / manual) ──────────────
+  # ── Job 4: Security Scanning ────────────────────────────────
+  security-scan:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install backend + audit tools
+        working-directory: backend
+        run: |
+          pip install -e ".[dev]"
+          pip install pip-audit
+
+      - name: Python dependency audit (pip-audit)
+        working-directory: backend
+        run: |
+          pip-audit --desc --output pip-audit-report.json --format json --strict
+          pip-audit --desc
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Node.js dependency audit (npm audit)
+        working-directory: frontend
+        run: |
+          npm audit --audit-level=high
+          echo "npm audit completed"
+
+  # ── Job 5: Full Validation (nightly / manual) ──────────────
   full-validation:
     name: Full Production Readiness
     runs-on: ubuntu-latest
@@ -197,7 +228,132 @@ jobs:
             full-validation-report.json
             weekly-report.md
 
-  # ── Job 5: Remediation Progress Gate ────────────────────────
+  # ── Job 6: Docker Image Build ──────────────────────────────
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-checks]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: |
+          docker build -t udip-backend:${{ github.sha }} -f backend/Dockerfile backend/
+          docker tag udip-backend:${{ github.sha }} udip-backend:latest
+
+      - name: Build frontend image
+        run: |
+          docker build -t udip-frontend:${{ github.sha }} -f frontend/Dockerfile frontend/
+          docker tag udip-frontend:${{ github.sha }} udip-frontend:latest
+
+      - name: Save Docker images
+        run: |
+          docker save udip-backend:${{ github.sha }} udip-backend:latest | gzip > udip-backend.tar.gz
+          docker save udip-frontend:${{ github.sha }} udip-frontend:latest | gzip > udip-frontend.tar.gz
+
+      - name: Upload Docker images
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: |
+            udip-backend.tar.gz
+            udip-frontend.tar.gz
+          retention-days: 7
+
+      - name: Trivy vulnerability scan (backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: udip-backend:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Trivy vulnerability scan (frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: udip-frontend:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Log in to container registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push backend image to GHCR
+        if: github.event_name == 'push'
+        run: |
+          docker tag udip-backend:${{ github.sha }} ghcr.io/${{ github.repository }}/udip-backend:${{ github.sha }}
+          docker tag udip-backend:${{ github.sha }} ghcr.io/${{ github.repository }}/udip-backend:latest
+          docker push ghcr.io/${{ github.repository }}/udip-backend:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/udip-backend:latest
+
+      - name: Push frontend image to GHCR
+        if: github.event_name == 'push'
+        run: |
+          docker tag udip-frontend:${{ github.sha }} ghcr.io/${{ github.repository }}/udip-frontend:${{ github.sha }}
+          docker tag udip-frontend:${{ github.sha }} ghcr.io/${{ github.repository }}/udip-frontend:latest
+          docker push ghcr.io/${{ github.repository }}/udip-frontend:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/udip-frontend:latest
+
+  # ── Job 7: Load Testing (nightly / manual) ─────────────────
+  load-test:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.full_suite == 'true'
+    needs: [docker-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Locust
+        run: pip install locust
+
+      - name: Start backend container
+        run: |
+          docker compose -f docker-compose.prod.yml up -d backend
+          sleep 10
+
+      - name: Run load test
+        run: |
+          locust -f tests/load/locustfile.py \
+            --headless \
+            -u 50 \
+            -r 10 \
+            --run-time 2m \
+            --host http://localhost:8000 \
+            --html load-test-report.html \
+            --csv load-test-results
+        env:
+          LOCUST_USERS: "50"
+          LOCUST_SPAWN_RATE: "10"
+
+      - name: Upload load test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-report
+          path: |
+            load-test-report.html
+            load-test-results_*.csv
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down
+
+  # ── Job 8: Remediation Progress Gate ────────────────────────
   remediation-gate:
     name: Remediation Progress
     runs-on: ubuntu-latest
@@ -248,3 +404,68 @@ jobs:
               print()
               print('::warning::Sprint 1 critical fixes are incomplete!')
           " >> $GITHUB_STEP_SUMMARY
+
+  # ── Job 8: SBOM Generation ───────────────────────────────────
+  sbom-generation:
+    name: SBOM Generation
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [backend-tests, frontend-checks]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install cyclonedx-bom
+        run: pip install cyclonedx-bom
+
+      - name: Generate Python SBOM
+        working-directory: backend
+        run: |
+          cyclonedx-py environment --output-file ../sbom-python.json --format json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Generate npm SBOM
+        working-directory: frontend
+        run: |
+          npx @cyclonedx/cyclonedx-npm --output-file ../sbom-node.json --json
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-reports
+          path: |
+            sbom-python.json
+            sbom-node.json
+
+  # ── Job 9: Conventional Commits Check ─────────────────────────
+  commit-lint:
+    name: Commit Message Lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check conventional commits
+        run: |
+          # Check if PR title follows conventional commits format
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,}"
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title '$PR_TITLE' does not follow Conventional Commits format."
+            echo "Expected: <type>(<optional scope>): <description>"
+            echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+            exit 1
+          fi
+          echo "PR title follows Conventional Commits format."

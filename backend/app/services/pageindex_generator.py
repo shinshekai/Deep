@@ -69,6 +69,14 @@ class PageIndexTreeGenerator:
 
         nodes_with_ranges = self._assign_page_ranges(pages, toc_nodes)
 
+        # For single-node fallback ("Document"), use full page range
+        if len(nodes_with_ranges) == 1 and nodes_with_ranges[0]["title"] == "Document":
+            total_pg = len(pages)
+            nodes_with_ranges[0]["page_start"] = 1
+            nodes_with_ranges[0]["page_end"] = total_pg
+            nodes_with_ranges[0]["start_index"] = 0
+            nodes_with_ranges[0]["end_index"] = sum(len(p.get("text", "")) for p in pages)
+
         # Concurrent summarization for performance
         results = await asyncio.gather(
             *(self._summarize_node(node, pages, model_id) for node in nodes_with_ranges),

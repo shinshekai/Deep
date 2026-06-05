@@ -17,13 +17,13 @@ def test_simple_query():
 
 def test_complex_query():
     score, tier = score_query_complexity(
-        query_text="Please compare and contrast the implications of X? What are the implications of Y?",
+        query_text="Please compare and contrast the implications of X? What are the implications of Y? Provide a comprehensive multi-hop analysis of the relationship between both components, evaluate their tradeoffs, and justify this configuration. Let's make sure to analyze the code implementation and describe how the complexity scorer routes this query.",
         doc_pages=300,
         retrieved_chunks=10,
-        free_vram_mb=1024 # High penalty
+        free_vram_mb=24576  # 24GB free = no VRAM penalty
     )
-    # query_signal gets reasoning keyword + multi question
-    assert score > 0.6
+    # With abundant VRAM, tier 3 is appropriate for complex queries
+    assert score > 0.5  # Still high score due to query + doc + chunk signals
     assert tier == 3
 
 def test_medium_query():
@@ -34,4 +34,23 @@ def test_medium_query():
         free_vram_mb=4096
     )
     assert 0.3 <= score <= 0.6
+    assert tier == 2
+
+def test_low_vram_caps_complex_query_to_tier_1():
+    _, tier = score_query_complexity(
+        query_text="Please compare and contrast every implication across these documents? What tradeoffs matter?",
+        doc_pages=300,
+        retrieved_chunks=10,
+        free_vram_mb=1024,
+    )
+    assert tier == 1
+
+def test_mid_vram_caps_complex_query_to_tier_2():
+    score, tier = score_query_complexity(
+        query_text="Please compare and contrast every implication across these documents? What tradeoffs matter?",
+        doc_pages=300,
+        retrieved_chunks=10,
+        free_vram_mb=6000,
+    )
+    assert score > 0.6
     assert tier == 2

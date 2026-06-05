@@ -46,6 +46,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </div>
           <button
             onClick={this.handleRetry}
+            aria-label="Try again"
             className="flex items-center gap-1.5 rounded-md bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-700"
           >
             <RefreshCw className="h-3 w-3" />

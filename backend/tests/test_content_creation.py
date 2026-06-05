@@ -74,9 +74,79 @@ async def test_ideagen_service(mock_lm_client, tmp_path):
     nb_service.notebooks_dir = str(tmp_path)
     nb = nb_service.create_notebook("Test NB")
     nb_service.add_note(nb["id"], "Note 1")
-    
+
     ig_service = IdeaGenService(lm_client=mock_lm_client, notebook_service=nb_service)
-    
+
     ideas = await ig_service.generate_ideas([nb["id"]])
     assert len(ideas) == 2
     assert ideas[0] == "Idea 1"
+
+
+# ── Day 9a: File I/O error handling ────────────────────────────────────────
+
+def test_get_notebook_raises_filenotfound(tmp_path):
+    """Missing notebook raises FileNotFoundError (router maps to 404)."""
+    service = NotebookService()
+    service.notebooks_dir = str(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        service.get_notebook("nb_does_not_exist")
+
+
+def test_get_notebook_raises_value_error_on_corruption(tmp_path):
+    """A notebook file with invalid JSON raises ValueError (router maps to 500)."""
+    service = NotebookService()
+    service.notebooks_dir = str(tmp_path)
+    bad_path = tmp_path / "nb_corrupt.json"
+    bad_path.write_text("{ this is not valid JSON", encoding="utf-8")
+    with pytest.raises(ValueError):
+        service.get_notebook("nb_corrupt")
+
+
+def test_list_notebooks_skips_corrupted_files(tmp_path):
+    """One corrupted notebook should not sink the whole list endpoint."""
+    service = NotebookService()
+    service.notebooks_dir = str(tmp_path)
+    good = service.create_notebook("Good")
+    (tmp_path / "nb_bad.json").write_text("not json", encoding="utf-8")
+    notebooks = service.list_notebooks()
+    assert len(notebooks) == 1
+    assert notebooks[0]["id"] == good["id"]
+
+
+def test_list_notebooks_handles_missing_directory(tmp_path, monkeypatch):
+    """If the notebooks directory disappears mid-flight, return [] rather than 500."""
+    service = NotebookService()
+    service.notebooks_dir = str(tmp_path)
+    # Replace listdir with one that raises FileNotFoundError
+    import os as _os
+    monkeypatch.setattr(_os, "listdir", lambda p: (_ for _ in ()).throw(FileNotFoundError()))
+    assert service.list_notebooks() == []
+
+
+def test_create_notebook_propagates_oserror(tmp_path, monkeypatch):
+    """If the underlying open() fails with PermissionError, the service
+    surfaces the OSError (router maps to 503) — doesn't swallow it."""
+    service = NotebookService()
+    service.notebooks_dir = str(tmp_path)
+    real_open = open
+
+    def failing_open(path, mode="r", *args, **kwargs):
+        if "w" in mode:
+            raise PermissionError("disk full")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", failing_open)
+    with pytest.raises(OSError):
+        service.create_notebook("Test")
+
+
+def test_router_add_note_404_for_missing_notebook():
+    """The router endpoint maps FileNotFoundError → 404, not 500."""
+    from fastapi.testclient import TestClient
+    from app.routers.agent import router as agent_router
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(agent_router)
+    client = TestClient(app)
+    resp = client.post("/notebooks/nb_nope/notes", json={"content": "x"})
+    assert resp.status_code == 404

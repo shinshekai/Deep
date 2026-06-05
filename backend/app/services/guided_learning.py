@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+import asyncio
 from typing import Dict, Any, List
 
 from app.services.lm_studio_client import LMStudioClient
@@ -100,6 +101,21 @@ class GuidedLearningService:
         }
         self._save_session(session_id, session_data)
 
+        # Memory: store learning episode and update profile
+        from app import state
+        if state.memory_service:
+            try:
+                await state.memory_service.store_episode(
+                    device_id="default", query=topic, answer="",
+                    agents=["locate", "interactive", "chat"],
+                    model_used=model_id, session_type="learning",
+                )
+                await state.memory_service.update_profile("default", {
+                    "type": "learning_started", "topic": topic, "kb_name": kb_name,
+                })
+            except Exception:
+                pass
+
         return session_data
 
     async def generate_interactive_page(self, session_id: str, point_index: int, model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
@@ -148,6 +164,18 @@ class GuidedLearningService:
         session_data["current_point_index"] = point_index
         self._save_session(session_id, session_data)
 
+        # Memory: record agent outcome
+        from app import state
+        if state.memory_service:
+            try:
+                await state.memory_service.record_agent_outcome(
+                    agent_type="learning", query_pattern=point_title[:100],
+                    strategy="interactive_generation", outcome_quality=0.7,
+                    model_used=model_id, device_id="default",
+                )
+            except Exception:
+                pass
+
         return html_content
 
     async def chat(self, session_id: str, point_index: int, user_message: str, model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
@@ -183,6 +211,19 @@ class GuidedLearningService:
         )
         
         answer = response.get("content", "I am unable to process that right now.")
+        
+        # Memory: extract learning facts
+        from app import state
+        if state.memory_service:
+            try:
+                from app.services.fact_extractor import extract_and_store_facts
+                asyncio.create_task(extract_and_store_facts(
+                    device_id="default", query=user_message, answer=answer,
+                    source_id=session_id, lm_client=self.lm_client,
+                    memory_service=state.memory_service,
+                ))
+            except Exception:
+                pass
         
         # Append assistant message
         session_data["chat_history"].append({"role": "assistant", "content": answer, "point_index": point_index})

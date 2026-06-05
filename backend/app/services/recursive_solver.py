@@ -155,26 +155,32 @@ class RecursiveSolver:
             convergence_threshold: Similarity threshold to stop early
             ws_send: Optional WebSocket callback for streaming
         """
+        from app.services.telemetry import trace_span
         start_time = time.time()
         
-        if pattern == "sequential":
-            result = await self._run_sequential(
-                query, context, model_id, max_rounds, convergence_threshold, ws_send
-            )
-        elif pattern == "mixture":
-            result = await self._run_mixture(
-                query, context, model_id, ws_send
-            )
-        elif pattern == "deliberation":
-            result = await self._run_deliberation(
-                query, context, model_id, max_rounds, convergence_threshold, ws_send
-            )
-        elif pattern == "distillation":
-            result = await self._run_distillation(
-                query, context, model_id, expert_model_id or model_id, max_rounds, ws_send
-            )
-        else:
-            raise ValueError(f"Unknown pattern: {pattern}")
+        with trace_span("recursive_solver.solve", {
+            "pattern": pattern,
+            "model_id": model_id,
+            "max_rounds": max_rounds,
+        }):
+            if pattern == "sequential":
+                result = await self._run_sequential(
+                    query, context, model_id, max_rounds, convergence_threshold, ws_send
+                )
+            elif pattern == "mixture":
+                result = await self._run_mixture(
+                    query, context, model_id, ws_send
+                )
+            elif pattern == "deliberation":
+                result = await self._run_deliberation(
+                    query, context, model_id, max_rounds, convergence_threshold, ws_send
+                )
+            elif pattern == "distillation":
+                result = await self._run_distillation(
+                    query, context, model_id, expert_model_id or model_id, max_rounds, ws_send
+                )
+            else:
+                raise ValueError(f"Unknown pattern: {pattern}")
 
         result.elapsed_seconds = round(time.time() - start_time, 2)
         return result

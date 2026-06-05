@@ -1,0 +1,12 @@
+{
+  "run_id": "bench_1777819128_b8254c",
+  "model": "qwen/qwen3.6-35b-a3b",
+  "category": "quality",
+  "status": "running",
+  "results": [],
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0
+  }
+}

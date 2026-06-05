@@ -14,7 +14,7 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Fallback cascade (CLAUDE.md Section 6.3)
+# Historical capability-first cascade. Do not use for implicit selection.
 FALLBACK_CASCADE = [
     "qwen/qwen3.6-35b-a3b",
     "google/gemma-4-26b-a4b",
@@ -23,6 +23,9 @@ FALLBACK_CASCADE = [
     "jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf",
     "liquid/lfm2.5-1.2b",
 ]
+
+# Safety-first fallback for laptop/consumer hardware.
+SAFE_FALLBACK_CASCADE = list(reversed(FALLBACK_CASCADE))
 
 TTL_DEFAULTS = {
     1: float("inf"),  # Always resident
@@ -59,31 +62,61 @@ class ModelManager:
     def __init__(self, lm_client):
         self.lm_client = lm_client
         self._loaded_models: dict = {}  # model_id -> {tier, loaded_at, last_used}
+        self._active_selections: dict[str, dict | None] = {"T1": None, "T2": None, "T3": None}
         self._settings = get_settings()
 
     @property
     def loaded_models(self) -> dict:
         return dict(self._loaded_models)
 
+    def set_active_selection(self, tier: str, provider_type: str, provider_id: str, model_id: Optional[str] = None) -> dict:
+        """Set the explicit user-selected model target for a specific tier (T1, T2, T3)."""
+        if model_id is None:
+            # 3-argument call: (provider_type, provider_id, model_id), default tier T3
+            model_id = provider_id
+            provider_id = provider_type
+            provider_type = tier
+            tier = "T3"
+            
+        if tier not in {"T1", "T2", "T3"}:
+            tier = "T3"
+            
+        self._active_selections[tier] = {
+            "provider_type": provider_type,
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "selected_at": time.time(),
+        }
+        return dict(self._active_selections[tier])
+
+    def clear_active_selection(self, tier: Optional[str] = None):
+        if tier:
+            if tier in self._active_selections:
+                self._active_selections[tier] = None
+        else:
+            self._active_selections = {"T1": None, "T2": None, "T3": None}
+
+    def get_active_selection(self) -> dict | None:
+        """Backward compatibility: return active generation target (T3)."""
+        return dict(self._active_selections["T3"]) if self._active_selections["T3"] else None
+
+    def get_active_selections(self) -> dict[str, dict | None]:
+        """Return full mapping of tier-specific active selections."""
+        return {k: (dict(v) if v else None) for k, v in self._active_selections.items()}
+
     async def get_model_for_tier(self, tier: int) -> Optional[str]:
         """Return the first available model for the given tier, loading it if necessary."""
+        selected = await self._get_selected_local_model(f"T{tier}")
+        if selected:
+            return selected
+
         candidates = MODEL_TIERS.get(tier, {}).get("models", [])
         for model_id in candidates:
             if model_id in self._loaded_models:
                 return model_id
-        
-        # None loaded, try to load the first candidate
-        if candidates:
-            target_model = candidates[0]
-            kv_config = self.get_kv_config(tier)
-            success = await self.lm_client.load_model(
-                target_model, 
-                cache_type_k=kv_config.get("cache_type_k"),
-                cache_type_v=kv_config.get("cache_type_v")
-            )
-            if success:
-                self._loaded_models[target_model] = {"tier": tier, "loaded_at": time.time(), "last_used": time.time()}
-                return target_model
+
+        # No implicit tier-based loading. Loading must come from an explicit
+        # user selection or the safety-first fallback path.
         return None
 
     def get_tier_for_model(self, model_id: str) -> int:
@@ -117,15 +150,36 @@ class ModelManager:
             return 2
         return 3
 
-    async def get_best_available_model(self) -> Optional[str]:
-        """Get best model considering VRAM pressure. Used for fallback cascade."""
-        for model_id in FALLBACK_CASCADE:
+    async def get_best_available_model(self, target_tier: int = 1) -> Optional[str]:
+        """Get selected or safest loaded model respecting the target tier.
+
+        FIX: Never try to load a model above target_tier - prevents overheating
+        on consumer hardware by respecting VRAM constraints.
+        """
+        # First, check if any model in the desired tier or below is already loaded
+        for tier_level in range(1, target_tier + 1):
+            for model_id, info in self._loaded_models.items():
+                if info["tier"] <= target_tier:
+                    return model_id
+
+        # Check explicit selections for tiers we can afford
+        for tier_name in ["T1", "T2", "T3"][:target_tier]:
+            selected = await self._get_selected_local_model(tier_name)
+            if selected:
+                tier = self.get_tier_for_model(selected)
+                if tier <= target_tier:
+                    return selected
+
+        # Try loading from safety cascade (smallest first), but respect target tier
+        # SAFE_FALLBACK_CASCADE is already in ascending order (smallest first)
+        for model_id in SAFE_FALLBACK_CASCADE:
+            tier = self.get_tier_for_model(model_id)
+            if tier > target_tier:
+                continue  # Skip models above our tier budget
+
             if model_id in self._loaded_models:
                 return model_id
-                
-        # If nothing loaded, try to load from cascade
-        for model_id in FALLBACK_CASCADE:
-            tier = self.get_tier_for_model(model_id)
+
             kv_config = self.get_kv_config(tier)
             success = await self.lm_client.load_model(
                 model_id,
@@ -135,6 +189,43 @@ class ModelManager:
             if success:
                 self._loaded_models[model_id] = {"tier": tier, "loaded_at": time.time(), "last_used": time.time()}
                 return model_id
+        return None
+
+    async def _get_selected_local_model(self, tier: str = "T3") -> Optional[str]:
+        """Return/load the explicitly selected local model for a specific tier when supported."""
+        selection = self._active_selections.get(tier)
+        if not selection or selection.get("provider_type") != "local":
+            return None
+
+        provider_id = selection.get("provider_id")
+        model_id = selection.get("model_id")
+        if not model_id:
+            return None
+
+        # The current LM client can execute OpenAI-compatible local runtimes.
+        if provider_id not in {"lm_studio", "llama_cpp", "vlm", "ollama"}:
+            return None
+
+        if provider_id != "lm_studio":
+            return model_id
+
+        if model_id in self._loaded_models:
+            return model_id
+
+        tier_num = self.get_tier_for_model(model_id) or int(tier[1])
+        kv_config = self.get_kv_config(tier_num)
+        success = await self.lm_client.load_model(
+            model_id,
+            cache_type_k=kv_config.get("cache_type_k"),
+            cache_type_v=kv_config.get("cache_type_v"),
+        )
+        if success:
+            self._loaded_models[model_id] = {
+                "tier": tier_num,
+                "loaded_at": time.time(),
+                "last_used": time.time(),
+            }
+            return model_id
         return None
 
     def on_query_start(self, model_id: str):

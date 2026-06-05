@@ -31,13 +31,21 @@ class DeepResearchService:
         path = self._get_session_path(session_id)
         if not os.path.exists(path):
             raise ValueError(f"Session {session_id} not found.")
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to load deep research session {session_id}: {e}")
+            raise
 
     def _save_session(self, session_id: str, data: Dict[str, Any]):
         path = self._get_session_path(session_id)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            logger.error(f"Failed to save deep research session {session_id}: {e}")
+            raise
 
     async def start_research(
         self, kb_name: str, query: str, mode: str = "parallel", retrieval_pipeline: str = "combined", model_id: str = "Qwen3-1.7B-Q4_K_M"
@@ -91,36 +99,98 @@ class DeepResearchService:
         }
         self._save_session(session_id, session_data)
 
+        from app import state
+        if state.memory_service:
+            try:
+                await state.memory_service.store_episode(
+                    device_id="default", query=query, answer="",
+                    agents=["decompose", "research", "note", "report"],
+                    model_used=model_id, session_type="research",
+                )
+            except Exception:
+                pass
+
         # 3. Kick off Phase 2 in the background
         task = asyncio.create_task(self._process_queue(session_id))
         self.active_tasks.add(task)
-        task.add_done_callback(self.active_tasks.discard)
+        # Update Prometheus gauge
+        try:
+            from app.services.metrics import DEEP_RESEARCH_ACTIVE
+            DEEP_RESEARCH_ACTIVE.set(len(self.active_tasks))
+        except Exception:
+            pass
+
+        def _on_done(t):
+            self.active_tasks.discard(t)
+            try:
+                from app.services.metrics import DEEP_RESEARCH_ACTIVE
+                DEEP_RESEARCH_ACTIVE.set(len(self.active_tasks))
+            except Exception:
+                pass
+
+        task.add_done_callback(_on_done)
+        # Also register with the app-level background task set so the
+        # lifespan shutdown handler can cancel and await it. This is
+        # a no-op if state isn't importable (e.g. in unit tests).
+        try:
+            from app import state as _state
+            _state.track_background_task(task)
+        except Exception:
+            pass
 
         return session_id
 
     async def _process_queue(self, session_id: str):
-        """Phase 2: Researching. Processes the subtopic queue."""
-        session_data = self._load_session(session_id)
-        mode = session_data.get("mode", "parallel")
-        queue = session_data["queue"]
+        """Phase 2: Researching. Processes the subtopic queue.
 
-        if mode == "parallel":
-            # Process up to 5 concurrently
-            sem = asyncio.Semaphore(5)
-            
-            async def bounded_research(subtopic):
-                async with sem:
-                    await self._research_subtopic(session_id, subtopic["id"])
+        Wraps the whole phase in a try/except so a fatal failure
+        (missing session, corrupt JSON, etc.) is recorded in the
+        session file as FAILED rather than disappearing into the
+        asyncio task graveyard — callers polling ``get_status``
+        would otherwise see the session stuck in RESEARCHING forever.
+        """
+        from app.services.telemetry import trace_span
+        try:
+            session_data = self._load_session(session_id)
+            mode = session_data.get("mode", "parallel")
+            queue = session_data["queue"]
 
-            tasks = [bounded_research(st) for st in queue]
-            await asyncio.gather(*tasks)
-        else:
-            # Series
-            for st in queue:
-                await self._research_subtopic(session_id, st["id"])
+            with trace_span("deep_research.process_queue", {
+                "session_id": session_id,
+                "mode": mode,
+                "subtopic_count": len(queue),
+            }):
+                if mode == "parallel":
+                    # Process up to 5 concurrently
+                    sem = asyncio.Semaphore(5)
 
-        # Phase 3: Reporting
-        await self._generate_report(session_id)
+                    async def bounded_research(subtopic):
+                        async with sem:
+                            await self._research_subtopic(session_id, subtopic["id"])
+
+                    tasks = [bounded_research(st) for st in queue]
+                    await asyncio.gather(*tasks)
+                else:
+                    # Series
+                    for st in queue:
+                        await self._research_subtopic(session_id, st["id"])
+
+            # Phase 3: Reporting
+            with trace_span("deep_research.generate_report", {"session_id": session_id}):
+                await self._generate_report(session_id)
+        except Exception as e:
+            logger.error(f"Deep research task {session_id} failed: {e}", exc_info=True)
+            # Best-effort: record the failure on the session file so
+            # the polling endpoint surfaces it. If _save_session itself
+            # fails, we still log the error.
+            try:
+                async with self._get_lock(session_id):
+                    session_data = self._load_session(session_id)
+                    session_data["status"] = "FAILED"
+                    session_data["error"] = f"{type(e).__name__}: {e}"
+                    self._save_session(session_id, session_data)
+            except Exception as inner:
+                logger.error(f"Could not record FAILED status for {session_id}: {inner}")
 
     async def _research_subtopic(self, session_id: str, subtopic_id: str):
         """ResearchAgent + NoteAgent: Retrieves context and synthesizes notes for one subtopic."""
@@ -195,6 +265,18 @@ class DeepResearchService:
                     break
             self._save_session(session_id, current_data)
 
+            from app import state
+            if state.memory_service:
+                try:
+                    quality = 0.8 if subtopic["status"] == "COMPLETED" else 0.2
+                    await state.memory_service.record_agent_outcome(
+                        agent_type="research", query_pattern=topic_query[:100],
+                        strategy="retrieval_synthesis", outcome_quality=quality,
+                        model_used=model_id, device_id="default",
+                    )
+                except Exception:
+                    pass
+
 
     async def _generate_report(self, session_id: str):
         """Phase 3: Reporting. Aggregates notes into a final report."""
@@ -231,6 +313,23 @@ class DeepResearchService:
             session_data["final_report"] = final_report
             session_data["status"] = "COMPLETED"
             self._save_session(session_id, session_data)
+
+        from app import state
+        if state.memory_service:
+            try:
+                await state.memory_service.store_episode(
+                    device_id="default", query=main_query, answer=final_report,
+                    agents=["decompose", "research", "note", "report"],
+                    model_used=model_id, session_type="research",
+                )
+                from app.services.fact_extractor import extract_and_store_facts
+                asyncio.create_task(extract_and_store_facts(
+                    device_id="default", query=main_query, answer=final_report,
+                    source_id=session_id, lm_client=self.lm_client,
+                    memory_service=state.memory_service,
+                ))
+            except Exception:
+                pass
 
     def get_status(self, session_id: str) -> Dict[str, Any]:
         """Returns the current state of the research session."""

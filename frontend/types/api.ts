@@ -21,13 +21,63 @@ export interface ModelInfo {
   id: string;
   name: string;
   tier: ModelTier;
-  status: "loaded" | "unloaded" | "loading";
+  status: "loaded" | "unloaded" | "loading" | "available";
   vram_used_mb: number;
-  kv_cache_config: {
-    cache_type_k: string;
-    cache_type_v: string;
+  turboquant_config?: {
+    cache_type_k?: string;
+    cache_type_v?: string;
   };
   max_concurrent: number;
+}
+
+export type ModelProviderSource = "local" | "cloud";
+
+export interface DiscoveredModel {
+  id: string;
+  name: string;
+  provider_id: string;
+  source: ModelProviderSource;
+  openai_compatible: boolean;
+  metadata?: {
+    object?: string;
+    family?: string;
+    parameter_size?: string;
+    quantization_level?: string;
+    context_length?: number | string;
+    capabilities?: string[];
+    context_length_cat?: string;
+    parameter_size_cat?: string;
+  };
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  source: ModelProviderSource;
+  status: "available" | "unavailable" | "not_configured";
+  configured: boolean;
+  openai_compatible: boolean;
+  base_url?: string;
+  error?: string;
+  models: DiscoveredModel[];
+  description?: string;
+  cost_hint?: string;
+  latency_hint?: string;
+  setup_docs_url?: string;
+}
+
+export interface ActiveModelSelection {
+  provider_type: ModelProviderSource;
+  provider_id: string;
+  model_id: string;
+  selected_at?: number;
+}
+
+export interface ModelDiscoveryResponse {
+  local: ModelProvider[];
+  cloud: ModelProvider[];
+  active_selection: ActiveModelSelection | null;
+  active_selections?: Record<string, ActiveModelSelection | null>;
 }
 
 // ── VRAM / Cache Types ──

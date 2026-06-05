@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["retrieval"])
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases"
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "knowledge_bases"
 
 
 # ── Request/Response Schemas ──
@@ -30,15 +30,20 @@ class RetrieveRequest(BaseModel):
 
 # ── Helpers ──
 
+from app.services.security import safe_name as _safe_name, safe_doc_id as _safe_doc_id
+
 def _load_pageindex_tree(kb_name: str, doc_id: str) -> dict | None:
-    tree_path = DATA_DIR / kb_name / "pageindex" / f"{doc_id}.json"
+    safe_kb = _safe_name(kb_name, default="default")
+    safe_doc = _safe_doc_id(doc_id, default="doc")
+    tree_path = DATA_DIR / safe_kb / "pageindex" / f"{safe_doc}.json"
     if tree_path.exists():
         return json.loads(tree_path.read_text())
     return None
 
 
 def _list_pageindex_docs(kb_name: str) -> list[str]:
-    tree_dir = DATA_DIR / kb_name / "pageindex"
+    safe_kb = _safe_name(kb_name, default="default")
+    tree_dir = DATA_DIR / safe_kb / "pageindex"
     if not tree_dir.exists():
         return []
     return [f.stem for f in tree_dir.glob("*.json")]
@@ -62,6 +67,11 @@ def _get_vector_kb():
 async def retrieve(req: RetrieveRequest):
     """Execute retrieval using tree/hybrid/naive/combined pipelines."""
     start = time.time()
+
+    # Sanitize user-supplied identifiers to prevent path traversal
+    req.kb_name = _safe_name(req.kb_name, default="default")
+    if req.doc_id:
+        req.doc_id = _safe_doc_id(req.doc_id, default="doc")
 
     with trace_span("retrieval.execute", {"kb": req.kb_name, "pipeline_requested": req.retrieval_pipeline, "top_k": req.top_k}):
 

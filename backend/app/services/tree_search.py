@@ -52,7 +52,7 @@ class TreeSearch:
     def __init__(self, lm_client):
         self.lm_client = lm_client
         self.text_extractor = TextExtractor(
-            Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases"
+            Path(__file__).resolve().parent.parent.parent / "data" / "knowledge_bases"
         )
 
     async def search(
@@ -85,7 +85,7 @@ class TreeSearch:
             results.extend(scored)
         else:
             # Search across all docs in KB
-            pi_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases" / kb_name / "pageindex"
+            pi_dir = Path(__file__).resolve().parent.parent.parent / "data" / "knowledge_bases" / kb_name / "pageindex"
             if pi_dir.exists():
                 for tree_file in sorted(pi_dir.glob("*.json")):
                     if doc_id and tree_file.stem != doc_id:

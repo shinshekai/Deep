@@ -97,10 +97,26 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   // Subscribe to metrics stream frames
   useEffect(() => {
     return ws.subscribe("metrics_frame", (data) => {
-      setLatestMetrics(data as unknown as MetricsFrame);
-      if (data.pressure_level) {
-        setPressure(data.pressure_level as VramPressureLevel);
+      const frame = data as unknown as MetricsFrame;
+      setLatestMetrics(frame);
+      if (frame.pressure_level) {
+        setPressure(frame.pressure_level as VramPressureLevel);
       }
+      setVram({
+        vram_total_mb: frame.vram_total_mb,
+        vram_used_mb: frame.vram_used_mb,
+        vram_used_pct: frame.vram_total_mb > 0 ? (frame.vram_used_mb / frame.vram_total_mb) * 100 : 0,
+        pressure_level: frame.pressure_level,
+        active_models: (frame.active_models || []).map((name) => ({
+          id: name,
+          name: name,
+          tier: 3,
+          status: "loaded",
+          vram_used_mb: 0,
+          max_concurrent: 1,
+        })),
+        turboquant_tier: "auto",
+      });
     });
   }, [ws]);
 
