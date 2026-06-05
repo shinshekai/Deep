@@ -62,3 +62,12 @@ directory_tree.txt
 CLAUDE.md
 claude.md
 
+# Agent skills and tooling
+.agents/skills/
+
+# Test data and load tests
+test_documents/
+tests/load/
+
+# Root-level meta files (kept locally, not in repo)
+AGENTS.md

@@ -1,4 +1,0 @@
-interface:
-  display_name: "LLM Wiki Template"
-  short_description: "Maintain a citation-linked LLM wiki from immutable sources."
-  default_prompt: "Use the LLM Wiki Template skill to ingest sources, answer from the wiki, lint wiki pages, or set up a structured local knowledge wiki."
