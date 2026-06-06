@@ -363,7 +363,7 @@ pyparsing==3.3.2
     # via oletools
 pytesseract==0.3.13
     # via udip-backend (pyproject.toml)
-pytest==8.4.2
+pytest==9.0.3
     # via
     #   pytest-asyncio
     #   pytest-cov
