@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 from app import state
 from app.services.security import safe_name
+from app.services.task_registry import _global_registry
 
 router = APIRouter(prefix="/api/v1", tags=["query"])
 
@@ -243,11 +244,21 @@ async def http_query(request: QueryRequest):
     if state.memory_service:
         try:
             from app.services.fact_extractor import extract_and_store_facts
-            asyncio.create_task(extract_and_store_facts(
-                device_id=device_id, query=request.query, answer=answer,
-                source_id=session_id, lm_client=state.lm_client, memory_service=state.memory_service,
-            ))
-            asyncio.create_task(state.memory_service.store_episode(
+            async def _run_with_telemetry():
+                try:
+                    await extract_and_store_facts(
+                        device_id=device_id, query=request.query, answer=answer,
+                        source_id=session_id, lm_client=state.lm_client, memory_service=state.memory_service,
+                    )
+                except Exception as e:
+                    logger.error(f"fact_extraction_failed: {e}", exc_info=False)
+                    try:
+                        from app.services.metrics import FACT_EXTRACTION_FAILURES
+                        FACT_EXTRACTION_FAILURES.inc()
+                    except ImportError:
+                        pass
+            _global_registry.spawn(_run_with_telemetry())
+            _global_registry.spawn(state.memory_service.store_episode(
                 device_id=device_id, query=request.query, answer=answer,
                 model_used=model_id or "", session_type="query",
             ))

@@ -13,8 +13,11 @@ from fastapi import FastAPI
 
 from app import state
 from app.websocket_handlers import broadcast_loop, ttl_loop
+from app.services.task_registry import TaskRegistry, _global_registry
 
 logger = logging.getLogger(__name__)
+
+_lifespan_registry = TaskRegistry(name="lifespan")
 
 
 @asynccontextmanager
@@ -78,16 +81,16 @@ async def lifespan(app: FastAPI):
 
     await state.benchmark_runner.start_worker()
 
-    vram_task = asyncio.create_task(state.vram_monitor.start_polling(interval=2.0))
-    broadcast_task = asyncio.create_task(broadcast_loop())
-    ttl_task = asyncio.create_task(ttl_loop())
+    vram_task = _lifespan_registry.spawn(state.vram_monitor.start_polling(interval=2.0))
+    broadcast_task = _lifespan_registry.spawn(broadcast_loop())
+    ttl_task = _lifespan_registry.spawn(ttl_loop())
 
     for t in (vram_task, broadcast_task, ttl_task):
         state.track_background_task(t)
 
     if state.memory_service:
         from app.services.memory_maintenance import memory_maintenance_loop
-        maintenance_task = asyncio.create_task(memory_maintenance_loop(state.memory_service))
+        maintenance_task = _lifespan_registry.spawn(memory_maintenance_loop(state.memory_service))
         state.track_background_task(maintenance_task)
 
     yield
@@ -103,4 +106,6 @@ async def lifespan(app: FastAPI):
         for t, r in zip(pending, results):
             if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
                 logger.warning(f"Background task {t.get_name()} raised on shutdown: {r}")
+    await _lifespan_registry.cancel_all(timeout=5.0)
+    await _global_registry.cancel_all(timeout=5.0)
     logger.info("Shutdown complete.")

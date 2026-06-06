@@ -52,7 +52,7 @@ def test_upload_document():
     # upload-path control flow.
     import asyncio as _asyncio
 
-    def _schedule_and_drain(coro):
+    def _schedule_and_drain(coro, name=None):
         async def _runner():
             try:
                 await coro

@@ -1,8 +1,11 @@
 """Authentication middleware — token validation + error sanitization."""
 
+import os
 import re
 import time
 import logging
+from collections import defaultdict
+from time import monotonic
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -10,6 +13,10 @@ from fastapi.responses import JSONResponse
 from app import state
 
 logger = logging.getLogger(__name__)
+
+_AUTH_FAILURE_WINDOW_SEC = float(os.environ.get("UDIP_AUTH_FAILURE_WINDOW_SEC", "60"))
+_AUTH_FAILURE_THRESHOLD = int(os.environ.get("UDIP_AUTH_FAILURE_THRESHOLD", "10"))
+_auth_failures: dict[str, list[float]] = defaultdict(list)
 
 
 def register_auth(app, settings):
@@ -59,6 +66,24 @@ def register_auth(app, settings):
                       method=request.method,
                       has_header=bool(request.headers.get("X-DEEP-API-KEY")),
                       has_bearer=bool(auth_header and auth_header.startswith("Bearer ")))
+                now = monotonic()
+                _auth_failures[client].append(now)
+                _auth_failures[client] = [
+                    t for t in _auth_failures[client] if now - t < _AUTH_FAILURE_WINDOW_SEC
+                ]
+                if len(_auth_failures[client]) >= _AUTH_FAILURE_THRESHOLD:
+                    logger.warning(
+                        f"auth_rate_limit_exceeded: ip={client} count={len(_auth_failures[client])}"
+                    )
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "success": False,
+                            "error": "TooManyRequests",
+                            "message": f"Too many auth failures. Try again in {_AUTH_FAILURE_WINDOW_SEC:.0f}s.",
+                        },
+                        headers={"Retry-After": str(int(_AUTH_FAILURE_WINDOW_SEC))},
+                    )
                 return JSONResponse(
                     status_code=401,
                     content={

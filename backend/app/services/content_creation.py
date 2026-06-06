@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 
 from app.services.lm_studio_client import LMStudioClient
 from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+from app.services.task_registry import _global_registry
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class NotebookService:
         from app import state
         if state.memory_service and device_id:
             try:
-                asyncio.create_task(state.memory_service.store_episode(
+                _global_registry.spawn(state.memory_service.store_episode(
                     device_id=device_id, query=f"Create notebook: {title}", answer="",
                     agents=["content_creator"], session_type="content",
                 ))
@@ -96,7 +97,7 @@ class NotebookService:
         from app import state
         if state.memory_service and device_id:
             try:
-                asyncio.create_task(state.memory_service.store_fact(
+                _global_registry.spawn(state.memory_service.store_fact(
                     device_id=device_id,
                     content=f"Note '{content[:50]}': {content[:200]}",
                     source_type="note",

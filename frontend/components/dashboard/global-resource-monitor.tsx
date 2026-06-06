@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWebSocket } from "@/providers/websocket-provider";
@@ -58,6 +58,21 @@ export function GlobalResourceMonitor() {
     });
   }, [vram]);
 
+  const vramUsed = useMemo(() => vram?.vram_used_mb ?? 0, [vram?.vram_used_mb]);
+  const vramTotal = useMemo(() => vram?.vram_total_mb ?? 0, [vram?.vram_total_mb]);
+  const vramFree = useMemo(() => vramTotal - vramUsed, [vramTotal, vramUsed]);
+  const pct = useMemo(() => Math.round(vram?.vram_used_pct ?? 0), [vram?.vram_used_pct]);
+  const level = useMemo(
+    () => vram?.pressure_level ?? (pressure ?? "green"),
+    [vram?.pressure_level, pressure]
+  );
+
+  const activeModelNames = useMemo(
+    () =>
+      vram?.active_models?.map((m) => (typeof m === "string" ? m : m.name)) ?? [],
+    [vram?.active_models]
+  );
+
   if (!vram && !pressure) {
     return (
       <Card>
@@ -74,16 +89,6 @@ export function GlobalResourceMonitor() {
       </Card>
     );
   }
-
-  const vramUsed = vram?.vram_used_mb ?? 0;
-  const vramTotal = vram?.vram_total_mb ?? 0;
-  const vramFree = vramTotal - vramUsed;
-  const pct = Math.round(vram?.vram_used_pct ?? 0);
-  const level = vram?.pressure_level ?? (pressure ?? "green");
-
-  const activeModelNames = vram?.active_models?.map((m) => {
-    return typeof m === "string" ? m : m.name;
-  }) ?? [];
 
   const sparklineColor =
     level === "red"

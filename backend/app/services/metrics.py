@@ -80,6 +80,11 @@ UPLOAD_SIZE = Histogram(
     buckets=(1024, 10240, 102400, 1048576, 10485760, 52428800),
 )
 
+FACT_EXTRACTION_FAILURES = Counter(
+    "memory_fact_extraction_failures_total",
+    "Total fact-extraction failures (silent before audit fix)",
+)
+
 APP_INFO = Info(
     "udip",
     "UDIP application information",

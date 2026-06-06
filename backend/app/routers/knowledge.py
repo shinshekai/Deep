@@ -17,6 +17,7 @@ from app.config import get_settings
 from app import state
 from app.services.document_processor import extract_text
 from app.services.security import resolve_within, safe_doc_id, safe_name
+from app.services.task_registry import _global_registry
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +469,7 @@ async def upload_document(
                 _tasks[task_id]["status"] = "failed"
                 _tasks[task_id]["progress"] = 0
                 _tasks[task_id]["message"] = "Document processing timed out after 10 minutes"
-        asyncio.create_task(_with_timeout())
+        _global_registry.spawn(_with_timeout())
     else:
         # Fallback: create a minimal stub tree
         tree = {

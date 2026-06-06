@@ -20,7 +20,7 @@ from app import state
 transport = httpx.ASGITransport(app=app)
 
 
-def _mock_task(coro):
+def _mock_task(coro, name=None):
     """Return a completed mock Task so ``asyncio.create_task`` patches
     don't leave unawaited coroutines."""
     # Consume the coroutine to suppress the RuntimeWarning

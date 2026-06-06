@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS memory_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_device ON memory_usage(device_id);
 CREATE INDEX IF NOT EXISTS idx_usage_metric ON memory_usage(metric_name);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_device_created ON episodes(device_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_episodes_device_archived ON episodes(device_id, archived);
+CREATE INDEX IF NOT EXISTS idx_facts_device_created ON facts(device_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_facts_device_archived ON facts(device_id, archived);
+CREATE INDEX IF NOT EXISTS idx_fact_relationships_source ON fact_relationships(source_fact_id);
+CREATE INDEX IF NOT EXISTS idx_fact_relationships_target ON fact_relationships(target_fact_id);
+CREATE INDEX IF NOT EXISTS idx_agent_outcomes_device ON agent_outcomes(device_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_outcomes_type ON agent_outcomes(agent_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_strategies_pattern ON agent_strategies(agent_type, pattern_signature);
 """
 
 FTS_SYNC_TRIGGERS = """

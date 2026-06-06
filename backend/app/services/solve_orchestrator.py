@@ -13,10 +13,12 @@ from app.services.telemetry import trace_span, add_event
 import logging
 import os
 from typing import AsyncGenerator
+from app.services.task_registry import _global_registry
 
 from app.services.complexity_scorer import score_query_complexity
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
+from app.services.fact_extractor import extract_and_store_facts
 from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
 from app import state
 
@@ -161,12 +163,21 @@ async def run_solve_pipeline(
               if device_id is None:
                   logger.warning(f"Solve session {session_id}: device_id is None; skipping memory write")
               else:
-                  from app.services.fact_extractor import extract_and_store_facts
-                  asyncio.create_task(extract_and_store_facts(
-                      device_id=device_id, query=query, answer=full_answer or "",
-                      source_id=session_id, lm_client=lm_client, memory_service=state.memory_service,
-                  ))
-                  asyncio.create_task(state.memory_service.store_episode(
+                  async def _run_with_telemetry():
+                      try:
+                          await extract_and_store_facts(
+                              device_id=device_id, query=query, answer=full_answer or "",
+                              source_id=session_id, lm_client=lm_client, memory_service=state.memory_service,
+                          )
+                      except Exception as e:
+                          logger.error(f"fact_extraction_failed: {e}", exc_info=False)
+                          try:
+                              from app.services.metrics import FACT_EXTRACTION_FAILURES
+                              FACT_EXTRACTION_FAILURES.inc()
+                          except ImportError:
+                              pass
+                  _global_registry.spawn(_run_with_telemetry())
+                  _global_registry.spawn(state.memory_service.store_episode(
                       device_id=device_id, query=query, answer=full_answer or "",
                       agents=["investigate", "note", "plan", "solve", "check", "format"],
                       model_used=model_id, session_type="solve",

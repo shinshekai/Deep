@@ -10,6 +10,7 @@ import time
 import httpx
 
 from app.config import get_settings
+from app.services.task_registry import _global_registry
 
 logger = logging.getLogger(__name__)
 
@@ -519,7 +520,7 @@ class LMStudioClient:
                     })
 
         # Execute directly via task (semaphore inside _execute handles concurrency)
-        asyncio.create_task(_execute())
+        _global_registry.spawn(_execute())
         # Re-raise exceptions to the caller instead of swallowing them
         # as ``None`` — callers that need to handle empty results can
         # check ``if not result`` which works for both ``""`` and ``None``

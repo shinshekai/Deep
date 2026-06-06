@@ -19,6 +19,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from app.services.rag_eval import faithfulness, answer_relevancy
+from app.services.task_registry import _global_registry
 
 
 @dataclass
@@ -103,7 +104,7 @@ class BenchmarkRunner:
         if self._worker_started:
             return
         self._worker_started = True
-        asyncio.create_task(self._process_queue())
+        _global_registry.spawn(self._process_queue())
 
     async def _process_queue(self):
         """Process benchmark runs one at a time."""

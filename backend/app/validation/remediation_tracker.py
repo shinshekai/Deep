@@ -4,6 +4,7 @@ Tracks completion status against the prioritized remediation plan
 from the production audit. Each item maps to a verifiable code condition.
 """
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -69,11 +70,14 @@ def _check_end_learning_fixed():
 
 @_register("REM-S1-02", 1, "Add asyncio.Lock to Deep Research file I/O", Severity.CRITICAL)
 def _check_deep_research_lock():
-    path = _APP_DIR / "services" / "deep_research.py"
-    if not path.exists():
+    try:
+        from app.services.deep_research import DeepResearchService
+        from unittest.mock import MagicMock
+        svc = DeepResearchService(lm_client=MagicMock())
+        lock = svc._get_lock("validation-probe")
+        return isinstance(lock, asyncio.Lock)
+    except Exception:
         return False
-    content = path.read_text(encoding="utf-8")
-    return "asyncio.Lock" in content or "Lock()" in content
 
 
 @_register("REM-S1-03", 1, "Wire Research page to backend API", Severity.CRITICAL)
@@ -209,12 +213,18 @@ def _check_lm_lifecycle_verification():
 
 @_register("REM-S4-15", 4, "Add OpenTelemetry instrumentation (7 points)", Severity.MEDIUM)
 def _check_otel():
-    for f in [_APP_DIR / "main.py", _APP_DIR / "services" / "lm_studio_client.py"]:
-        if f.exists():
-            content = f.read_text(encoding="utf-8")
-            if "opentelemetry" in content or "tracer" in content:
-                return True
-    return False
+    try:
+        from app.services.telemetry import setup_tracing
+        provider = setup_tracing("udip-validation-probe", console_export=False)
+        if provider is None:
+            return False
+        from opentelemetry import trace
+        tracer = trace.get_tracer("udip.validation.probe")
+        with tracer.start_as_current_span("validation_probe") as span:
+            span.set_attribute("validation.probe", True)
+        return True
+    except Exception:
+        return False
 
 
 @_register("REM-S4-16", 4, "Create docker-compose.yml", Severity.MEDIUM)

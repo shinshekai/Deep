@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 
 from app.services.lm_studio_client import LMStudioClient
 from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+from app.services.task_registry import _global_registry
 
 logger = logging.getLogger(__name__)
 
@@ -217,11 +218,21 @@ class GuidedLearningService:
         if state.memory_service and device_id:
             try:
                 from app.services.fact_extractor import extract_and_store_facts
-                asyncio.create_task(extract_and_store_facts(
-                    device_id=device_id, query=user_message, answer=answer,
-                    source_id=session_id, lm_client=self.lm_client,
-                    memory_service=state.memory_service,
-                ))
+                async def _run_with_telemetry():
+                    try:
+                        await extract_and_store_facts(
+                            device_id=device_id, query=user_message, answer=answer,
+                            source_id=session_id, lm_client=self.lm_client,
+                            memory_service=state.memory_service,
+                        )
+                    except Exception as e:
+                        logger.error(f"fact_extraction_failed: {e}", exc_info=False)
+                        try:
+                            from app.services.metrics import FACT_EXTRACTION_FAILURES
+                            FACT_EXTRACTION_FAILURES.inc()
+                        except ImportError:
+                            pass
+                _global_registry.spawn(_run_with_telemetry())
             except Exception:
                 pass
         
