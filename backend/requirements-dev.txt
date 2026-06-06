@@ -211,7 +211,7 @@ lazy-loader==0.5
     # via scikit-image
 limits==5.8.0
     # via slowapi
-lxml==5.4.0
+lxml==6.1.0
     # via
     #   ebooklib
     #   python-docx
