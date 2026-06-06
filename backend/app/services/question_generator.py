@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 
 from app.services.lm_studio_client import LMStudioClient
-from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+from app.services.retrieval_service import retrieve as run_retrieval, RetrieveRequest
 
 logger = logging.getLogger(__name__)
 

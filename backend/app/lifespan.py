@@ -12,8 +12,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import state
+from app.dependencies import container
 from app.websocket_handlers import broadcast_loop, ttl_loop
 from app.services.task_registry import TaskRegistry, _global_registry
+from app.services.task_wal import TaskWAL
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +38,29 @@ async def lifespan(app: FastAPI):
     from app.services.vector_kb import VectorKBService
 
     state.vram_monitor = VRAMMonitor()
+    container.register("vram_monitor", lambda: state.vram_monitor, singleton=True)
     state.lm_client = LMStudioClient(metrics_callback=state.update_metrics)
+    container.register("lm_client", lambda: state.lm_client, singleton=True)
     state.model_manager = ModelManager(state.lm_client)
+    container.register("model_manager", lambda: state.model_manager, singleton=True)
     state.model_discovery = ModelDiscoveryService(state.lm_client)
+    container.register("model_discovery", lambda: state.model_discovery, singleton=True)
     state.pageindex_generator = PageIndexTreeGenerator(state.lm_client)
+    container.register("pageindex_generator", lambda: state.pageindex_generator, singleton=True)
     state.benchmark_runner = BenchmarkRunner(state.lm_client, state.vram_monitor, state.model_manager)
+    container.register("benchmark_runner", lambda: state.benchmark_runner, singleton=True)
     state.embedding_service = EmbeddingService(state.lm_client, batch_size=32)
+    container.register("embedding_service", lambda: state.embedding_service, singleton=True)
     from app.services.deep_research import DeepResearchService
 
     state.text_chunker = TextChunker(chunk_size=512, chunk_overlap=64)
+    container.register("text_chunker", lambda: state.text_chunker, singleton=True)
     state.deep_research_service = DeepResearchService(lm_client=state.lm_client)
+    container.register("deep_research_service", lambda: state.deep_research_service, singleton=True)
 
     _KB_BASE = Path("data/knowledge_bases")
     state.vector_kb_service = VectorKBService(kb_base=_KB_BASE, lm_client=state.lm_client)
+    container.register("vector_kb_service", lambda: state.vector_kb_service, singleton=True)
 
     from app.config import get_settings
     settings = get_settings()
@@ -56,6 +68,7 @@ async def lifespan(app: FastAPI):
     if settings.memory_enabled:
         from app.services.memory_service import MemoryService
         state.memory_service = MemoryService(db_path=settings.memory_db_path)
+        container.register("memory_service", lambda: state.memory_service, singleton=True)
         await state.memory_service.initialize()
         logger.info("Memory service initialized")
 
@@ -88,9 +101,23 @@ async def lifespan(app: FastAPI):
     for t in (vram_task, broadcast_task, ttl_task):
         state.track_background_task(t)
 
+    state.task_wal = TaskWAL()
+
+    async def _replay_handler(entry: dict) -> None:
+        logger.info(
+            f"Replaying pending WAL entry: {entry.get('task_name')} "
+            f"({entry.get('task_id')})"
+        )
+
+    replayed = await state.task_wal.replay_pending(_replay_handler)
+    if replayed:
+        logger.info(f"Replayed {replayed} pending WAL entries on startup")
+
     if state.memory_service:
         from app.services.memory_maintenance import memory_maintenance_loop
-        maintenance_task = _lifespan_registry.spawn(memory_maintenance_loop(state.memory_service))
+        maintenance_task = _lifespan_registry.spawn(
+            memory_maintenance_loop(state.memory_service, task_wal=state.task_wal)
+        )
         state.track_background_task(maintenance_task)
 
     yield

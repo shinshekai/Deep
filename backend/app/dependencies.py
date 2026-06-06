@@ -74,3 +74,7 @@ class Container:
 
 
 container = Container()
+
+
+def get_service(name: str) -> Any:
+    return container.get(name)

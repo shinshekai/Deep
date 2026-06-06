@@ -19,7 +19,7 @@ from app.services.complexity_scorer import score_query_complexity
 from app.services.lm_studio_client import LMStudioClient
 from app.services.model_manager import ModelManager
 from app.services.fact_extractor import extract_and_store_facts
-from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+from app.services.retrieval_service import retrieve as run_retrieval, RetrieveRequest
 from app import state
 
 logger = logging.getLogger(__name__)

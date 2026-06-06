@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -188,6 +189,19 @@ class MemoryService:
         if self._db is None:
             raise RuntimeError("MemoryService not initialized — call initialize() first")
         return self._db
+
+    @asynccontextmanager
+    async def _transaction(self):
+        try:
+            await self._db.execute("BEGIN IMMEDIATE")
+            yield self._db
+            await self._db.commit()
+        except Exception:
+            try:
+                await self._db.execute("ROLLBACK")
+            except Exception:
+                logger.exception("Failed to rollback transaction")
+            raise
 
     # ── Episodic ──────────────────────────────────────────────────────────────
 
@@ -384,59 +398,59 @@ class MemoryService:
         with trace_span("memory.recall_facts", {"device_id": device_id, "top_k": top_k}):
             db = await self._get_db()
             now = time.time()
-            try:
-                rows = await db.execute_fetchall(
-                    """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
-                              f.confidence, f.created_at, f.last_accessed, f.access_count,
-                              rank
-                       FROM facts_fts fts
-                       JOIN facts f ON f.rowid = fts.rowid
-                       WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
-                       ORDER BY rank
-                       LIMIT ?""",
-                    (query, device_id, top_k * 2),
-                )
-            except Exception:
-                rows = await db.execute_fetchall(
-                    """SELECT id, device_id, content, source_type, source_id,
-                              confidence, created_at, last_accessed, access_count, 0
-                       FROM facts
-                       WHERE device_id = ? AND archived = 0
-                       ORDER BY created_at DESC
-                       LIMIT ?""",
-                    (device_id, top_k * 2),
-                )
+            async with self._transaction():
+                try:
+                    rows = await db.execute_fetchall(
+                        """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
+                                  f.confidence, f.created_at, f.last_accessed, f.access_count,
+                                  rank
+                           FROM facts_fts fts
+                           JOIN facts f ON f.rowid = fts.rowid
+                           WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
+                           ORDER BY rank
+                           LIMIT ?""",
+                        (query, device_id, top_k * 2),
+                    )
+                except Exception:
+                    rows = await db.execute_fetchall(
+                        """SELECT id, device_id, content, source_type, source_id,
+                                  confidence, created_at, last_accessed, access_count, 0
+                           FROM facts
+                           WHERE device_id = ? AND archived = 0
+                           ORDER BY created_at DESC
+                           LIMIT ?""",
+                        (device_id, top_k * 2),
+                    )
 
-            results = []
-            for row in rows:
-                recency = now - row[6] if row[6] else 0
-                recency_score = 1.0 / (1.0 + recency / 86400.0)
-                fts_score = -row[9] if row[9] else 0.0
-                combined = 0.4 * fts_score + 0.3 * recency_score + 0.3 * (row[5] or 0.5)
+                results = []
+                for row in rows:
+                    recency = now - row[6] if row[6] else 0
+                    recency_score = 1.0 / (1.0 + recency / 86400.0)
+                    fts_score = -row[9] if row[9] else 0.0
+                    combined = 0.4 * fts_score + 0.3 * recency_score + 0.3 * (row[5] or 0.5)
 
-                await db.execute(
-                    "UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
-                    (now, row[0]),
-                )
+                    await db.execute(
+                        "UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
+                        (now, row[0]),
+                    )
 
-                results.append(
-                    {
-                        "id": row[0],
-                        "device_id": row[1],
-                        "content": row[2],
-                        "source_type": row[3] or "",
-                        "source_id": row[4] or "",
-                        "confidence": row[5] or 0.5,
-                        "created_at": row[6],
-                        "last_accessed": row[7],
-                        "access_count": row[8] or 0,
-                        "score": round(combined, 4),
-                    }
-                )
+                    results.append(
+                        {
+                            "id": row[0],
+                            "device_id": row[1],
+                            "content": row[2],
+                            "source_type": row[3] or "",
+                            "source_id": row[4] or "",
+                            "confidence": row[5] or 0.5,
+                            "created_at": row[6],
+                            "last_accessed": row[7],
+                            "access_count": row[8] or 0,
+                            "score": round(combined, 4),
+                        }
+                    )
 
-            await db.commit()
-            results.sort(key=lambda r: r["score"], reverse=True)
-            return results[:top_k]
+                results.sort(key=lambda r: r["score"], reverse=True)
+                return results[:top_k]
 
     async def detect_contradictions(self, new_fact: str, device_id: str) -> list[dict]:
         with trace_span("memory.detect_contradictions", {"device_id": device_id}):
@@ -539,44 +553,43 @@ class MemoryService:
         with trace_span("memory.record_agent_outcome", {"agent_type": agent_type, "device_id": device_id}):
             db = await self._get_db()
             now = time.time()
-            await db.execute(
-                """INSERT INTO agent_outcomes
-                   (agent_type, query_pattern, strategy_used, outcome_quality,
-                    model_used, tier, device_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (agent_type, query_pattern, strategy, outcome_quality, model_used, tier, device_id, now),
-            )
-
-            rows = await db.execute_fetchall(
-                """SELECT id, best_strategy, success_rate, sample_count
-                   FROM agent_strategies
-                   WHERE agent_type = ? AND pattern_signature = ?""",
-                (agent_type, query_pattern),
-            )
-
-            if rows:
-                sid, best_strat, rate, count = rows[0]
-                new_count = count + 1
-                new_rate = (rate * count + outcome_quality) / new_count
-                if outcome_quality > rate:
-                    best_strat = strategy
+            async with self._transaction():
                 await db.execute(
-                    """UPDATE agent_strategies
-                       SET best_strategy = ?, success_rate = ?, sample_count = ?,
-                           last_updated = ?
-                       WHERE id = ?""",
-                    (best_strat, new_rate, new_count, now, sid),
-                )
-            else:
-                await db.execute(
-                    """INSERT INTO agent_strategies
-                       (agent_type, pattern_signature, best_strategy, success_rate,
-                        sample_count, last_updated)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (agent_type, query_pattern, strategy, outcome_quality, 1, now),
+                    """INSERT INTO agent_outcomes
+                       (agent_type, query_pattern, strategy_used, outcome_quality,
+                        model_used, tier, device_id, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (agent_type, query_pattern, strategy, outcome_quality, model_used, tier, device_id, now),
                 )
 
-            await db.commit()
+                rows = await db.execute_fetchall(
+                    """SELECT id, best_strategy, success_rate, sample_count
+                       FROM agent_strategies
+                       WHERE agent_type = ? AND pattern_signature = ?""",
+                    (agent_type, query_pattern),
+                )
+
+                if rows:
+                    sid, best_strat, rate, count = rows[0]
+                    new_count = count + 1
+                    new_rate = (rate * count + outcome_quality) / new_count
+                    if outcome_quality > rate:
+                        best_strat = strategy
+                    await db.execute(
+                        """UPDATE agent_strategies
+                           SET best_strategy = ?, success_rate = ?, sample_count = ?,
+                               last_updated = ?
+                           WHERE id = ?""",
+                        (best_strat, new_rate, new_count, now, sid),
+                    )
+                else:
+                    await db.execute(
+                        """INSERT INTO agent_strategies
+                           (agent_type, pattern_signature, best_strategy, success_rate,
+                            sample_count, last_updated)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (agent_type, query_pattern, strategy, outcome_quality, 1, now),
+                    )
 
     async def get_agent_strategies(
         self, agent_type: str, query_pattern: str = ""
@@ -672,27 +685,27 @@ class MemoryService:
         with trace_span("memory.decay_old_facts", {"days": days, "decay_rate": decay_rate}):
             db = await self._get_db()
             cutoff = time.time() - days * 86400
-            rows = await db.execute_fetchall(
-                """SELECT id, confidence FROM facts
-                   WHERE archived = 0 AND created_at < ?""",
-                (cutoff,),
-            )
+            async with self._transaction():
+                rows = await db.execute_fetchall(
+                    """SELECT id, confidence FROM facts
+                       WHERE archived = 0 AND created_at < ?""",
+                    (cutoff,),
+                )
 
-            count = 0
-            for fact_id, conf in rows:
-                new_conf = max(0.0, conf - decay_rate)
-                if new_conf <= 0.0:
-                    await db.execute(
-                        "UPDATE facts SET archived = 1 WHERE id = ?", (fact_id,)
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE facts SET confidence = ? WHERE id = ?", (new_conf, fact_id)
-                    )
-                count += 1
+                count = 0
+                for fact_id, conf in rows:
+                    new_conf = max(0.0, conf - decay_rate)
+                    if new_conf <= 0.0:
+                        await db.execute(
+                            "UPDATE facts SET archived = 1 WHERE id = ?", (fact_id,)
+                        )
+                    else:
+                        await db.execute(
+                            "UPDATE facts SET confidence = ? WHERE id = ?", (new_conf, fact_id)
+                        )
+                    count += 1
 
-            await db.commit()
-            return count
+                return count
 
     async def compact_episodes(self, older_than_days: int = 90) -> int:
         with trace_span("memory.compact_episodes", {"older_than_days": older_than_days}):
