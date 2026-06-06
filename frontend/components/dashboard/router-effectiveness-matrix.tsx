@@ -13,7 +13,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { fetchMetricsHistory } from "@/lib/websocket";
-import type { MetricsFrame, RoutingStats } from "@/types/api";
+import type { RoutingStats } from "@/types/api";
 
 const POLL_INTERVAL = 5000; // Section 5: 5-second polling cadence
 

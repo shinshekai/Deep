@@ -130,6 +130,11 @@ export type CompleteFrame = {
   citations: Citation[];
   session_id: string;
   solve_dir: string;
+  metadata?: {
+    elapsed_seconds: number;
+    complexity_score: number;
+    model_used: string;
+  };
 };
 
 export type ErrorFrame = {

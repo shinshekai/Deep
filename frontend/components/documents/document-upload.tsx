@@ -3,7 +3,7 @@
 import { useState, useRef, type DragEvent, type FormEvent } from "react";
 import { useUploadPolling } from "@/lib/use-upload-polling";
 import { Upload, FileText, X } from "lucide-react";
-import { uploadDocument, pollUploadTask, type UploadTask } from "@/lib/knowledge";
+import { uploadDocument, pollUploadTask } from "@/lib/knowledge";
 
 interface DocumentUploadProps {
   kbName: string;

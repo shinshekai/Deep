@@ -47,17 +47,15 @@ export function GlobalResourceMonitor() {
   const [history, setHistory] = useState<{ timestamp: string; pct: number }[]>([]);
 
   useEffect(() => {
-    if (vram) {
-      const pct = vram.vram_used_pct;
-      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setHistory((prev) => {
-        const next = [...prev, { timestamp: time, pct }];
-        if (next.length > 20) {
-          return next.slice(-20);
-        }
-        return next;
-      });
-    }
+    if (!vram) return;
+    const pct = vram.vram_used_pct;
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHistory((prev) => {
+      const next = [...prev, { timestamp: time, pct }];
+      if (next.length > 20) return next.slice(-20);
+      return next;
+    });
   }, [vram]);
 
   if (!vram && !pressure) {

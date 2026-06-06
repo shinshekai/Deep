@@ -32,7 +32,7 @@ export function useMemory(): MemoryContextValue {
 
 export function MemoryProvider({ children }: { children: ReactNode }) {
   const [deviceId] = useState<string>(getOrCreateDeviceId);
-  const [profile, setProfile] = useState<Record<string, any> | null>(null);
+  const [profile, setProfile] = useState<Record<string, unknown> | null>(null);
 
   const recall = useCallback(
     (query: string, topK?: number) => recallMemory(query, deviceId, topK),
@@ -49,7 +49,12 @@ export function MemoryProvider({ children }: { children: ReactNode }) {
   }, [deviceId]);
 
   useEffect(() => {
-    refreshProfile();
+    let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshProfile().then(() => {
+      if (!mounted) return;
+    });
+    return () => { mounted = false; };
   }, [refreshProfile]);
 
   return (

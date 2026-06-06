@@ -122,7 +122,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   // Subscribe to solve agent steps
   useEffect(() => {
-    return ws.subscribe("agent_step", (_data) => {
+    return ws.subscribe("agent_step", (_data: Record<string, unknown>) => {
       // Will be consumed by chat page
     });
   }, [ws]);

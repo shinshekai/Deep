@@ -167,8 +167,9 @@ export default function ResearchPage() {
           final_report: null,
         });
       }
-    } catch (e: any) {
-      setError(e.message || "Failed to start research");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to start research";
+      setError(msg);
       setRunning(false);
     }
   };
@@ -408,7 +409,7 @@ export default function ResearchPage() {
                     <div className="rounded-xl border border-zinc-900 bg-zinc-950 p-4 font-mono text-[10px] space-y-2 select-none">
                       <div className="text-zinc-300 font-bold flex items-center gap-2">
                         <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                        Root: "{session.query.substring(0, 50)}..."
+                        Root: {session.query.substring(0, 50)}...
                       </div>
                       <div className="space-y-1.5 pl-4 border-l border-zinc-900">
                         {session.queue.map((st, i) => (
@@ -478,9 +479,9 @@ export default function ResearchPage() {
                             {/* Agent notes preview */}
                             <div className="border-t border-zinc-900/40 pt-2 text-[10px] text-zinc-500 leading-relaxed font-sans">
                               {isCompleted && st.notes ? (
-                                <p className="line-clamp-2 italic">
-                                  "{st.notes}"
-                                </p>
+                                  <p className="line-clamp-2 italic">
+                                    {st.notes}
+                                  </p>
                               ) : isResearching ? (
                                 <p className="animate-pulse text-zinc-400 flex items-center gap-1">
                                   <Loader2 className="h-3 w-3 animate-spin" /> Ingesting sources & extracting notes...

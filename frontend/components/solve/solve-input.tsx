@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Send, Database, Layers, Flame, ArrowRightLeft } from "lucide-react";
+import { Send, Database, Layers, ArrowRightLeft } from "lucide-react";
 import type { SolveQuery } from "@/types/api";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 
@@ -27,8 +27,8 @@ export function SolveInput({ onSend, isStreaming }: SolveInputProps) {
         if (response.ok) {
           const list = await response.json();
           if (Array.isArray(list)) {
-            const mapped = list.map((kb: any) => {
-              const name = typeof kb === "string" ? kb : (kb.name || "default");
+            const mapped = list.map((kb: unknown) => {
+              const name = typeof kb === "string" ? kb : (kb && typeof kb === "object" && "name" in kb ? String(kb.name) : "default");
               return { value: name, label: name };
             });
             setKbOptions([{ value: "", label: "(none)" }, ...mapped]);

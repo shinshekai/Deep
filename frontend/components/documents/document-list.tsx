@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, ChevronRight } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { IndexNode } from "@/types/api";
 
 interface DocumentInfo {

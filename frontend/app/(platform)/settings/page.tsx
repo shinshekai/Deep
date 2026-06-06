@@ -1,9 +1,151 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode, type ComponentType } from "react";
 import { Settings as SettingsIcon, Save, RefreshCw, Database, Cpu, Layers, HardDrive, Network, Sparkles, Brain, CheckCircle2, Loader2, Eye, EyeOff } from "lucide-react";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import { getEpisodes, type MemoryEpisode } from "@/lib/memory";
+
+const InputField = ({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  hint,
+  fieldKey,
+  isSecret = false,
+}: {
+  label: string;
+  value: string | number;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  hint?: string;
+  fieldKey?: string;
+  isSecret?: boolean;
+}) => {
+  const [isRevealed, setIsRevealed] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-1.5 font-sans">
+      <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
+      <div className="relative">
+        <input
+          type={isSecret && !isRevealed ? "text" : type}
+          value={isSecret && !isRevealed ? "\u2022".repeat(8) : value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={isSecret && !isRevealed ? undefined : placeholder}
+          readOnly={isSecret && !isRevealed}
+          aria-label={label}
+          className={`rounded-lg border border-zinc-900 bg-zinc-950 px-3 py-2 text-xs text-zinc-150 placeholder-zinc-700 focus:outline-none focus:border-indigo-650 leading-relaxed font-sans${isSecret ? " pr-9" : ""}`}
+          onFocus={() => {
+            if (isSecret && !isRevealed) {
+              setIsRevealed(true);
+              if (fieldKey) onChange("");
+            }
+          }}
+        />
+        {isSecret && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setIsRevealed((prev) => !prev)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+            aria-label={isRevealed ? `Hide ${label}` : `Show ${label}`}
+          >
+            {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        )}
+      </div>
+      {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
+    </div>
+  );
+};
+
+const ToggleField = ({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  hint?: string;
+}) => (
+  <div className="flex items-center justify-between py-1 font-sans">
+    <div className="space-y-0.5">
+      <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
+      {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
+    </div>
+    <button
+      onClick={() => onChange(!value)}
+      aria-label={label}
+      role="switch"
+      aria-checked={value}
+      className={`relative h-5 w-9 rounded-full transition-colors cursor-pointer focus:outline-none ${
+        value ? "bg-indigo-600" : "bg-zinc-800"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+          value ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+  </div>
+);
+
+const SelectField = ({
+  label,
+  value,
+  options,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  hint?: string;
+}) => (
+  <div className="flex flex-col gap-1.5 font-sans">
+    <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+      className="rounded-lg border border-zinc-900 bg-zinc-950 px-3 py-2 text-xs text-zinc-150 focus:outline-none focus:border-indigo-650 cursor-pointer font-sans"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+    {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
+  </div>
+);
+
+const Section = ({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  children: ReactNode;
+}) => (
+  <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-4 shadow-inner">
+    <h3 className="flex items-center gap-2 text-xs font-bold text-zinc-350 uppercase tracking-wider font-mono border-b border-zinc-900 pb-2">
+      <Icon className="h-4 w-4 text-indigo-400" />
+      {title}
+    </h3>
+    <div className="space-y-4">
+      {children}
+    </div>
+  </div>
+);
 
 type Config = {
   // LM Studio
@@ -75,7 +217,6 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const originalKeysRef = useRef<Record<string, string>>({});
-  const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [memoryHealthStatus, setMemoryHealthStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [memoryHealthMessage, setMemoryHealthMessage] = useState("");
   const [showMemoryHistory, setShowMemoryHistory] = useState(false);
@@ -129,156 +270,6 @@ export default function SettingsPage() {
       setSaved(false);
     }
   };
-
-  const InputField = ({
-    label,
-    value,
-    onChange,
-    type = "text",
-    placeholder,
-    hint,
-    fieldKey,
-    isSecret = false,
-  }: {
-    label: string;
-    value: string | number;
-    onChange: (v: string) => void;
-    type?: string;
-    placeholder?: string;
-    hint?: string;
-    fieldKey?: string;
-    isSecret?: boolean;
-  }) => {
-    const isRevealed = fieldKey ? revealedKeys[fieldKey] : false;
-    const displayValue = isSecret && !isRevealed ? "\u2022".repeat(8) : value;
-
-    return (
-    <div className="flex flex-col gap-1.5 font-sans">
-      <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
-      <div className="relative">
-        <input
-          type={isSecret && !isRevealed ? "text" : type}
-          value={displayValue}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={isSecret && !isRevealed ? undefined : placeholder}
-          readOnly={isSecret && !isRevealed}
-          aria-label={label}
-          className={`rounded-lg border border-zinc-900 bg-zinc-950 px-3 py-2 text-xs text-zinc-150 placeholder-zinc-700 focus:outline-none focus:border-indigo-650 leading-relaxed font-sans${isSecret ? " pr-9" : ""}`}
-          onFocus={() => {
-            if (isSecret && !isRevealed && fieldKey) {
-              setRevealedKeys((prev) => ({ ...prev, [fieldKey]: true }));
-              onChange(originalKeysRef.current[fieldKey] || "");
-            }
-          }}
-        />
-        {isSecret && (
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={() => {
-              if (fieldKey) {
-                setRevealedKeys((prev) => ({ ...prev, [fieldKey]: !prev[fieldKey] }));
-                if (!isRevealed) {
-                  onChange(originalKeysRef.current[fieldKey] || "");
-                }
-              }
-            }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
-            aria-label={isRevealed ? `Hide ${label}` : `Show ${label}`}
-          >
-            {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          </button>
-        )}
-      </div>
-      {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
-    </div>
-  );
-  };
-
-  const ToggleField = ({
-    label,
-    value,
-    onChange,
-    hint,
-  }: {
-    label: string;
-    value: boolean;
-    onChange: (v: boolean) => void;
-    hint?: string;
-  }) => (
-    <div className="flex items-center justify-between py-1 font-sans">
-      <div className="space-y-0.5">
-        <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
-        {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
-      </div>
-      <button
-        onClick={() => onChange(!value)}
-        aria-label={label}
-        role="switch"
-        aria-checked={value}
-        className={`relative h-5 w-9 rounded-full transition-colors cursor-pointer focus:outline-none ${
-          value ? "bg-indigo-600" : "bg-zinc-800"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
-            value ? "translate-x-4" : "translate-x-0"
-          }`}
-        />
-      </button>
-    </div>
-  );
-
-  const SelectField = ({
-    label,
-    value,
-    options,
-    onChange,
-    hint,
-  }: {
-    label: string;
-    value: string;
-    options: { value: string; label: string }[];
-    onChange: (v: string) => void;
-    hint?: string;
-  }) => (
-    <div className="flex flex-col gap-1.5 font-sans">
-      <label className="text-[10px] uppercase font-bold text-zinc-450 tracking-wider font-mono">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={label}
-        className="rounded-lg border border-zinc-900 bg-zinc-950 px-3 py-2 text-xs text-zinc-150 focus:outline-none focus:border-indigo-650 cursor-pointer font-sans"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {hint && <p className="text-[9px] font-mono text-zinc-400 leading-normal">{hint}</p>}
-    </div>
-  );
-
-  const Section = ({
-    title,
-    icon: Icon,
-    children,
-  }: {
-    title: string;
-    icon: any;
-    children: React.ReactNode;
-  }) => (
-    <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-4 shadow-inner">
-      <h3 className="flex items-center gap-2 text-xs font-bold text-zinc-350 uppercase tracking-wider font-mono border-b border-zinc-900 pb-2">
-        <Icon className="h-4 w-4 text-indigo-400" />
-        {title}
-      </h3>
-      <div className="space-y-4">
-        {children}
-      </div>
-    </div>
-  );
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto w-full select-none">

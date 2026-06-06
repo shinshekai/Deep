@@ -11,22 +11,21 @@ import type {
   AgentStepFrame,
   Citation,
   CompleteFrame,
-  ErrorFrame,
   IndexNode
 } from "@/types/api";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import { 
-  PlusCircle, FileText, CheckCircle2, ChevronRight, ChevronDown, 
-  Sparkles, Database, Plus, Trash, Copy, BookOpen, Layers, 
-  ArrowRightLeft, AlertCircle, RefreshCw, X, Lightbulb, BookMarked, Save,
-  Upload, PanelLeft, PanelRight, Shield, Zap, Search, Clock, Cpu, Loader2
+  FileText, CheckCircle2, ChevronRight, ChevronDown, 
+  Sparkles, Database, Copy, Layers, 
+  ArrowRightLeft, AlertCircle, X, 
+  Upload, PanelLeft, PanelRight, Zap, Search, Cpu, Loader2
 } from "lucide-react";
-import { uploadDocument, pollUploadTask, fetchKnowledgeBases, type KnowledgeBase } from "@/lib/knowledge";
+import { uploadDocument, pollUploadTask, fetchKnowledgeBases } from "@/lib/knowledge";
 
 // Agent metadata for pipeline render
 const agentMeta: Record<
   string,
-  { icon: any; label: string; color: string; bg: string; border: string }
+  { icon: React.ComponentType<{ className?: string }>; label: string; color: string; bg: string; border: string }
 > = {
   investigate: { 
     icon: Search, 
@@ -219,8 +218,8 @@ export default function SolvePage() {
     try {
       const bases = await fetchKnowledgeBases();
       if (bases) {
-        const mapped = bases.map((kb: any) => {
-          const name = typeof kb === "string" ? kb : (kb.name || "default");
+        const mapped = bases.map((kb: unknown) => {
+          const name = typeof kb === "string" ? kb : (kb && typeof kb === "object" && "name" in kb ? String(kb.name) : "default");
           return { value: name, label: name };
         });
         setKbOptions([{ value: "", label: "(none)" }, ...mapped]);
@@ -292,12 +291,13 @@ export default function SolvePage() {
 
   // Subscribe to agent steps (with delta streaming aggregation)
   useEffect(() => {
-    return subscribe("agent_step", (data) => {
+    return subscribe("agent_step", (data: Record<string, unknown>) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
       
-      const agent = data.agent as string;
-      const delta = (data.delta as string) || (data.content as string) || "";
-      const timestamp = (data.timestamp as number) || (Date.now() / 1000);
+      const agentRaw = String(data.agent ?? "");
+      const agent = agentRaw as "investigate" | "note" | "plan" | "manager" | "solve" | "check" | "format";
+      const delta = String(data.delta ?? data.content ?? "");
+      const timestamp = Number(data.timestamp ?? Date.now() / 1000);
 
       setSteps((prev) => {
         const existingIdx = prev.findIndex((s) => s.agent === agent);
@@ -314,7 +314,7 @@ export default function SolvePage() {
             ...prev,
             {
               type: "agent_step",
-              agent: agent as any,
+              agent,
               content: delta,
               timestamp: timestamp,
             },
@@ -326,9 +326,9 @@ export default function SolvePage() {
 
   // Subscribe to citations
   useEffect(() => {
-    return subscribe("citation", (data) => {
+    return subscribe("citation", (data: Record<string, unknown>) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
-      if (data.citation) {
+      if (data.citation && typeof data.citation === "object") {
         setCitations((prev) => [...prev, data.citation as Citation]);
       }
     });
@@ -345,9 +345,10 @@ export default function SolvePage() {
 
   // Subscribe to errors
   useEffect(() => {
-    return subscribe("error", (data) => {
+    return subscribe("error", (data: Record<string, unknown>) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
-      setErrorMsg((data as ErrorFrame).message ?? "Pipeline failure");
+      const msg = typeof data.message === "string" ? data.message : "Pipeline failure";
+      setErrorMsg(msg);
       setState("error");
     });
   }, [subscribe]);
@@ -668,15 +669,15 @@ export default function SolvePage() {
                   Smart Solve executes a dual-loop deliberate agentic reasoning flow: analysis (Investigate & Note) and solve (Plan, Solve, Check, and Format) targets, dynamically selecting tier models.
                 </p>
                 <div className="grid gap-2.5 sm:grid-cols-3 pt-2">
-                  {suggestedPrompts.map((p, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setText(p)}
-                      className="rounded-lg border border-zinc-900 hover:border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-500 hover:text-zinc-350 cursor-pointer transition select-none"
-                    >
-                      "{p}"
-                    </div>
-                  ))}
+              {suggestedPrompts.map((p, i) => (
+                <div
+                  key={i}
+                  onClick={() => setText(p)}
+                  className="rounded-lg border border-zinc-900 hover:border-zinc-800 bg-zinc-950/40 p-3 text-[11px] text-zinc-500 hover:text-zinc-350 cursor-pointer transition select-none"
+                >
+                  {p}
+                </div>
+              ))}
                 </div>
               </div>
             )}
@@ -886,11 +887,11 @@ export default function SolvePage() {
                   {answer.solve_dir && (
                     <div className="flex justify-between items-center text-[10px] font-mono text-zinc-500 pt-2 border-t border-zinc-900/40 select-none">
                       <span>Artifact Folder: {answer.solve_dir}</span>
-                      {(answer as any).metadata && (
+                      {answer.metadata && (
                         <div className="flex items-center gap-3">
-                          <span>Elapsed: {(answer as any).metadata.elapsed_seconds}s</span>
-                          <span>Score: {(answer as any).metadata.complexity_score?.toFixed(2)}</span>
-                          <span className="text-indigo-400 uppercase">{(answer as any).metadata.model_used}</span>
+                          <span>Elapsed: {answer.metadata.elapsed_seconds}s</span>
+                          <span>Score: {answer.metadata.complexity_score?.toFixed(2)}</span>
+                          <span className="text-indigo-400 uppercase">{answer.metadata.model_used}</span>
                         </div>
                       )}
                     </div>

@@ -23,7 +23,7 @@ export interface MemoryFact {
 
 export interface UserProfile {
   device_id: string;
-  profile: Record<string, any>;
+  profile: Record<string, unknown>;
 }
 
 export interface MemoryRecall {
@@ -55,7 +55,7 @@ export async function getProfile(deviceId: string): Promise<UserProfile> {
   return res.json();
 }
 
-export async function updateProfile(deviceId: string, interaction: Record<string, any>): Promise<UserProfile> {
+export async function updateProfile(deviceId: string, interaction: Record<string, unknown>): Promise<UserProfile> {
   const res = await secureFetch(`${MEMORY_API}/profile/${deviceId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

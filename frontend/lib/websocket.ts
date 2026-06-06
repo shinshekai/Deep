@@ -59,7 +59,7 @@ export class WebSocketManager {
     getStatus: () => Status,
     setStatus: (s: Status) => void,
     subscribers: Map<string, Set<MessageCallback>>,
-    _otherSubscribers: Map<string, Set<MessageCallback>>
+    _otherSubscribers: Map<string, Set<MessageCallback>> // eslint-disable-line @typescript-eslint/no-unused-vars
   ): Promise<void> {
     return new Promise((resolve) => {
       if (this._getWs(name)?.readyState === WebSocket.OPEN) {
@@ -176,7 +176,7 @@ export class WebSocketManager {
 
   private _scheduleReconnect(
     name: string,
-    url: string
+    _url: string // eslint-disable-line @typescript-eslint/no-unused-vars
   ): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);

@@ -11,7 +11,6 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { useWebSocket } from "@/providers/websocket-provider";
 import type { InferenceTelemetryEvent, PipelineStage } from "@/types/api";
 
 const stageColors: Record<PipelineStage, string> = {
