@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,6 +12,7 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
+import { useWebSocket } from "@/providers/websocket-provider";
 import type { InferenceTelemetryEvent, PipelineStage } from "@/types/api";
 
 const stageColors: Record<PipelineStage, string> = {
@@ -26,13 +28,27 @@ const stageBadgeVariant: Record<PipelineStage, "blue" | "yellow" | "green"> =
     Final_Synthesis: "green",
   };
 
-interface InferenceThroughputGridProps {
-  events?: InferenceTelemetryEvent[];
-}
+export function InferenceThroughputGrid() {
+  const { latestMetrics } = useWebSocket();
+  const [tick, setTick] = useState<number>(0);
 
-export function InferenceThroughputGrid({
-  events = [],
-}: InferenceThroughputGridProps) {
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (latestMetrics) setTick(Date.now());
+  }, [latestMetrics]);
+
+  const events: InferenceTelemetryEvent[] = (
+    latestMetrics?.active_models ?? []
+  ).map((modelId) => ({
+    model_id: modelId,
+    timestamp: tick,
+    pipeline_stage: "Final_Synthesis",
+    ttft_ms: latestMetrics?.latency_ms ?? 0,
+    tps_rate: latestMetrics?.throughput_tps ?? 0,
+    total_tokens_processed: 0,
+    kv_compression_ratio: 0,
+  }));
+
   if (events.length === 0) {
     return (
       <Card>

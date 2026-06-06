@@ -32,7 +32,7 @@ class GuidedLearningService:
             json.dump(data, f, indent=2)
 
     async def start_session(
-        self, kb_name: str, topic: str, retrieval_pipeline: str = "tree", model_id: str = "Qwen3-1.7B-Q4_K_M"
+        self, kb_name: str, topic: str, retrieval_pipeline: str = "tree", model_id: str = "Qwen3-1.7B-Q4_K_M", device_id: str = ""
     ) -> Dict[str, Any]:
         """LocateAgent: Identifies 3-5 progressive knowledge points and initializes session."""
         session_id = f"learn_{int(time.time())}"
@@ -99,18 +99,18 @@ class GuidedLearningService:
             "pages": {},
             "status": "active"
         }
-        self._save_session(session_id, session_data)
+        await asyncio.to_thread(self._save_session, session_id, session_data)
 
         # Memory: store learning episode and update profile
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 await state.memory_service.store_episode(
-                    device_id="default", query=topic, answer="",
+                    device_id=device_id, query=topic, answer="",
                     agents=["locate", "interactive", "chat"],
                     model_used=model_id, session_type="learning",
                 )
-                await state.memory_service.update_profile("default", {
+                await state.memory_service.update_profile(device_id, {
                     "type": "learning_started", "topic": topic, "kb_name": kb_name,
                 })
             except Exception:
@@ -118,9 +118,9 @@ class GuidedLearningService:
 
         return session_data
 
-    async def generate_interactive_page(self, session_id: str, point_index: int, model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
+    async def generate_interactive_page(self, session_id: str, point_index: int, model_id: str = "Qwen3-1.7B-Q4_K_M", device_id: str = "") -> str:
         """InteractiveAgent: Generates rich HTML learning material for a point."""
-        session_data = self._load_session(session_id)
+        session_data = await asyncio.to_thread(self._load_session, session_id)
         
         if point_index < 0 or point_index >= len(session_data["points"]):
             raise ValueError("Invalid point index.")
@@ -162,25 +162,25 @@ class GuidedLearningService:
 
         session_data["pages"][str(point_index)] = html_content
         session_data["current_point_index"] = point_index
-        self._save_session(session_id, session_data)
+        await asyncio.to_thread(self._save_session, session_id, session_data)
 
         # Memory: record agent outcome
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 await state.memory_service.record_agent_outcome(
                     agent_type="learning", query_pattern=point_title[:100],
                     strategy="interactive_generation", outcome_quality=0.7,
-                    model_used=model_id, device_id="default",
+                    model_used=model_id, device_id=device_id,
                 )
             except Exception:
                 pass
 
         return html_content
 
-    async def chat(self, session_id: str, point_index: int, user_message: str, model_id: str = "Qwen3-1.7B-Q4_K_M") -> str:
+    async def chat(self, session_id: str, point_index: int, user_message: str, model_id: str = "Qwen3-1.7B-Q4_K_M", device_id: str = "") -> str:
         """ChatAgent: Contextual Q&A within a specific learning point."""
-        session_data = self._load_session(session_id)
+        session_data = await asyncio.to_thread(self._load_session, session_id)
         point_title = session_data["points"][point_index]
         context_text = session_data["context_snapshot"]
         
@@ -214,11 +214,11 @@ class GuidedLearningService:
         
         # Memory: extract learning facts
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 from app.services.fact_extractor import extract_and_store_facts
                 asyncio.create_task(extract_and_store_facts(
-                    device_id="default", query=user_message, answer=answer,
+                    device_id=device_id, query=user_message, answer=answer,
                     source_id=session_id, lm_client=self.lm_client,
                     memory_service=state.memory_service,
                 ))
@@ -227,13 +227,13 @@ class GuidedLearningService:
         
         # Append assistant message
         session_data["chat_history"].append({"role": "assistant", "content": answer, "point_index": point_index})
-        self._save_session(session_id, session_data)
+        await asyncio.to_thread(self._save_session, session_id, session_data)
         
         return answer
 
     async def end_session(self, session_id: str, model_id: str = "Qwen3-1.7B-Q4_K_M") -> Dict[str, Any]:
         """SummaryAgent: Concludes the session and generates a learning summary."""
-        session_data = self._load_session(session_id)
+        session_data = await asyncio.to_thread(self._load_session, session_id)
         session_data["status"] = "completed"
 
         system_prompt = (
@@ -275,6 +275,6 @@ class GuidedLearningService:
             }
 
         session_data["final_summary"] = summary_obj
-        self._save_session(session_id, session_data)
+        await asyncio.to_thread(self._save_session, session_id, session_data)
 
         return summary_obj

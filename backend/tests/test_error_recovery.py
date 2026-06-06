@@ -31,6 +31,7 @@ async def test_lm_client_timeout():
                 resp = await client.post("/api/v1/query", json={
                     "query": "What is deep learning?",
                     "kb_name": "default",
+                    "device_id": "test-device",
                 })
 
         assert resp.status_code < 500
@@ -55,6 +56,7 @@ async def test_lm_client_connection_error():
                 resp = await client.post("/api/v1/query", json={
                     "query": "Summarize this document",
                     "kb_name": "default",
+                    "device_id": "test-device",
                 })
 
         assert resp.status_code < 500
@@ -143,6 +145,7 @@ async def test_concurrent_request_handling():
                     client.post("/api/v1/query", json={
                         "query": f"Concurrent query {i}",
                         "kb_name": "default",
+                        "device_id": "test-device",
                     })
                     for i in range(5)
                 ]

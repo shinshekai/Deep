@@ -124,8 +124,13 @@ def scan_guide_sessions(base_dir: str) -> list[dict]:
     return sessions
 
 
-async def migrate(dry_run: bool = False, device_id: str = "default"):
+async def migrate(dry_run: bool = False, device_id: str | None = None):
     from app.services.memory_service import MemoryService
+
+    if device_id is None:
+        print("ERROR: --device-id is required to attribute migrated sessions to a namespace.")
+        print("Legacy session files do not carry device information; refusing to import into a shared namespace.")
+        return
 
     base_dir = "data"
 
@@ -189,8 +194,8 @@ def main():
     parser = argparse.ArgumentParser(description="Migrate session files to memory database")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be imported without actually importing")
-    parser.add_argument("--device-id", default="default",
-                        help="Device ID for migrated sessions")
+    parser.add_argument("--device-id", default=None,
+                        help="Device ID for migrated sessions (required)")
     args = parser.parse_args()
 
     asyncio.run(migrate(dry_run=args.dry_run, device_id=args.device_id))

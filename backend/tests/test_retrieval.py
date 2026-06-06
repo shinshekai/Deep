@@ -106,6 +106,7 @@ def test_query_http_returns_answer(client):
                             response = client.post("/api/v1/query", json={
                                 "query": "What is machine learning?",
                                 "kb_name": "test_kb",
+                                "device_id": "test-device",
                             })
 
     assert response.status_code == 200

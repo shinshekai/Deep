@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 import logging
+import uuid
 from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -41,7 +42,6 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
         "type": "agent_step", "agent": "investigate",
         "content": f"Analyzing query: {query[:100]}...", "timestamp": _t.time(),
     })
-    await asyncio.sleep(0.4)
 
     lm_ok = await state.lm_client.check_health()
     if lm_ok:
@@ -176,6 +176,7 @@ async def ws_solve(ws: WebSocket):
         return
 
     await ws.accept()
+    device_id = str(uuid.uuid4())
     in_flight: Optional[asyncio.Task] = None
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
     ACTIVE_WS_CONNECTIONS.inc()
@@ -183,6 +184,7 @@ async def ws_solve(ws: WebSocket):
         while True:
             try:
                 data = await ws.receive_json()
+                data["device_id"] = device_id
 
                 if in_flight is not None and not in_flight.done():
                     in_flight.cancel()

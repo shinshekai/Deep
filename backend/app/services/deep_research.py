@@ -48,7 +48,7 @@ class DeepResearchService:
             raise
 
     async def start_research(
-        self, kb_name: str, query: str, mode: str = "parallel", retrieval_pipeline: str = "combined", model_id: str = "Qwen3-1.7B-Q4_K_M"
+        self, kb_name: str, query: str, mode: str = "parallel", retrieval_pipeline: str = "combined", model_id: str = "Qwen3-1.7B-Q4_K_M", device_id: str = ""
     ) -> str:
         """Phase 1: Planning. Returns session_id immediately and starts background research."""
         session_id = f"research_{int(time.time())}"
@@ -97,13 +97,13 @@ class DeepResearchService:
             "status": "RESEARCHING",
             "final_report": None
         }
-        self._save_session(session_id, session_data)
+        await asyncio.to_thread(self._save_session, session_id, session_data)
 
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 await state.memory_service.store_episode(
-                    device_id="default", query=query, answer="",
+                    device_id=device_id, query=query, answer="",
                     agents=["decompose", "research", "note", "report"],
                     model_used=model_id, session_type="research",
                 )
@@ -111,7 +111,7 @@ class DeepResearchService:
                 pass
 
         # 3. Kick off Phase 2 in the background
-        task = asyncio.create_task(self._process_queue(session_id))
+        task = asyncio.create_task(self._process_queue(session_id, device_id))
         self.active_tasks.add(task)
         # Update Prometheus gauge
         try:
@@ -140,7 +140,7 @@ class DeepResearchService:
 
         return session_id
 
-    async def _process_queue(self, session_id: str):
+    async def _process_queue(self, session_id: str, device_id: str = ""):
         """Phase 2: Researching. Processes the subtopic queue.
 
         Wraps the whole phase in a try/except so a fatal failure
@@ -151,7 +151,7 @@ class DeepResearchService:
         """
         from app.services.telemetry import trace_span
         try:
-            session_data = self._load_session(session_id)
+            session_data = await asyncio.to_thread(self._load_session, session_id)
             mode = session_data.get("mode", "parallel")
             queue = session_data["queue"]
 
@@ -166,18 +166,18 @@ class DeepResearchService:
 
                     async def bounded_research(subtopic):
                         async with sem:
-                            await self._research_subtopic(session_id, subtopic["id"])
+                            await self._research_subtopic(session_id, subtopic["id"], device_id)
 
                     tasks = [bounded_research(st) for st in queue]
                     await asyncio.gather(*tasks)
                 else:
                     # Series
                     for st in queue:
-                        await self._research_subtopic(session_id, st["id"])
+                        await self._research_subtopic(session_id, st["id"], device_id)
 
             # Phase 3: Reporting
             with trace_span("deep_research.generate_report", {"session_id": session_id}):
-                await self._generate_report(session_id)
+                await self._generate_report(session_id, device_id)
         except Exception as e:
             logger.error(f"Deep research task {session_id} failed: {e}", exc_info=True)
             # Best-effort: record the failure on the session file so
@@ -185,25 +185,25 @@ class DeepResearchService:
             # fails, we still log the error.
             try:
                 async with self._get_lock(session_id):
-                    session_data = self._load_session(session_id)
+                    session_data = await asyncio.to_thread(self._load_session, session_id)
                     session_data["status"] = "FAILED"
                     session_data["error"] = f"{type(e).__name__}: {e}"
-                    self._save_session(session_id, session_data)
+                    await asyncio.to_thread(self._save_session, session_id, session_data)
             except Exception as inner:
                 logger.error(f"Could not record FAILED status for {session_id}: {inner}")
 
-    async def _research_subtopic(self, session_id: str, subtopic_id: str):
+    async def _research_subtopic(self, session_id: str, subtopic_id: str, device_id: str = ""):
         """ResearchAgent + NoteAgent: Retrieves context and synthesizes notes for one subtopic."""
         async with self._get_lock(session_id):
-            session_data = self._load_session(session_id)
-            
+            session_data = await asyncio.to_thread(self._load_session, session_id)
+
             # Find the subtopic
             subtopic = next((st for st in session_data["queue"] if st["id"] == subtopic_id), None)
             if not subtopic: return
 
             # Update status
             subtopic["status"] = "RESEARCHING"
-            self._save_session(session_id, session_data)
+            await asyncio.to_thread(self._save_session, session_id, session_data)
 
             kb_name = session_data["kb_name"]
             retrieval_pipeline = session_data["retrieval_pipeline"]
@@ -257,30 +257,30 @@ class DeepResearchService:
 
         # Reload and save to avoid race conditions in parallel mode
         async with self._get_lock(session_id):
-            current_data = self._load_session(session_id)
+            current_data = await asyncio.to_thread(self._load_session, session_id)
             for st in current_data["queue"]:
                 if st["id"] == subtopic_id:
                     st["status"] = subtopic["status"]
                     st["notes"] = subtopic["notes"]
                     break
-            self._save_session(session_id, current_data)
+            await asyncio.to_thread(self._save_session, session_id, current_data)
 
             from app import state
-            if state.memory_service:
+            if state.memory_service and device_id:
                 try:
                     quality = 0.8 if subtopic["status"] == "COMPLETED" else 0.2
                     await state.memory_service.record_agent_outcome(
                         agent_type="research", query_pattern=topic_query[:100],
                         strategy="retrieval_synthesis", outcome_quality=quality,
-                        model_used=model_id, device_id="default",
+                        model_used=model_id, device_id=device_id,
                     )
                 except Exception:
                     pass
 
 
-    async def _generate_report(self, session_id: str):
+    async def _generate_report(self, session_id: str, device_id: str = ""):
         """Phase 3: Reporting. Aggregates notes into a final report."""
-        session_data = self._load_session(session_id)
+        session_data = await asyncio.to_thread(self._load_session, session_id)
         model_id = session_data["model_id"]
         main_query = session_data["query"]
 
@@ -309,22 +309,22 @@ class DeepResearchService:
         final_report = response.get("content", "Failed to generate report.")
         
         async with self._get_lock(session_id):
-            session_data = self._load_session(session_id)
+            session_data = await asyncio.to_thread(self._load_session, session_id)
             session_data["final_report"] = final_report
             session_data["status"] = "COMPLETED"
-            self._save_session(session_id, session_data)
+            await asyncio.to_thread(self._save_session, session_id, session_data)
 
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 await state.memory_service.store_episode(
-                    device_id="default", query=main_query, answer=final_report,
+                    device_id=device_id, query=main_query, answer=final_report,
                     agents=["decompose", "research", "note", "report"],
                     model_used=model_id, session_type="research",
                 )
                 from app.services.fact_extractor import extract_and_store_facts
                 asyncio.create_task(extract_and_store_facts(
-                    device_id="default", query=main_query, answer=final_report,
+                    device_id=device_id, query=main_query, answer=final_report,
                     source_id=session_id, lm_client=self.lm_client,
                     memory_service=state.memory_service,
                 ))

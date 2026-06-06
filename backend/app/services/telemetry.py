@@ -5,6 +5,7 @@ installed — the helpers silently become no-ops.
 """
 
 import logging
+import socket
 import time
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -27,6 +28,45 @@ except ImportError:
 def is_enabled() -> bool:
     """Return True if OpenTelemetry SDK is installed and active."""
     return _OTEL_AVAILABLE
+
+
+# ── Setup ──────────────────────────────────────────────────────────
+
+def setup_tracing(
+    service_name: str,
+    otlp_endpoint: Optional[str] = None,
+    console_export: bool = False,
+) -> Optional[Any]:
+    """Configure the global OpenTelemetry TracerProvider with OTLP/console exporters.
+
+    Returns the configured TracerProvider so callers can shut it down on exit,
+    or None if OpenTelemetry is not installed.
+    """
+    global _tracer
+    try:
+        from opentelemetry.sdk.trace import TracerProvider as _TP
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    except ImportError:
+        logger.warning("OpenTelemetry SDK not installed; tracing disabled")
+        return None
+
+    resource = Resource.create({
+        "service.name": service_name,
+        "service.version": "0.1.0",
+        "service.instance.id": socket.gethostname(),
+    })
+    provider = _TP(resource=resource)
+    if otlp_endpoint:
+        provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True))
+        )
+    if console_export:
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    _tracer = trace.get_tracer("udip.backend")
+    return provider
 
 
 # ── Span helpers ────────────────────────────────────────────────────

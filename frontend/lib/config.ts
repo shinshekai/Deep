@@ -2,17 +2,44 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost
 export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8001";
 
 /**
- * Frontend auth token — sourced from a build-time env var.
+ * Frontend auth token — sourced at runtime from a server-side ticket endpoint.
  *
- * The previous default (``"udip-secret-token"``) was hardcoded into every
- * client bundle and was equivalent to publishing credentials publicly.
- * We now require ``NEXT_PUBLIC_WS_AUTH_TOKEN`` to be set in
- * ``frontend/.env.local`` before ``next build`` / ``next dev``. If the
- * env var is missing we send no token at all; the backend will respond
- * 401 and the UI will surface a real error to the operator instead of
- * silently using a known public credential.
+ * The token is never inlined into the client bundle. The client calls
+ * ``/api/auth/ws-ticket`` (a Next.js Route Handler) which reads the
+ * server-only ``WS_AUTH_TOKEN`` env var and returns it as a one-time
+ * value. The response is cached in memory for the lifetime of the page.
+ *
+ * Environment variable naming:
+ *   - ``WS_AUTH_TOKEN`` (preferred, server-side only — no ``NEXT_PUBLIC_`` prefix)
+ *   - ``NEXT_PUBLIC_WS_AUTH_TOKEN`` (legacy fallback, still honored for
+ *     backward compatibility with existing deployments — but exposes
+ *     the token in the build output, so migrate to ``WS_AUTH_TOKEN``)
+ *
+ * Migrate existing deployments by setting ``WS_AUTH_TOKEN`` in
+ * ``frontend/.env.local`` (no rebuild of the client bundle required
+ * since the value is read at request time).
  */
-export const WS_AUTH_TOKEN = process.env.NEXT_PUBLIC_WS_AUTH_TOKEN || "";
+let _cachedToken: string | null = null;
+let _tokenFetchPromise: Promise<string | null> | null = null;
+
+export async function getWsAuthToken(): Promise<string> {
+  if (_cachedToken) return _cachedToken;
+  if (_tokenFetchPromise) return _tokenFetchPromise;
+  _tokenFetchPromise = (async () => {
+    try {
+      const res = await fetch("/api/auth/ws-ticket", { cache: "no-store" });
+      if (!res.ok) return "";
+      const data = (await res.json()) as { token?: string };
+      _cachedToken = data.token || "";
+      return _cachedToken;
+    } catch {
+      return "";
+    } finally {
+      _tokenFetchPromise = null;
+    }
+  })();
+  return _tokenFetchPromise;
+}
 
 /**
  * A secure wrapper around fetch that automatically appends the local API secret key
@@ -24,11 +51,13 @@ export async function secureFetch(
 ): Promise<Response> {
   const urlString = typeof input === "string" ? input : (input instanceof URL ? input.toString() : input.url);
 
-  // Only inject authentication headers for calls targeted at the local UDIP backend
   if (urlString.includes("localhost:8001") || urlString.includes("127.0.0.1:8001") || !urlString.startsWith("http")) {
     const headers = new Headers(init?.headers);
-    if (WS_AUTH_TOKEN && !headers.has("X-DEEP-API-KEY")) {
-      headers.set("X-DEEP-API-KEY", WS_AUTH_TOKEN);
+    if (!headers.has("X-DEEP-API-KEY")) {
+      const token = await getWsAuthToken();
+      if (token) {
+        headers.set("X-DEEP-API-KEY", token);
+      }
     }
     return fetch(input, {
       ...init,

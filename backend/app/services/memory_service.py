@@ -765,30 +765,6 @@ class MemoryService:
                 "projects": project_count[0][0] if project_count else 0,
             }
 
-        ep_total = await db.execute_fetchall("SELECT COUNT(*) FROM episodes")
-        ep_active = await db.execute_fetchall(
-            "SELECT COUNT(*) FROM episodes WHERE archived = 0"
-        )
-        fact_total = await db.execute_fetchall("SELECT COUNT(*) FROM facts")
-        fact_active = await db.execute_fetchall(
-            "SELECT COUNT(*) FROM facts WHERE archived = 0"
-        )
-        profile_count = await db.execute_fetchall("SELECT COUNT(*) FROM user_profiles")
-        agent_count = await db.execute_fetchall("SELECT COUNT(*) FROM agent_outcomes")
-        strategy_count = await db.execute_fetchall("SELECT COUNT(*) FROM agent_strategies")
-        project_count = await db.execute_fetchall("SELECT COUNT(*) FROM project_profiles")
-
-        return {
-            "episodes_total": ep_total[0][0] if ep_total else 0,
-            "episodes_active": ep_active[0][0] if ep_active else 0,
-            "facts_total": fact_total[0][0] if fact_total else 0,
-            "facts_active": fact_active[0][0] if fact_active else 0,
-            "profiles": profile_count[0][0] if profile_count else 0,
-            "agent_outcomes": agent_count[0][0] if agent_count else 0,
-            "agent_strategies": strategy_count[0][0] if strategy_count else 0,
-            "projects": project_count[0][0] if project_count else 0,
-        }
-
     async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
         db = await self._get_db()
         await db.execute(

@@ -58,6 +58,7 @@ class ResearchRequest(_StrictModel):
     mode: Literal["parallel", "sequential", "auto"] = "parallel"
     retrieval_pipeline: Literal["tree", "hybrid", "naive", "combined"] = "combined"
     model_id: str = "Qwen3-1.7B-Q4_K_M"
+    device_id: str = ""
 
     def sanitized(self) -> "ResearchRequest":
         """Return a copy with kb_name sanitized to a path-safe value."""
@@ -84,6 +85,7 @@ class LearningStartRequest(_StrictModel):
     topic: str = "General Knowledge"
     retrieval_pipeline: Literal["tree", "hybrid", "naive", "combined"] = "tree"
     model_id: str = "Qwen3-1.7B-Q4_K_M"
+    device_id: str = ""
 
     def sanitized(self) -> "LearningStartRequest":
         return self.model_copy(update={"kb_name": safe_name(self.kb_name, default="default_kb")})
@@ -92,12 +94,14 @@ class LearningStartRequest(_StrictModel):
 class LearningPageRequest(_StrictModel):
     point_index: int = 0
     model_id: str = "Qwen3-1.7B-Q4_K_M"
+    device_id: str = ""
 
 
 class LearningChatRequest(_StrictModel):
     point_index: int = 0
     message: str = ""
     model_id: str = "Qwen3-1.7B-Q4_K_M"
+    device_id: str = ""
 
 
 class LearningEndRequest(_StrictModel):
@@ -107,10 +111,12 @@ class LearningEndRequest(_StrictModel):
 class NotebookCreateRequest(_StrictModel):
     title: str = Field(default="New Notebook", min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
+    device_id: str = ""
 
 
 class NoteAddRequest(_StrictModel):
     content: str = Field(default="", max_length=100_000)
+    device_id: str = ""
 
 
 class CoWriterEditRequest(_StrictModel):
@@ -160,6 +166,7 @@ async def start_research(payload: ResearchRequest):
             mode=payload.mode,
             retrieval_pipeline=payload.retrieval_pipeline,
             model_id=model_id,
+            device_id=payload.device_id,
         )
     return {"session_id": session_id, "status": "RESEARCHING"}
 
@@ -216,6 +223,7 @@ async def start_learning(payload: LearningStartRequest):
             topic=payload.topic,
             retrieval_pipeline=payload.retrieval_pipeline,
             model_id=model_id,
+            device_id=payload.device_id,
         )
 
 
@@ -225,7 +233,7 @@ async def generate_learning_page(session_id: str, payload: LearningPageRequest):
     model_id = _validate_model_id(payload.model_id)
     gl_service = GuidedLearningService(lm_client=state.lm_client)
     html_content = await gl_service.generate_interactive_page(
-        session_id=session_id, point_index=payload.point_index, model_id=model_id
+        session_id=session_id, point_index=payload.point_index, model_id=model_id, device_id=payload.device_id
     )
     return {"html": html_content}
 
@@ -240,6 +248,7 @@ async def learning_chat(session_id: str, payload: LearningChatRequest):
         point_index=payload.point_index,
         user_message=payload.message,
         model_id=model_id,
+        device_id=payload.device_id,
     )
     return {"answer": answer}
 
@@ -259,7 +268,7 @@ async def end_learning(session_id: str, payload: LearningEndRequest):
 async def create_notebook(payload: NotebookCreateRequest):
     nb_service = NotebookService()
     try:
-        return nb_service.create_notebook(payload.title, payload.description)
+        return nb_service.create_notebook(payload.title, payload.description, payload.device_id)
     except OSError as e:
         raise HTTPException(
             status_code=503,
@@ -278,7 +287,7 @@ async def add_note(notebook_id: str, payload: NoteAddRequest):
     notebook_id = safe_name(notebook_id, max_len=64)
     nb_service = NotebookService()
     try:
-        return nb_service.add_note(notebook_id, payload.content)
+        return nb_service.add_note(notebook_id, payload.content, device_id=payload.device_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Notebook not found.")
     except ValueError as e:

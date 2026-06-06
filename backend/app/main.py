@@ -10,15 +10,21 @@ import logging
 import os
 from fastapi import FastAPI
 
-try:
+from app.config import get_settings
+from app.services.telemetry import setup_tracing
+
+settings = get_settings()
+provider = setup_tracing(
+    service_name="udip-backend",
+    otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+    console_export=settings.otel_console_export,
+)
+if provider is not None:
     from opentelemetry import trace
-    from opentelemetry.sdk.trace import TracerProvider
-    trace.set_tracer_provider(TracerProvider())
     tracer = trace.get_tracer(__name__)
-except ImportError:
+else:
     tracer = None
 
-from app.config import get_settings
 from app.services.logging_config import configure_logging
 from app.lifespan import lifespan
 from app.websocket_handlers import ws_solve, ws_metrics

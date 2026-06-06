@@ -1,7 +1,5 @@
-import { API_BASE_URL, WS_BASE_URL, WS_AUTH_TOKEN, secureFetch } from "./config";
+import { API_BASE_URL, WS_BASE_URL, secureFetch, getWsAuthToken } from "./config";
 
-const SOLVE_WS_URL = `${WS_BASE_URL}/api/v1/solve?token=${WS_AUTH_TOKEN}`;
-const METRICS_WS_URL = `${WS_BASE_URL}/ws/metrics?token=${WS_AUTH_TOKEN}`;
 const API_BASE = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
 type MessageCallback = (data: Record<string, unknown>) => void;
@@ -32,8 +30,9 @@ export class WebSocketManager {
   // Smart Solver WebSocket
   // ──────────────────────────────────────────
 
-  connectSolve(): Promise<void> {
-    return this._connect("solve", SOLVE_WS_URL, (ws) => { this.solveConnection = ws; },
+  async connectSolve(): Promise<void> {
+    const url = await buildWsUrl("/api/v1/solve");
+    return this._connect("solve", url, (ws) => { this.solveConnection = ws; },
       () => this.solveStatus, (s) => { this.solveStatus = s; },
       this.solveSubscribers, this.metricsSubscribers);
   }
@@ -42,8 +41,9 @@ export class WebSocketManager {
   // Metrics WebSocket
   // ──────────────────────────────────────────
 
-  connectMetrics(): Promise<void> {
-    return this._connect("metrics", METRICS_WS_URL, (ws) => { this.metricsConnection = ws; },
+  async connectMetrics(): Promise<void> {
+    const url = await buildWsUrl("/ws/metrics");
+    return this._connect("metrics", url, (ws) => { this.metricsConnection = ws; },
       () => this.metricsStatus, (s) => { this.metricsStatus = s; },
       this.metricsSubscribers, this.solveSubscribers);
   }
@@ -89,7 +89,6 @@ export class WebSocketManager {
               "data" in message ? (message.data as Record<string, unknown>) : message;
             this._notify(subscribers, message.type ?? "message", data);
           } catch {
-            // Non-JSON — treat as raw text frame
             this._notify(subscribers, "_raw", { connection: name, text: String(event.data) });
           }
         };
@@ -97,7 +96,7 @@ export class WebSocketManager {
         ws.onclose = () => {
           setStatus("closed");
           this._notify(subscribers, "_connection", { connection: name, status: "close" });
-          this._scheduleReconnect(name, url);
+          this._scheduleReconnect(name);
         };
 
         ws.onerror = () => {
@@ -106,7 +105,7 @@ export class WebSocketManager {
         };
       } catch {
         setStatus("error");
-        this._scheduleReconnect(name, url);
+        this._scheduleReconnect(name);
         resolve();
       }
     });
@@ -140,7 +139,6 @@ export class WebSocketManager {
     eventType: string,
     callback: MessageCallback
   ): () => void {
-    // Subscribe to both connections
     for (const map of [this.solveSubscribers, this.metricsSubscribers]) {
       if (!map.has(eventType)) {
         map.set(eventType, new Set());
@@ -154,7 +152,6 @@ export class WebSocketManager {
   }
 
   getStatus(): Status {
-    // Return the solve connection status as primary
     return this.solveStatus;
   }
 
@@ -175,8 +172,7 @@ export class WebSocketManager {
   }
 
   private _scheduleReconnect(
-    name: string,
-    _url: string // eslint-disable-line @typescript-eslint/no-unused-vars
+    name: string
   ): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
@@ -193,6 +189,11 @@ export class WebSocketManager {
   private resetReconnectAttempts(): void {
     this.reconnectAttempts = 0;
   }
+}
+
+async function buildWsUrl(path: string): Promise<string> {
+  const token = await getWsAuthToken();
+  return token ? `${WS_BASE_URL}${path}?token=${token}` : `${WS_BASE_URL}${path}`;
 }
 
 // ─────────────────────────────────────────────

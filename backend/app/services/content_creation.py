@@ -18,7 +18,7 @@ class NotebookService:
     def _get_path(self, notebook_id: str) -> str:
         return os.path.join(self.notebooks_dir, f"{notebook_id}.json")
 
-    def create_notebook(self, title: str, description: str = "") -> Dict[str, Any]:
+    def create_notebook(self, title: str, description: str = "", device_id: str = "") -> Dict[str, Any]:
         nb_id = f"nb_{int(time.time())}"
         data = {
             "id": nb_id,
@@ -35,10 +35,10 @@ class NotebookService:
             logger.error(f"Failed to create notebook {nb_id}: {e}")
             raise
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 asyncio.create_task(state.memory_service.store_episode(
-                    device_id="default", query=f"Create notebook: {title}", answer="",
+                    device_id=device_id, query=f"Create notebook: {title}", answer="",
                     agents=["content_creator"], session_type="content",
                 ))
             except Exception:
@@ -77,7 +77,7 @@ class NotebookService:
             logger.error(f"Notebook {notebook_id} is corrupted: {e}")
             raise ValueError(f"Notebook {notebook_id} is corrupted.") from e
 
-    def add_note(self, notebook_id: str, content: str, source: str = "manual") -> Dict[str, Any]:
+    def add_note(self, notebook_id: str, content: str, source: str = "manual", device_id: str = "") -> Dict[str, Any]:
         data = self.get_notebook(notebook_id)
         note = {
             "id": f"note_{int(time.time()*1000)}",
@@ -94,10 +94,10 @@ class NotebookService:
             logger.error(f"Failed to persist note for {notebook_id}: {e}")
             raise
         from app import state
-        if state.memory_service:
+        if state.memory_service and device_id:
             try:
                 asyncio.create_task(state.memory_service.store_fact(
-                    device_id="default",
+                    device_id=device_id,
                     content=f"Note '{content[:50]}': {content[:200]}",
                     source_type="note",
                     source_id=note["id"],
@@ -205,7 +205,7 @@ class IdeaGenService:
         all_notes = ""
         for nb_id in notebook_ids:
             try:
-                nb = self.notebook_service.get_notebook(nb_id)
+                nb = await asyncio.to_thread(self.notebook_service.get_notebook, nb_id)
                 for note in nb.get("notes", []):
                     all_notes += f"- {note['content']}\n"
             except Exception as e:

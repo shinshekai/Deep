@@ -60,7 +60,7 @@ async def run_solve_pipeline(
     model_manager: ModelManager,
     session_id: str,
     ws_send,
-    device_id: str = "default",
+    device_id: str | None = None,
     memory_context: str = "",
 ):
     """Execute the dual-loop solve pipeline and stream frames to WebSocket."""
@@ -158,16 +158,19 @@ async def run_solve_pipeline(
           model_manager.on_query_start(model_id)
 
           if state.memory_service:
-              from app.services.fact_extractor import extract_and_store_facts
-              asyncio.create_task(extract_and_store_facts(
-                  device_id=device_id, query=query, answer=full_answer or "",
-                  source_id=session_id, lm_client=lm_client, memory_service=state.memory_service,
-              ))
-              asyncio.create_task(state.memory_service.store_episode(
-                  device_id=device_id, query=query, answer=full_answer or "",
-                  agents=["investigate", "note", "plan", "solve", "check", "format"],
-                  model_used=model_id, session_type="solve",
-              ))
+              if device_id is None:
+                  logger.warning(f"Solve session {session_id}: device_id is None; skipping memory write")
+              else:
+                  from app.services.fact_extractor import extract_and_store_facts
+                  asyncio.create_task(extract_and_store_facts(
+                      device_id=device_id, query=query, answer=full_answer or "",
+                      source_id=session_id, lm_client=lm_client, memory_service=state.memory_service,
+                  ))
+                  asyncio.create_task(state.memory_service.store_episode(
+                      device_id=device_id, query=query, answer=full_answer or "",
+                      agents=["investigate", "note", "plan", "solve", "check", "format"],
+                      model_used=model_id, session_type="solve",
+                  ))
 
       except Exception as e:
           logger.error(f"Solve pipeline error: {e}", exc_info=True)

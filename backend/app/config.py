@@ -9,6 +9,7 @@ import logging
 import os
 from functools import cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -87,6 +88,8 @@ class Settings(BaseSettings):
     memory_fact_confidence_threshold: float = 0.2
     memory_decay_rate: float = 0.1
     memory_extraction_model_tier: int = 1
+    otel_exporter_otlp_endpoint: Optional[str] = None  # e.g. "http://localhost:4317"
+    otel_console_export: bool = False
 
     def model_post_init(self, __context) -> None:
         # Fill in the auth token if it wasn't provided via env.

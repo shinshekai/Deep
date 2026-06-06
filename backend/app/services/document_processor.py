@@ -1,5 +1,6 @@
 """Document processor — extract text from PDF/TXT/MD files."""
 
+import asyncio
 import io
 import logging
 import os
@@ -9,8 +10,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
-    """Extract text and page boundaries from PDF using PyMuPDF.
+def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
+    """Sync helper: extract text and page boundaries from PDF using PyMuPDF.
 
     For image-only (scanned) pages where PyMuPDF returns no text,
     falls back to OCR via pytesseract on embedded images.
@@ -60,8 +61,17 @@ async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
         return None
 
 
-async def extract_text_from_spreadsheet(file_path: Path) -> Optional[str]:
-    """Extract text from Excel/CSV files using pandas."""
+async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
+    """Extract text and page boundaries from PDF using PyMuPDF.
+
+    For image-only (scanned) pages where PyMuPDF returns no text,
+    falls back to OCR via pytesseract on embedded images.
+    """
+    return await asyncio.to_thread(_extract_text_from_pdf_sync, file_path)
+
+
+def _extract_text_from_spreadsheet_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from Excel/CSV files using pandas."""
     try:
         import pandas as pd
         if file_path.suffix.lower() == ".csv":
@@ -71,7 +81,7 @@ async def extract_text_from_spreadsheet(file_path: Path) -> Optional[str]:
                 df = pd.read_csv(file_path, encoding="latin-1")
         else:
             df = pd.read_excel(file_path)
-        
+
         # Convert the dataframe to a string representation
         return df.to_string(index=False)
     except ImportError:
@@ -81,8 +91,14 @@ async def extract_text_from_spreadsheet(file_path: Path) -> Optional[str]:
         logger.error(f"Spreadsheet extraction failed: {e}")
         return None
 
-async def extract_text_from_docx(file_path: Path) -> Optional[str]:
-    """Extract text from Word documents using python-docx."""
+
+async def extract_text_from_spreadsheet(file_path: Path) -> Optional[str]:
+    """Extract text from Excel/CSV files using pandas."""
+    return await asyncio.to_thread(_extract_text_from_spreadsheet_sync, file_path)
+
+
+def _extract_text_from_docx_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from Word documents using python-docx."""
     try:
         from docx import Document
         doc = Document(file_path)
@@ -94,8 +110,14 @@ async def extract_text_from_docx(file_path: Path) -> Optional[str]:
         logger.error(f"Docx extraction failed: {e}")
         return None
 
-async def extract_text_from_image(file_path: Path) -> Optional[str]:
-    """Extract text from images using OCR via the ocr_engine abstraction."""
+
+async def extract_text_from_docx(file_path: Path) -> Optional[str]:
+    """Extract text from Word documents using python-docx."""
+    return await asyncio.to_thread(_extract_text_from_docx_sync, file_path)
+
+
+def _extract_text_from_image_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from images using OCR via the ocr_engine abstraction."""
     try:
         from app.services.ocr_engine import get_ocr_engine
 
@@ -107,8 +129,14 @@ async def extract_text_from_image(file_path: Path) -> Optional[str]:
         logger.error(f"Image extraction failed: {e}")
         return None
 
-async def extract_text_from_pptx(file_path: Path) -> Optional[str]:
-    """Extract text from PowerPoint presentations."""
+
+async def extract_text_from_image(file_path: Path) -> Optional[str]:
+    """Extract text from images using OCR via the ocr_engine abstraction."""
+    return await asyncio.to_thread(_extract_text_from_image_sync, file_path)
+
+
+def _extract_text_from_pptx_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from PowerPoint presentations."""
     try:
         from pptx import Presentation
         prs = Presentation(file_path)
@@ -125,8 +153,14 @@ async def extract_text_from_pptx(file_path: Path) -> Optional[str]:
         logger.error(f"PPTX extraction failed: {e}")
         return None
 
-async def extract_text_from_html(file_path: Path) -> Optional[str]:
-    """Extract text from HTML files."""
+
+async def extract_text_from_pptx(file_path: Path) -> Optional[str]:
+    """Extract text from PowerPoint presentations."""
+    return await asyncio.to_thread(_extract_text_from_pptx_sync, file_path)
+
+
+def _extract_text_from_html_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from HTML files."""
     try:
         from bs4 import BeautifulSoup
         html = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -142,8 +176,14 @@ async def extract_text_from_html(file_path: Path) -> Optional[str]:
         logger.error(f"HTML extraction failed: {e}")
         return None
 
-async def extract_text_from_odt(file_path: Path) -> Optional[str]:
-    """Extract text from OpenDocument Text (.odt)."""
+
+async def extract_text_from_html(file_path: Path) -> Optional[str]:
+    """Extract text from HTML files."""
+    return await asyncio.to_thread(_extract_text_from_html_sync, file_path)
+
+
+def _extract_text_from_odt_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from OpenDocument Text (.odt)."""
     try:
         from odf import text, teletype
         from odf.opendocument import load
@@ -157,8 +197,14 @@ async def extract_text_from_odt(file_path: Path) -> Optional[str]:
         logger.error(f"ODT extraction failed: {e}")
         return None
 
-async def extract_text_from_rtf(file_path: Path) -> Optional[str]:
-    """Extract text from RTF files."""
+
+async def extract_text_from_odt(file_path: Path) -> Optional[str]:
+    """Extract text from OpenDocument Text (.odt)."""
+    return await asyncio.to_thread(_extract_text_from_odt_sync, file_path)
+
+
+def _extract_text_from_rtf_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from RTF files."""
     try:
         from striprtf.striprtf import rtf_to_text
         rtf = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -170,20 +216,26 @@ async def extract_text_from_rtf(file_path: Path) -> Optional[str]:
         logger.error(f"RTF extraction failed: {e}")
         return None
 
-async def extract_text_from_epub(file_path: Path) -> Optional[str]:
-    """Extract text from EPUB files."""
+
+async def extract_text_from_rtf(file_path: Path) -> Optional[str]:
+    """Extract text from RTF files."""
+    return await asyncio.to_thread(_extract_text_from_rtf_sync, file_path)
+
+
+def _extract_text_from_epub_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from EPUB files."""
     try:
         import ebooklib
         from ebooklib import epub
         from bs4 import BeautifulSoup
         import html2text
-        
+
         book = epub.read_epub(str(file_path))
         chapters = []
         for item in book.get_items():
             if item.get_type() == ebooklib.ITEM_DOCUMENT:
                 chapters.append(item.get_content())
-        
+
         h = html2text.HTML2Text()
         h.ignore_links = True
         return "\n".join([h.handle(c.decode("utf-8")) for c in chapters])
@@ -194,8 +246,14 @@ async def extract_text_from_epub(file_path: Path) -> Optional[str]:
         logger.error(f"EPUB extraction failed: {e}")
         return None
 
-async def extract_text_from_email(file_path: Path) -> Optional[str]:
-    """Extract text from .msg or .eml files."""
+
+async def extract_text_from_epub(file_path: Path) -> Optional[str]:
+    """Extract text from EPUB files."""
+    return await asyncio.to_thread(_extract_text_from_epub_sync, file_path)
+
+
+def _extract_text_from_email_sync(file_path: Path) -> Optional[str]:
+    """Sync helper: extract text from .msg or .eml files."""
     ext = file_path.suffix.lower()
     try:
         if ext == ".msg":
@@ -226,38 +284,71 @@ async def extract_text_from_email(file_path: Path) -> Optional[str]:
         logger.error(f"Email extraction failed: {e}")
         return None
 
-async def extract_text_from_archive(file_path: Path) -> Optional[str]:
-    """Extract text from all files in a ZIP archive with zip-slip protection."""
+
+async def extract_text_from_email(file_path: Path) -> Optional[str]:
+    """Extract text from .msg or .eml files."""
+    return await asyncio.to_thread(_extract_text_from_email_sync, file_path)
+
+
+def _extract_zip_to_temp(file_path: Path) -> Optional[Path]:
+    """Sync helper: extract a zip to a temp directory (zip-slip safe).
+
+    Returns the temp directory path on success, or None on zip-slip /
+    bad-zip / OS error. The temp directory is cleaned up internally on
+    any failure path; on success the caller is responsible for cleanup.
+    """
     import zipfile
     import tempfile
     import shutil
-    
+
+    tmpdir = None
+    success = False
     try:
-        text_outputs = []
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_resolved = Path(tmpdir).resolve()
-            with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                # Zip-slip protection: validate every member path before extraction
-                for member in zip_ref.namelist():
-                    member_path = (tmpdir_resolved / member).resolve()
-                    if not str(member_path).startswith(str(tmpdir_resolved)):
-                        logger.error(f"Zip-slip detected: {member} escapes extraction directory")
-                        return None
-                zip_ref.extractall(tmpdir)
-            
-            for root, dirs, files in os.walk(tmpdir):
-                for file in files:
-                    full_p = Path(root) / file
-                    # Recursively call extract_text for each file
-                    res = await extract_text(full_p)
-                    if res and res.get("content"):
-                        rel_p = full_p.relative_to(tmpdir)
-                        text_outputs.append(f"--- FILE: {rel_p} ---\n{res['content']}")
-        
-        return "\n\n".join(text_outputs)
+        tmpdir = Path(tempfile.mkdtemp())
+        tmpdir_resolved = tmpdir.resolve()
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            # Zip-slip protection: validate every member path before extraction
+            for member in zip_ref.namelist():
+                member_path = (tmpdir_resolved / member).resolve()
+                if not str(member_path).startswith(str(tmpdir_resolved)):
+                    logger.error(f"Zip-slip detected: {member} escapes extraction directory")
+                    return None
+            zip_ref.extractall(tmpdir)
+        success = True
+        return tmpdir
     except (zipfile.BadZipFile, OSError) as e:
         logger.error(f"Archive extraction failed: {e}")
         return None
+    finally:
+        if tmpdir is not None and not success:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _walk_files(root: Path) -> list[Path]:
+    """Sync helper: collect all file paths under root."""
+    return [Path(r) / f for r, _, fs in os.walk(root) for f in fs]
+
+
+async def extract_text_from_archive(file_path: Path) -> Optional[str]:
+    """Extract text from all files in a ZIP archive with zip-slip protection."""
+    import shutil
+
+    tmpdir = await asyncio.to_thread(_extract_zip_to_temp, file_path)
+    if tmpdir is None:
+        return None
+
+    try:
+        files = await asyncio.to_thread(_walk_files, tmpdir)
+        text_outputs = []
+        for full_p in files:
+            # Recursively call extract_text for each file
+            res = await extract_text(full_p)
+            if res and res.get("content"):
+                rel_p = full_p.relative_to(tmpdir)
+                text_outputs.append(f"--- FILE: {rel_p} ---\n{res['content']}")
+        return "\n\n".join(text_outputs)
+    finally:
+        await asyncio.to_thread(shutil.rmtree, tmpdir, ignore_errors=True)
 
 async def extract_text(file_path: Path) -> Optional[dict]:
     """Extract text from any supported format. Returns {type, content, pages}."""

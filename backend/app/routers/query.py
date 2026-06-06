@@ -31,7 +31,7 @@ class QueryRequest(BaseModel):
     mode: Optional[Literal["auto", "detailed", "quick"]] = "auto"
     retrieval_pipeline: Optional[Literal["tree", "hybrid", "naive", "combined"]] = "tree"
     session_id: Optional[str] = None
-    device_id: Optional[str] = None
+    device_id: str
 
 
 class Citation(BaseModel):
@@ -84,7 +84,7 @@ async def http_query(request: QueryRequest):
     if not request.kb_name:
         raise HTTPException(status_code=400, detail="Invalid kb_name")
 
-    device_id = request.device_id or "default"
+    device_id = request.device_id
     memory_context = ""
     if state.memory_service:
         try:

@@ -114,13 +114,14 @@ async def test_query_flow():
         mock_retrieve.return_value = {"results": [], "pipeline_used": "tree"}
 
         async with await _get_client() as client:
-            resp = await client.post(
+                resp = await client.post(
                 "/api/v1/query",
                 json={
                     "query": "What is this document about?",
                     "kb_name": "default",
                     "mode": "auto",
                     "retrieval_pipeline": "tree",
+                    "device_id": "test-device",
                 },
             )
 
@@ -168,6 +169,7 @@ async def test_full_lifecycle():
                 json={
                     "query": "Summarize the uploaded document.",
                     "kb_name": kb_name,
+                    "device_id": "test-device",
                 },
             )
         assert resp.status_code == 200
