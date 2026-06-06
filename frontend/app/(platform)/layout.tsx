@@ -117,7 +117,9 @@ export default function PlatformLayout({
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSelections();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTelemetry();
     
     const telemetryInterval = setInterval(loadTelemetry, 5000);

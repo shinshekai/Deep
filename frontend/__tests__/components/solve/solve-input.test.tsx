@@ -20,7 +20,7 @@ describe("SolveInput component", () => {
     } as Response);
   });
 
-  const renderSolveInput = async (props: { onSend: any; isStreaming: boolean }) => {
+  const renderSolveInput = async (props: { onSend: (q: { query: string; kb_name: string; mode: string; retrieval_pipeline: string }) => void; isStreaming: boolean }) => {
     const utils = render(<SolveInput {...props} />);
     await waitFor(() => {
       expect(mockSecureFetch).toHaveBeenCalled();

@@ -14,7 +14,7 @@ describe("WebSocketManager", () => {
       readyState: 0,
       send: vi.fn(),
       close: vi.fn(),
-    })) as any;
+    })) as unknown as typeof WebSocket;
   });
 
   it("returns a singleton instance", () => {

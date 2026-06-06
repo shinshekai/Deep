@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BookOpen, Plus, Loader2, Sparkles, Calendar, PlusCircle, AlignLeft, Check, CheckSquare, Square, Lightbulb, X, Brain } from "lucide-react";
+import { BookOpen, Plus, Loader2, Sparkles, Calendar, PlusCircle, AlignLeft, CheckSquare, Square, Lightbulb, X, Brain } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 
@@ -38,7 +38,7 @@ export default function NotebooksPage() {
   const [isGeneratingIdeas, setIsGeneratingIdeas] = useState(false);
   const [generatedIdeas, setGeneratedIdeas] = useState<string[]>([]);
   const [ideaModel, setIdeaModel] = useState("Qwen3-1.7B-Q4_K_M");
-  const [models, setModels] = useState<any[]>([]);
+  const [models, setModels] = useState<Record<string, unknown>[]>([]);
 
   // Errors / Info
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +95,8 @@ export default function NotebooksPage() {
       setNewTitle("");
       setNewDesc("");
       setShowCreateModal(false);
-    } catch (err: any) {
-      setError(err.message || "Failed to create notebook");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create notebook");
     } finally {
       setIsCreatingNb(false);
     }
@@ -119,8 +119,8 @@ export default function NotebooksPage() {
       // Reload notebooks to get updated notes list
       await loadNotebooks();
       setNoteContent("");
-    } catch (err: any) {
-      setError(err.message || "Failed to save note");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save note");
     } finally {
       setIsSavingNote(false);
     }
@@ -149,8 +149,8 @@ export default function NotebooksPage() {
       if (!res.ok) throw new Error("Failed to generate ideas");
       const data = await res.json();
       setGeneratedIdeas(data.ideas || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to generate ideas");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to generate ideas");
     } finally {
       setIsGeneratingIdeas(false);
     }
@@ -291,8 +291,8 @@ export default function NotebooksPage() {
                   </>
                 ) : (
                   models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name || m.id} ({m.tier})
+                    <option key={String(m.id)} value={String(m.id)}>
+                      {String(m.name || m.id)} ({String(m.tier)})
                     </option>
                   ))
                 )}

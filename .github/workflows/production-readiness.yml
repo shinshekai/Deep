@@ -82,8 +82,13 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
-          pip install -e ".[dev]"
+          pip install -e ".[dev,type-check]"
           pip install pytest-cov
+
+      - name: Type check (mypy)
+        working-directory: backend
+        run: |
+          mypy app --config-file pyproject.toml 2>&1 | tee mypy-output.txt
 
       - name: Run tests with coverage
         working-directory: backend

@@ -4,35 +4,32 @@ import { useState, useRef, useEffect, type FormEvent, useCallback } from "react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useUploadPolling } from "@/lib/use-upload-polling";
-import { 
-  Send, 
-  Trash2, 
-  Brain, 
-  Sparkles, 
-  Database, 
-  Plus, 
-  Trash, 
-  Copy, 
-  BookOpen, 
-  Layers, 
-  ArrowRightLeft, 
-  AlertCircle, 
-  RefreshCw, 
-  X, 
-  Lightbulb, 
-  BookMarked, 
+import {
+  Send,
+  Trash2,
+  Brain,
+  Sparkles,
+  Database,
+  Plus,
+  Copy,
+  BookOpen,
+  Layers,
+  ArrowRightLeft,
+  AlertCircle,
+  RefreshCw,
+  X,
+  Lightbulb,
+  BookMarked,
   Save,
-  CheckCircle2, 
-  ChevronRight, 
+  CheckCircle2,
+  ChevronRight,
   ChevronDown,
   Upload,
   FileText,
-  Square,
   CheckSquare,
   PanelLeft,
   PanelRight,
   User,
-  ExternalLink,
   Loader2
 } from "lucide-react";
 import { useWebSocket } from "@/providers/websocket-provider";
@@ -165,11 +162,10 @@ export default function ChatPage() {
   const [savingNote, setSavingNote] = useState(false);
   
   // Idea generation state
-  const [selectedNotesForSynthesis, setSelectedNotesForSynthesis] = useState<Record<string, boolean>>({});
   const [isGeneratingIdeas, setIsGeneratingIdeas] = useState(false);
   const [generatedIdeas, setGeneratedIdeas] = useState<string[]>([]);
   const [ideaModel, setIdeaModel] = useState("Qwen3-1.7B-Q4_K_M");
-  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [availableModels, setAvailableModels] = useState<Record<string, unknown>[]>([]);
 
   // Notifications / UI messages
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -309,9 +305,11 @@ export default function ChatPage() {
     return subscribe("complete", (data) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
       
-      const completeAnswer = (data as any).answer || streamingAnswer;
-      const meta = (data as any).metadata || {};
-      
+      const completeAnswer = String((data as Record<string, unknown>).answer ?? streamingAnswer);
+      const meta = (data as Record<string, unknown>).metadata as Record<string, unknown> | undefined ?? {};
+      const citationsRaw = (data as Record<string, unknown>).citations;
+      const citationsList = Array.isArray(citationsRaw) ? citationsRaw : [];
+
       setMessages((prev) => [
         ...prev,
         {
@@ -320,11 +318,11 @@ export default function ChatPage() {
           content: completeAnswer,
           timestamp: Date.now(),
           steps: streamingSteps,
-          citations: (data as any).citations || [],
-          modelUsed: meta.model_used,
-          complexityScore: meta.complexity_score,
-          targetTier: meta.target_tier,
-          elapsedSeconds: meta.elapsed_seconds
+          citations: citationsList as unknown as Citation[],
+          modelUsed: meta.model_used as string | undefined,
+          complexityScore: meta.complexity_score as number | undefined,
+          targetTier: meta.target_tier as string | undefined,
+          elapsedSeconds: meta.elapsed_seconds as number | undefined
         },
       ]);
       
@@ -339,7 +337,7 @@ export default function ChatPage() {
     return subscribe("error", (data) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setIsStreaming(false);
-      setErrorMsg((data as any).message || "AI Synthesizer pipeline failed.");
+      setErrorMsg(String((data as Record<string, unknown>).message ?? "AI Synthesizer pipeline failed."));
     });
   }, [subscribe]);
 
@@ -465,8 +463,8 @@ export default function ChatPage() {
       setShowCreateNbModal(false);
       setSuccessMsg("Notebook constructed successfully.");
       setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to construct notebook.");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to construct notebook.");
     } finally {
       setCreatingNb(false);
     }
@@ -490,8 +488,8 @@ export default function ChatPage() {
       setNoteInput("");
       setSuccessMsg("Research note saved.");
       setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to write note.");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to write note.");
     } finally {
       setSavingNote(false);
     }
@@ -515,8 +513,8 @@ export default function ChatPage() {
       await loadNotebooks();
       setSuccessMsg("Added chat response to Notebook.");
       setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to append note.");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to append note.");
     }
   };
 
@@ -544,8 +542,8 @@ export default function ChatPage() {
       if (!res.ok) throw new Error("Synthesis service failed.");
       const data = await res.json();
       setGeneratedIdeas(data.ideas || []);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to generate conceptual links.");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to generate conceptual links.");
     } finally {
       setIsGeneratingIdeas(false);
     }
@@ -1214,7 +1212,7 @@ export default function ChatPage() {
                       </>
                     ) : (
                       availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name} ({m.tier})</option>
+                        <option key={String(m.id)} value={String(m.id)}>{String(m.name)} ({String(m.tier)})</option>
                       ))
                     )}
                   </select>

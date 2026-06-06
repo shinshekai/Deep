@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { 
-  BookOpen, MessageSquare, Target, ClipboardList, Loader2, Send, 
-  ChevronRight, ChevronDown, PlayCircle, CheckCircle2, PanelLeft, PanelRight, 
-  HelpCircle, Sparkles, Database, Plus, Trash, Clock, X, Badge, AlertCircle 
+import {
+  BookOpen, MessageSquare, Target, ClipboardList, Loader2, Send,
+  ChevronRight, PlayCircle, CheckCircle2, PanelLeft, PanelRight,
+  Sparkles, X, AlertCircle
 } from "lucide-react";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import DOMPurify from "dompurify";
@@ -40,7 +40,11 @@ export default function GuidedLearningPage() {
   const [isChatting, setIsChatting] = useState(false);
 
   // Summary State
-  const [summary, setSummary] = useState<any>(null);
+  type SummaryData = {
+    summary: string;
+    next_steps?: string[];
+  };
+  const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isEnding, setIsEnding] = useState(false);
 
   // Error State

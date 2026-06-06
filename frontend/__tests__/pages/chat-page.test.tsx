@@ -47,7 +47,7 @@ describe("ChatPage", () => {
       solveStatus: "closed",
       send: vi.fn(),
       subscribe: vi.fn(() => vi.fn()),
-    } as any);
+    } as unknown as ReturnType<typeof useWebSocket>);
     mockFetchKnowledgeBases.mockResolvedValue([]);
     mockSecureFetch.mockImplementation((input: RequestInfo | URL) => {
       const urlString = typeof input === "string" ? input : (input instanceof URL ? input.toString() : input.url);
@@ -133,7 +133,7 @@ describe("ChatPage", () => {
       solveStatus: "closed",
       send: vi.fn(),
       subscribe: vi.fn(() => vi.fn()),
-    } as any);
+    } as unknown as ReturnType<typeof useWebSocket>);
     await renderChatPage();
     expect(screen.getByText("WS OFFLINE")).toBeInTheDocument();
   });
@@ -143,15 +143,15 @@ describe("ChatPage", () => {
       solveStatus: "open",
       send: vi.fn(),
       subscribe: vi.fn(() => vi.fn()),
-    } as any);
+    } as unknown as ReturnType<typeof useWebSocket>);
     await renderChatPage();
     expect(screen.queryByText("WS OFFLINE")).not.toBeInTheDocument();
   });
 
   it("loads knowledge bases on mount", async () => {
     mockFetchKnowledgeBases.mockResolvedValue([
-      { name: "kb-1" } as any,
-      { name: "kb-2" } as any,
+      { name: "kb-1" },
+      { name: "kb-2" },
     ]);
     await renderChatPage();
     await waitFor(() => {

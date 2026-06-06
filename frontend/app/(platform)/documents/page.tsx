@@ -6,7 +6,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList } from "@/components/documents/document-list";
 import { fetchKnowledgeBases, createKnowledgeBase, type UploadTask } from "@/lib/knowledge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
-import { Library, FolderPlus, FileText, Database, ShieldCheck, Loader2, RefreshCw, Plus } from "lucide-react";
+import { Library, FolderPlus, Database, ShieldCheck, Loader2, RefreshCw, Plus } from "lucide-react";
 import Link from "next/link";
 
 type ActiveUpload = {

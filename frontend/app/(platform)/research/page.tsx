@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { 
-  FileSearch, Loader2, Plus, Sparkles, CheckCircle2, XCircle, Clock, 
-  AlertCircle, PanelLeft, PanelRight, Database, PlayCircle, BarChart3, 
-  Terminal, ShieldCheck, Timer, Cpu, Copy, ExternalLink, RefreshCw, X, CheckSquare, Layers
+import {
+  FileSearch, Loader2, Sparkles, CheckCircle2,
+  AlertCircle, PanelLeft, PanelRight, Database, PlayCircle, BarChart3,
+  Terminal, ShieldCheck, Timer, Cpu, Copy, RefreshCw, X, Layers
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 
 const TOPICS = [
@@ -71,7 +70,6 @@ export default function ResearchPage() {
   // Interactive UI states
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [expandedSubtopic, setExpandedSubtopic] = useState<string | null>(null);
 
   // Load knowledge bases on mount
   useEffect(() => {
@@ -439,7 +437,6 @@ export default function ResearchPage() {
                         const am = AGENT_COLORS[idx % 5];
                         const isCompleted = st.status === "COMPLETED";
                         const isResearching = st.status === "RESEARCHING";
-                        const isPending = st.status === "PENDING";
                         const isFailed = st.status === "FAILED";
 
                         return (

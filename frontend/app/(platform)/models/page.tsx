@@ -3,11 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type {
-  ActiveModelSelection,
   DiscoveredModel,
   ModelDiscoveryResponse,
   ModelProvider,
-  ModelProviderSource,
 } from "@/types/api";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import {
@@ -25,7 +23,6 @@ import {
   EyeOff,
   Database,
   Cloud,
-  ChevronRight,
   Info,
   Server,
   Zap,
@@ -33,9 +30,7 @@ import {
   X,
   Gauge,
   Layers,
-  ArrowRightLeft,
   AlertTriangle,
-  Flame,
 } from "lucide-react";
 
 const PROVIDER_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -655,8 +650,6 @@ export default function ModelsConsoleV2() {
                   ) : (
                     t1EmbeddingModels.map((model) => {
                       const isActive = activeSelections.T1?.model_id === model.id && activeSelections.T1?.provider_id === model.provider_id;
-                      const isSelKey = `T1:${model.provider_id}:${model.id}`;
-                      const isSel = selecting === isSelKey;
                       return (
                         <button
                           key={model.id}

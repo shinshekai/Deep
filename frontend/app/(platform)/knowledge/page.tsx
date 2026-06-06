@@ -8,7 +8,7 @@ import {
   createKnowledgeBase,
   type KnowledgeBase,
 } from "@/lib/knowledge";
-import { Trash2, Database, FolderOpen, RefreshCw, Layers, Sparkles, FileText, CheckCircle2, Loader2, X, Plus, AlertCircle } from "lucide-react";
+import { Trash2, Database, FolderOpen, RefreshCw, CheckCircle2, Loader2, Plus, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function KnowledgePage() {
@@ -48,7 +48,7 @@ export default function KnowledgePage() {
         setErrorMsg("Failed to create Knowledge Base. Make sure backend is running.");
         setTimeout(() => setErrorMsg(null), 4000);
       }
-    } catch (err) {
+    } catch {
       setErrorMsg("An unexpected error occurred.");
       setTimeout(() => setErrorMsg(null), 4000);
     } finally {

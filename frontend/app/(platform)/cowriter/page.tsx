@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { 
-  PenTool, Minimize2, Maximize2, Quote, Loader2, Sparkles, Clipboard, 
-  Trash2, Library, BookOpen, AlertCircle, RefreshCw, X, ChevronRight, 
-  Check, PanelLeft, PanelRight, Database, ChevronLeft, Award, HelpCircle, Activity 
+import { useState, useEffect } from "react";
+import {
+  PenTool, Minimize2, Maximize2, Quote, Loader2, Sparkles, Clipboard,
+  Trash2, Library, AlertCircle, X, Check, PanelLeft, PanelRight, Database
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
@@ -32,7 +31,7 @@ export default function CoWriterPage() {
   const [pipeline, setPipeline] = useState("combined");
   const [activeModel, setActiveModel] = useState("Qwen3-1.7B-Q4_K_M");
   const [kbs, setKbs] = useState<{ name: string }[]>([]);
-  const [models, setModels] = useState<any[]>([]);
+  const [models, setModels] = useState<Record<string, unknown>[]>([]);
 
   // Action status
   const [isProcessing, setIsProcessing] = useState(false);
@@ -111,8 +110,8 @@ export default function CoWriterPage() {
       if (data.provenance) {
         setProvenanceHistory((prev) => [data.provenance, ...prev]);
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to process text edit");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to process text edit");
     } finally {
       setIsProcessing(false);
     }
@@ -149,8 +148,8 @@ export default function CoWriterPage() {
       if (data.provenance) {
         setProvenanceHistory((prev) => [data.provenance, ...prev]);
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to annotate document");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to annotate document");
     } finally {
       setIsProcessing(false);
     }
@@ -197,8 +196,8 @@ export default function CoWriterPage() {
                   </>
                 ) : (
                   models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name || m.id} ({m.tier})
+                    <option key={String(m.id)} value={String(m.id)}>
+                      {String(m.name || m.id)} ({String(m.tier)})
                     </option>
                   ))
                 )}
@@ -441,7 +440,7 @@ export default function CoWriterPage() {
                               </div>
                               {src.snippet && (
                                 <p className="text-[9px] text-zinc-500 leading-relaxed italic select-text pl-1 border-l border-zinc-900">
-                                  "{src.snippet}"
+                                  &quot;{src.snippet}&quot;
                                 </p>
                               )}
                             </div>

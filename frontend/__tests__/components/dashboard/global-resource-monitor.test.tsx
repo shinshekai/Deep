@@ -14,7 +14,7 @@ describe("GlobalResourceMonitor component", () => {
     vi.mocked(useWebSocket).mockReturnValue({
       vram: null,
       pressure: null,
-    } as any);
+    } as unknown as ReturnType<typeof useWebSocket>);
 
     render(<GlobalResourceMonitor />);
     expect(screen.getByText("Awaiting data…")).toBeInTheDocument();
@@ -32,7 +32,7 @@ describe("GlobalResourceMonitor component", () => {
         turboquant_tier: "auto",
       },
       pressure: "green",
-    } as any);
+    } as unknown as ReturnType<typeof useWebSocket>);
 
     render(<GlobalResourceMonitor />);
     

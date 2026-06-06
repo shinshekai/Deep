@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { 
-  FileQuestion, GraduationCap, ListChecks, Loader2, BookOpen, 
-  ChevronDown, ChevronUp, PanelLeft, Database, Sparkles, CheckCircle2, 
-  X, HelpCircle, Layers, Award, Info
+import {
+  FileQuestion, GraduationCap, ListChecks, Loader2,
+  ChevronDown, ChevronUp, PanelLeft, Sparkles,
+  X, Award, Info
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 
 const QUESTION_TYPES = [
@@ -30,7 +29,7 @@ export default function QuestionsPage() {
   const [type, setType] = useState("mcq");
   const [difficulty, setDifficulty] = useState("medium");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<Record<string, unknown>[]>([]);
   const [error, setError] = useState<string | null>(null);
   
   // For exam mimicry
@@ -83,8 +82,8 @@ export default function QuestionsPage() {
 
       const data = await res.json();
       setQuestions(data.questions || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to generate questions");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to generate questions");
     } finally {
       setIsGenerating(false);
     }
@@ -339,8 +338,13 @@ export default function QuestionsPage() {
   );
 }
 
-function QuestionCard({ question, index }: { question: any; index: number }) {
+function QuestionCard({ question, index }: { question: Record<string, unknown>; index: number }) {
   const [showAnswer, setShowAnswer] = useState(false);
+
+  const questionText = String(question.question ?? question.text ?? "Untitled Question");
+  const optionsRaw = question.options;
+  const options = Array.isArray(optionsRaw) ? (optionsRaw as string[]) : null;
+  const correctAnswer = (question.correct_answer ?? question.answer) as string | undefined;
 
   return (
     <div className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-5 space-y-4 select-text transition shadow-inner">
@@ -350,26 +354,26 @@ function QuestionCard({ question, index }: { question: any; index: number }) {
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-xs md:text-sm font-semibold text-zinc-200 leading-relaxed whitespace-pre-wrap select-text">
-            {question.question || question.text || "Untitled Question"}
+            {questionText}
           </p>
         </div>
       </div>
 
       {/* Render Options if Multiple Choice */}
-      {question.options && Array.isArray(question.options) && (
+      {options && (
         <div className="space-y-1.5 pl-9 select-none">
-          {question.options.map((opt: string, i: number) => {
+          {options.map((opt, i) => {
             const letter = String.fromCharCode(65 + i);
             const isCorrect = showAnswer && (
-              question.correct_answer === opt || 
-              question.correct_answer === letter
+              correctAnswer === opt ||
+              correctAnswer === letter
             );
             return (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className={`p-2.5 rounded-lg border text-xs flex gap-2.5 transition duration-300 ${
-                  isCorrect 
-                    ? "border-emerald-500/30 bg-emerald-950/15 text-emerald-300" 
+                  isCorrect
+                    ? "border-emerald-500/30 bg-emerald-950/15 text-emerald-300"
                     : "border-zinc-900/60 bg-zinc-950/20 text-zinc-450 hover:bg-zinc-900/40 hover:text-zinc-300"
                 }`}
               >
@@ -402,9 +406,9 @@ function QuestionCard({ question, index }: { question: any; index: number }) {
             </div>
             <div className="space-y-2">
               <p className="text-xs font-bold text-zinc-200 select-text leading-relaxed">
-                {question.correct_answer || question.answer}
+                {correctAnswer}
               </p>
-              {question.explanation && (
+              {typeof question.explanation === "string" && (
                 <p className="text-xs text-zinc-450 leading-relaxed font-sans select-text border-l border-zinc-800 pl-2.5">
                   {question.explanation}
                 </p>
