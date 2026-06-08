@@ -26,6 +26,9 @@ export default function ChatPage() {
   const [streamingSteps, setStreamingSteps] = useState<Record<string, string>>({});
   const [streamingAgent, setStreamingAgent] = useState<string | null>(null);
   const [streamingAnswer, setStreamingAnswer] = useState("");
+
+  useEffect(() => { streamingAnswerRef.current = streamingAnswer; }, [streamingAnswer]);
+  useEffect(() => { streamingStepsRef.current = streamingSteps; }, [streamingSteps]);
   const [activeAccordion, setActiveAccordion] = useState(true);
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState<string | null>(null);
 
@@ -40,6 +43,8 @@ export default function ChatPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string>(crypto.randomUUID());
+  const streamingAnswerRef = useRef("");
+  const streamingStepsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -84,7 +89,7 @@ export default function ChatPage() {
     return subscribe("complete", (data) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
       const completeAnswer = String(
-        (data as Record<string, unknown>).answer ?? streamingAnswer
+        (data as Record<string, unknown>).answer ?? streamingAnswerRef.current
       );
       const meta =
         ((data as Record<string, unknown>).metadata as
@@ -99,7 +104,7 @@ export default function ChatPage() {
           role: "assistant",
           content: completeAnswer,
           timestamp: Date.now(),
-          steps: streamingSteps,
+          steps: streamingStepsRef.current,
           citations: citationsList as unknown as Citation[],
           modelUsed: meta.model_used as string | undefined,
           complexityScore: meta.complexity_score as number | undefined,
@@ -112,7 +117,7 @@ export default function ChatPage() {
       setStreamingAnswer("");
       setIsStreaming(false);
     });
-  }, [subscribe, streamingAnswer, streamingSteps]);
+  }, [subscribe]);
 
   useEffect(() => {
     return subscribe("error", (data) => {

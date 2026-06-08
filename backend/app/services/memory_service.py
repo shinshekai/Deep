@@ -477,6 +477,17 @@ class MemoryService:
             await db.commit()
             return cursor.rowcount > 0
 
+    async def rate_episode(self, device_id: str, episode_id: str, rating: float) -> bool:
+        with trace_span("memory.rate_episode", {"device_id": device_id}):
+            db = await self._get_db()
+            rating = max(0.0, min(1.0, float(rating)))
+            cursor = await db.execute(
+                "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
+                (rating, episode_id, device_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
     async def list_episodes(self, device_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
         with trace_span(
             "memory.list_episodes", {"device_id": device_id, "limit": limit, "offset": offset}
@@ -721,12 +732,29 @@ class MemoryService:
                     await db.execute("UPDATE facts SET archived = 1 WHERE id = ?", (item["id"],))
                     resolved += 1
                 merged_content = "Resolved contradiction: " + "; ".join(item["content"] for item in group)
-                ep_id = await self.store_episode(
-                    device_id=device_id,
-                    query="contradiction resolution",
-                    answer=merged_content,
-                    session_type="maintenance",
+                ep_id = uuid.uuid4().hex[:12]
+                now = time.time()
+                await db.execute(
+                    """INSERT INTO episodes
+                       (id, device_id, session_type, query, answer, agents,
+                        model_used, tier, citations, outcome_rating, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        ep_id,
+                        device_id,
+                        "maintenance",
+                        "contradiction resolution",
+                        merged_content,
+                        json.dumps([]),
+                        "",
+                        "background",
+                        json.dumps([]),
+                        0.0,
+                        now,
+                    ),
                 )
+                combined = f"contradiction resolution\n\n{merged_content}"
+                await self._store_chunks("episode_chunks", ep_id, device_id, combined, now)
                 merged_episodes.append(ep_id)
             await db.commit()
             return {
@@ -973,7 +1001,7 @@ class MemoryService:
                 rows = await db.execute_fetchall(
                     """SELECT id, device_id, session_type, query
                        FROM episodes
-                       WHERE archived = 0 AND created_at < ? AND outcome_rating < 0.3""",
+                       WHERE archived = 0 AND created_at < ?""",
                     (cutoff,),
                 )
                 if not rows:

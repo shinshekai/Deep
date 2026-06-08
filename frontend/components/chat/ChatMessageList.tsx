@@ -244,7 +244,7 @@ export function ChatMessageList({
   });
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+    <div className="flex-1 p-4 md:p-6 space-y-6">
       {messages.length === 0 && !streamingAnswer && !streamingAgent && (
         <div className="max-w-2xl mx-auto py-12 md:py-20 space-y-8 select-none">
           <div className="text-center space-y-4">
@@ -294,8 +294,8 @@ export function ChatMessageList({
       {messages.length > 0 && (
         <div
           ref={parentRef}
-          className="max-w-3xl mx-auto overflow-auto"
-          style={{ maxHeight: "calc(100vh - 200px)", contain: "strict" }}
+          className="max-w-3xl mx-auto overflow-y-auto"
+          style={{ height: "calc(100vh - 200px)", contain: "strict" }}
         >
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}

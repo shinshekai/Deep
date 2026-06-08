@@ -329,7 +329,7 @@ async def _run_dual_loop(
 
         if agent_key == "format":
             final_answer = step_content
-        elif step_content:
+        elif step_content and agent_key != "check":
             context_summary += f" | {step_content[:100]}"
 
         if step_content:
