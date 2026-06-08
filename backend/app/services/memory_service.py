@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS memory_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_device ON memory_usage(device_id);
 CREATE INDEX IF NOT EXISTS idx_usage_metric ON memory_usage(metric_name);
+CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON memory_usage(timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_episodes_device_created ON episodes(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_episodes_device_archived ON episodes(device_id, archived);
@@ -150,38 +151,6 @@ PROFILE_STALE_THRESHOLD = 300
 MAX_BACKOFF = 10.0
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 200
-POOL_MAX_SIZE = 5
-
-
-class _ConnectionPool:
-    def __init__(self, max_size: int = POOL_MAX_SIZE):
-        self._max_size = max_size
-        self._pool: list[aiosqlite.Connection] = []
-        self._in_use: set[int] = set()
-
-    async def acquire(self) -> aiosqlite.Connection:
-        if self._pool:
-            conn = self._pool.pop()
-            self._in_use.add(id(conn))
-            return conn
-        if len(self._in_use) >= self._max_size:
-            raise RuntimeError("Connection pool exhausted")
-        conn = await aiosqlite.connect("DUMMY_PATH")
-        self._in_use.add(id(conn))
-        return conn
-
-    async def release(self, conn: aiosqlite.Connection):
-        self._in_use.discard(id(conn))
-        if len(self._pool) < self._max_size:
-            self._pool.append(conn)
-        else:
-            await conn.close()
-
-    async def close_all(self):
-        for conn in self._pool:
-            await conn.close()
-        self._pool.clear()
-        self._in_use.clear()
 
 
 class MemoryService:
@@ -189,7 +158,6 @@ class MemoryService:
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
         self._profile_backoff_state: dict[str, float] = {}
-        self._pool = _ConnectionPool()
 
     async def _safe(self, coro, default=None):
         try:
@@ -425,15 +393,33 @@ class MemoryService:
             "memory.list_episodes", {"device_id": device_id, "limit": limit, "offset": offset}
         ):
             db = await self._get_db()
-            rows = await db.execute_fetchall(
-                """SELECT id, device_id, session_type, query, answer, agents,
-                          model_used, tier, citations, outcome_rating, created_at
-                   FROM episodes
-                   WHERE device_id = ? AND archived = 0
-                   ORDER BY created_at DESC
-                   LIMIT ? OFFSET ?""",
-                (device_id, limit, offset),
-            )
+            sql = """SELECT id, device_id, session_type, query, answer, agents,
+                            model_used, tier, citations, outcome_rating, created_at
+                     FROM episodes
+                     WHERE device_id = ? AND archived = 0
+                     ORDER BY created_at DESC
+                     LIMIT ? OFFSET ?"""
+            params = (device_id, limit, offset)
+            if limit > 100:
+                results = []
+                async for r in self._stream_query(sql, params):
+                    results.append(
+                        {
+                            "id": r[0],
+                            "device_id": r[1],
+                            "session_type": r[2],
+                            "query": r[3],
+                            "answer": r[4],
+                            "agents": json.loads(r[5]) if r[5] else [],
+                            "model_used": r[6] or "",
+                            "tier": r[7] or 0,
+                            "citations": json.loads(r[8]) if r[8] else [],
+                            "outcome_rating": r[9] or 0.0,
+                            "created_at": r[10],
+                        }
+                    )
+                return results
+            rows = await db.execute_fetchall(sql, params)
             results = []
             for r in rows:
                 results.append(
@@ -588,31 +574,64 @@ class MemoryService:
 
     async def batch_resolve_contradictions(self, device_id: str, batch_size: int = 10) -> dict:
         with trace_span("memory.batch_resolve_contradictions", {"device_id": device_id}):
-            contradictions = await self.detect_contradictions("", device_id)
-            if not contradictions:
+            db = await self._get_db()
+            rows = await db.execute_fetchall(
+                """SELECT id, content, confidence, created_at
+                   FROM facts
+                   WHERE device_id = ? AND archived = 0
+                   ORDER BY created_at DESC
+                   LIMIT 200""",
+                (device_id,),
+            )
+            if len(rows) < 2:
                 return {"resolved": 0, "groups": 0, "merged_episodes": []}
 
-            groups: dict[str, list[dict]] = {}
-            for c in contradictions:
-                topic = c.get("relation_type", "unknown")
-                groups.setdefault(topic, []).append(c)
+            negations = ["not", "no", "never", "isn't", "aren't", "wasn't", "won't", "can't"]
+            groups: list[list[dict]] = []
+            seen: set[str] = set()
 
-            merged_episodes = []
+            for i in range(len(rows)):
+                if rows[i][0] in seen:
+                    continue
+                words_i = set(rows[i][1].lower().split())
+                if not words_i:
+                    continue
+                group = [{"id": rows[i][0], "content": rows[i][1], "confidence": rows[i][2] or 0.5}]
+                for j in range(i + 1, len(rows)):
+                    if rows[j][0] in seen:
+                        continue
+                    words_j = set(rows[j][1].lower().split())
+                    if not words_j:
+                        continue
+                    overlap = len(words_i & words_j)
+                    total = len(words_i | words_j)
+                    if total == 0:
+                        continue
+                    jaccard = overlap / total
+                    negation = False
+                    ci = rows[i][1].lower()
+                    cj = rows[j][1].lower()
+                    for neg in negations:
+                        if (neg in ci) != (neg in cj):
+                            negation = True
+                            break
+                    if jaccard > 0.3 and negation:
+                        group.append({"id": rows[j][0], "content": rows[j][1], "confidence": rows[j][2] or 0.5})
+                        seen.add(rows[j][0])
+                if len(group) > 1:
+                    seen.add(rows[i][0])
+                    groups.append(group)
+
             resolved = 0
-            db = await self._get_db()
-            for topic, group in list(groups.items())[:batch_size]:
-                for c in group:
-                    await db.execute(
-                        "UPDATE facts SET archived = 1 WHERE id = ?",
-                        (c["existing_fact_id"],),
-                    )
+            merged_episodes = []
+            for group in groups[:batch_size]:
+                for item in group:
+                    await db.execute("UPDATE facts SET archived = 1 WHERE id = ?", (item["id"],))
                     resolved += 1
-                merged_content = f"Resolved contradiction ({topic}): " + "; ".join(
-                    c["new_fact"] for c in group
-                )
+                merged_content = "Resolved contradiction: " + "; ".join(item["content"] for item in group)
                 ep_id = await self.store_episode(
                     device_id=device_id,
-                    query=f"contradiction resolution: {topic}",
+                    query="contradiction resolution",
                     answer=merged_content,
                     session_type="maintenance",
                 )
@@ -971,4 +990,3 @@ class MemoryService:
         if self._db:
             await self._db.close()
             self._db = None
-        await self._pool.close_all()

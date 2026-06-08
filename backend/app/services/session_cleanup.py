@@ -136,18 +136,39 @@ def run_cleanup() -> CleanupResult:
     )
 
 
-def _prune_orphaned_sqlite_rows() -> int:
-    """Delete memory_usage rows older than retention window."""
+def _prune_orphaned_sqlite_rows(memory_service=None) -> int:
+    """Delete memory_usage rows older than retention window.
+
+    If memory_service is provided, uses it directly (async context).
+    Otherwise creates a temporary instance for sync context.
+    """
     try:
         from app.services.memory_service import MemoryService
 
-        svc = MemoryService()
-        loop = asyncio.new_event_loop()
-        loop.run_until_complete(svc.initialize())
-        deleted = loop.run_until_complete(svc.prune_usage(retention_days=90))
-        loop.run_until_complete(svc.close())
-        loop.close()
-        return deleted
+        if memory_service is not None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, memory_service.prune_usage(retention_days=90))
+                    return future.result(timeout=10)
+            except RuntimeError:
+                return 0
+        else:
+            svc = MemoryService()
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(svc.initialize())
+                deleted = loop.run_until_complete(svc.prune_usage(retention_days=90))
+                loop.run_until_complete(svc.close())
+                return deleted
+            finally:
+                loop.close()
     except Exception as e:
         logger.debug("SQLite prune skipped: %s", e)
         return 0
