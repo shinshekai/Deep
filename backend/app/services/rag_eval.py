@@ -24,21 +24,6 @@ logger = logging.getLogger(__name__)
 METRICS = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
 JUDGE_METRICS = ["faithfulness", "relevance", "coherence", "groundedness", "hallucination"]
 
-_JUDGE_PROMPT = (
-    "You are a strict RAG quality evaluator. Score the following response on 5 criteria. "
-    "Return ONLY a JSON object with these keys and float values 0.0-1.0.\n\n"
-    "Criteria:\n"
-    "- faithfulness: Are all claims in the answer supported by the provided context?\n"
-    "- relevance: Does the answer directly address the question asked?\n"
-    "- coherence: Is the answer well-structured, logical, and easy to follow?\n"
-    "- groundedness: Are specific facts/details from the context cited or referenced?\n"
-    "- hallucination: Does the answer contain information NOT present in the context? "
-    "(1.0 = no hallucination, 0.0 = fully hallucinated)\n\n"
-    "Question: {question}\n"
-    "Context: {context}\n"
-    "Answer: {answer}"
-)
-
 
 @dataclass
 class EvalResult:
@@ -151,16 +136,39 @@ class RAGEvaluator:
         if not self.llm_client:
             return {k: 0.5 for k in JUDGE_METRICS}
         context_text = "\n---\n".join(contexts[:5]) if contexts else "(no context)"
-        prompt = _JUDGE_PROMPT.format(
-            question=question[:2000],
-            context=context_text[:4000],
-            answer=answer[:4000],
-        )
+        try:
+            from app.services.prompt_registry import get_prompt_registry
+
+            registry = get_prompt_registry()
+            prompt_def = registry.get("judge")
+            prompt = prompt_def.render(
+                question=question[:2000],
+                context=context_text[:4000],
+                answer=answer[:4000],
+            )
+        except Exception:
+            logger.debug("Prompt registry unavailable, using fallback prompt")
+            prompt = (
+                "You are a strict RAG quality evaluator. Score the following response on 5 criteria. "
+                "Return ONLY a JSON object with these keys and float values 0.0-1.0.\n\n"
+                "Criteria:\n"
+                "- faithfulness: Are all claims in the answer supported by the provided context?\n"
+                "- relevance: Does the answer directly address the question asked?\n"
+                "- coherence: Is the answer well-structured, logical, and easy to follow?\n"
+                "- groundedness: Are specific facts/details from the context cited or referenced?\n"
+                "- hallucination: Does the answer contain information NOT present in the context? "
+                "(1.0 = no hallucination, 0.0 = fully hallucinated)\n\n"
+                f"Question: {question[:2000]}\n"
+                f"Context: {context_text[:4000]}\n"
+                f"Answer: {answer[:4000]}"
+            )
+            prompt_def = None
         try:
             result = await self.llm_client.stream_chat_completion(
                 model=self.model_id,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=256,
+                max_tokens=prompt_def.max_tokens if prompt_def else 256,
+                temperature=prompt_def.temperature if prompt_def else 0.1,
             )
             if result is None or result.get("error"):
                 logger.warning("LLM judge call failed: %s", result)

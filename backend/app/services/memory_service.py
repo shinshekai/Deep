@@ -228,6 +228,7 @@ class MemoryService:
         await self._db.execute("PRAGMA foreign_keys=ON")
         await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.execute("PRAGMA journal_size_limit=67108864")
+        await self._db.execute("PRAGMA cache_size=-8192")
         await self._db.executescript(SCHEMA_SQL)
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
@@ -304,6 +305,7 @@ class MemoryService:
             await self._db.execute("PRAGMA busy_timeout=5000")
             await self._db.execute("PRAGMA foreign_keys=ON")
             await self._db.execute("PRAGMA journal_size_limit=67108864")
+            await self._db.execute("PRAGMA cache_size=-8192")
 
     @asynccontextmanager
     async def _transaction(self):
