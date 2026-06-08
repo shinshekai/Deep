@@ -176,6 +176,7 @@ PROFILE_STALE_THRESHOLD = 300
 MAX_BACKOFF = 10.0
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 200
+VALID_CHUNK_TABLES = frozenset({"episode_chunks", "fact_chunks"})
 
 
 class MemoryService:
@@ -321,6 +322,8 @@ class MemoryService:
             raise
 
     async def _store_chunks(self, table: str, source_id: str, device_id: str, text: str, created_at: float) -> None:
+        if table not in VALID_CHUNK_TABLES:
+            raise ValueError(f"Invalid chunk table: {table}")
         db = await self._get_db()
         chunks = self._chunk_text(text)
         await db.executemany(
@@ -330,6 +333,8 @@ class MemoryService:
         )
 
     async def _delete_chunks(self, table: str, source_id: str) -> None:
+        if table not in VALID_CHUNK_TABLES:
+            raise ValueError(f"Invalid chunk table: {table}")
         db = await self._get_db()
         await db.execute(f"DELETE FROM {table} WHERE source_id = ?", (source_id,))
 
@@ -571,61 +576,70 @@ class MemoryService:
         with trace_span("memory.recall_facts", {"device_id": device_id, "top_k": top_k}):
             db = await self._get_db()
             now = time.time()
-            async with self._transaction():
-                try:
-                    rows = await db.execute_fetchall(
-                        """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
-                                  f.confidence, f.created_at, f.last_accessed, f.access_count,
-                                  MIN(fts.rank) as best_rank
-                           FROM facts_fts fts
-                           JOIN fact_chunks c ON c.chunk_id = fts.rowid
-                           JOIN facts f ON f.id = c.source_id
-                           WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
-                           GROUP BY f.id
-                           ORDER BY best_rank
-                           LIMIT ?""",
-                        (query, device_id, top_k * 2),
-                    )
-                except Exception:
-                    rows = await db.execute_fetchall(
-                        """SELECT id, device_id, content, source_type, source_id,
-                                  confidence, created_at, last_accessed, access_count, 0
-                           FROM facts
-                           WHERE device_id = ? AND archived = 0
-                           ORDER BY created_at DESC, id
-                           LIMIT ?""",
-                        (device_id, top_k * 2),
-                    )
 
-                results = []
-                for row in rows:
-                    recency = now - row[6] if row[6] else 0
-                    recency_score = 1.0 / (1.0 + recency / 86400.0)
-                    fts_score = -row[9] if row[9] else 0.0
-                    combined = 0.4 * fts_score + 0.3 * recency_score + 0.3 * (row[5] or 0.5)
+            # Phase 1: Read-only (no exclusive lock)
+            try:
+                rows = await db.execute_fetchall(
+                    """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
+                              f.confidence, f.created_at, f.last_accessed, f.access_count,
+                              MIN(fts.rank) as best_rank
+                       FROM facts_fts fts
+                       JOIN fact_chunks c ON c.chunk_id = fts.rowid
+                       JOIN facts f ON f.id = c.source_id
+                       WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
+                       GROUP BY f.id
+                       ORDER BY best_rank
+                       LIMIT ?""",
+                    (query, device_id, top_k * 2),
+                )
+            except Exception:
+                rows = await db.execute_fetchall(
+                    """SELECT id, device_id, content, source_type, source_id,
+                              confidence, created_at, last_accessed, access_count, 0
+                       FROM facts
+                       WHERE device_id = ? AND archived = 0
+                       ORDER BY created_at DESC, id
+                       LIMIT ?""",
+                    (device_id, top_k * 2),
+                )
 
+            results = []
+            fact_ids = []
+            for row in rows:
+                recency = now - row[6] if row[6] else 0
+                recency_score = 1.0 / (1.0 + recency / 86400.0)
+                fts_score = -row[9] if row[9] else 0.0
+                combined = 0.4 * fts_score + 0.3 * recency_score + 0.3 * (row[5] or 0.5)
+
+                results.append(
+                    {
+                        "id": row[0],
+                        "device_id": row[1],
+                        "content": row[2],
+                        "source_type": row[3] or "",
+                        "source_id": row[4] or "",
+                        "confidence": row[5] or 0.5,
+                        "created_at": row[6],
+                        "last_accessed": row[7],
+                        "access_count": row[8] or 0,
+                        "score": round(combined, 4),
+                    }
+                )
+                fact_ids.append(row[0])
+
+            results.sort(key=lambda r: r["score"], reverse=True)
+            selected = results[:top_k]
+
+            # Phase 2: Short write transaction (batch UPDATE)
+            if fact_ids:
+                async with self._transaction():
+                    placeholders = ",".join("?" * len(fact_ids))
                     await db.execute(
-                        "UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
-                        (now, row[0]),
+                        f"UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
+                        [now, *fact_ids[:top_k]],
                     )
 
-                    results.append(
-                        {
-                            "id": row[0],
-                            "device_id": row[1],
-                            "content": row[2],
-                            "source_type": row[3] or "",
-                            "source_id": row[4] or "",
-                            "confidence": row[5] or 0.5,
-                            "created_at": row[6],
-                            "last_accessed": row[7],
-                            "access_count": row[8] or 0,
-                            "score": round(combined, 4),
-                        }
-                    )
-
-                results.sort(key=lambda r: r["score"], reverse=True)
-                return results[:top_k]
+            return selected
 
     async def detect_contradictions(self, new_fact: str, device_id: str) -> list[dict]:
         with trace_span("memory.detect_contradictions", {"device_id": device_id}):
