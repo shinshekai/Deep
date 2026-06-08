@@ -9,15 +9,8 @@ export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:800
  * server-only ``WS_AUTH_TOKEN`` env var and returns it as a one-time
  * value. The response is cached in memory for the lifetime of the page.
  *
- * Environment variable naming:
- *   - ``WS_AUTH_TOKEN`` (preferred, server-side only — no ``NEXT_PUBLIC_`` prefix)
- *   - ``NEXT_PUBLIC_WS_AUTH_TOKEN`` (legacy fallback, still honored for
- *     backward compatibility with existing deployments — but exposes
- *     the token in the build output, so migrate to ``WS_AUTH_TOKEN``)
- *
- * Migrate existing deployments by setting ``WS_AUTH_TOKEN`` in
- * ``frontend/.env.local`` (no rebuild of the client bundle required
- * since the value is read at request time).
+ * Environment variable:
+ *   - ``WS_AUTH_TOKEN`` (server-side only — no ``NEXT_PUBLIC_`` prefix)
  */
 let _cachedToken: string | null = null;
 let _tokenFetchPromise: Promise<string | null> | null = null;

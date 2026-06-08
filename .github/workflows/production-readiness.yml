@@ -247,12 +247,12 @@ jobs:
 
       - name: Build backend image
         run: |
-          docker build -t udip-backend:${{ github.sha }} -f backend/Dockerfile backend/
+          docker build --pull -t udip-backend:${{ github.sha }} -f backend/Dockerfile backend/
           docker tag udip-backend:${{ github.sha }} udip-backend:latest
 
       - name: Build frontend image
         run: |
-          docker build -t udip-frontend:${{ github.sha }} -f frontend/Dockerfile frontend/
+          docker build --pull -t udip-frontend:${{ github.sha }} -f frontend/Dockerfile frontend/
           docker tag udip-frontend:${{ github.sha }} udip-frontend:latest
 
       - name: Save Docker images

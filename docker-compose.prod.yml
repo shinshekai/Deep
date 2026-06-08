@@ -27,6 +27,9 @@ services:
         limits:
           memory: 8G
           cpus: "4"
+          pids: 512
+        reservations:
+          memory: 2G
     logging:
       driver: json-file
       options:
@@ -64,6 +67,9 @@ services:
         limits:
           memory: 2G
           cpus: "2"
+          pids: 256
+        reservations:
+          memory: 512M
     logging:
       driver: json-file
       options:

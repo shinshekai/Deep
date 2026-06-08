@@ -7,6 +7,7 @@ that previously lived in the source tree.
 
 import logging
 import os
+import subprocess
 from functools import cache
 from pathlib import Path
 
@@ -39,8 +40,20 @@ def _load_or_create_token() -> str:
     try:
         _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         _TOKEN_FILE.write_text(token, encoding="utf-8")
-        # Restrict permissions on POSIX
-        if os.name != "nt":
+        # Restrict permissions
+        if os.name == "nt":
+            try:
+                username = os.environ.get("USERNAME", "")
+                if username:
+                    subprocess.run(
+                        ["icacls", str(_TOKEN_FILE), "/grant:r", f"{username}:(R)", "/inheritance:r"],
+                        check=True,
+                        capture_output=True,
+                        timeout=5,
+                    )
+            except Exception as e:
+                logger.warning("Windows ACL restriction failed: %s", e)
+        else:
             os.chmod(_TOKEN_FILE, 0o600)
         logger.info(
             "Generated new auth token and persisted to %s — "
