@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWebSocket } from "@/providers/websocket-provider";
@@ -45,9 +45,13 @@ const pressureLabel: Record<VramPressureLevel, string> = {
 export function GlobalResourceMonitor() {
   const { vram, pressure } = useWebSocket();
   const [history, setHistory] = useState<{ timestamp: string; pct: number }[]>([]);
+  const lastUpdateRef = useRef(0);
 
   useEffect(() => {
     if (!vram) return;
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 1000) return;
+    lastUpdateRef.current = now;
     const pct = vram.vram_used_pct;
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     // eslint-disable-next-line react-hooks/set-state-in-effect

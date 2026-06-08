@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -59,6 +60,161 @@ const suggestionCards = [
   },
 ];
 
+function MessageItem({
+  msg,
+  expandedThoughtIndex,
+  onToggleThought,
+  onSaveToNotebook,
+  onCopyToClipboard,
+}: {
+  msg: Message;
+  expandedThoughtIndex: string | null;
+  onToggleThought: (id: string) => void;
+  onSaveToNotebook: (text: string) => void;
+  onCopyToClipboard: (text: string) => void;
+}) {
+  const isUser = msg.role === "user";
+  return (
+    <div
+      className={`flex gap-3 md:gap-4 max-w-3xl mx-auto ${
+        isUser ? "justify-end" : "justify-start"
+      }`}
+    >
+      {!isUser && (
+        <div className="h-7 w-7 rounded-lg bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 select-none">
+          <Brain className="h-4.5 w-4.5" />
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 min-w-0 max-w-[85%]">
+        <div
+          className={`rounded-2xl px-4.5 py-3 shadow-inner ${
+            isUser
+              ? "bg-indigo-600/20 border border-indigo-500/30 text-zinc-150"
+              : "bg-zinc-900/40 border border-zinc-900/80 text-zinc-300"
+          }`}
+        >
+          {isUser ? (
+            <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">
+              {msg.content}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {msg.steps && Object.keys(msg.steps).length > 0 && (
+                <div className="border border-zinc-900/60 rounded-lg overflow-hidden bg-zinc-950/30">
+                  <button
+                    type="button"
+                    onClick={() => onToggleThought(msg.id)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-mono text-zinc-500 hover:text-zinc-300 transition focus:outline-none"
+                    aria-label="Toggle multi-agent steps"
+                    aria-expanded={expandedThoughtIndex === msg.id}
+                  >
+                    <span className="flex items-center gap-1.5 uppercase font-bold tracking-wider">
+                      <CheckSquare className="h-3.5 w-3.5 text-emerald-500" />
+                      Multi-Agent Steps (
+                      {Object.keys(msg.steps).length})
+                    </span>
+                    {expandedThoughtIndex === msg.id ? (
+                      <ChevronDown className="h-3 w-3" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3" />
+                    )}
+                  </button>
+                  {expandedThoughtIndex === msg.id && (
+                    <div className="px-3 pb-3 pt-0 border-t border-zinc-900/40 max-h-60 overflow-y-auto space-y-2.5">
+                      {Object.entries(msg.steps).map(([agent, txt]) => (
+                        <div
+                          key={agent}
+                          className="text-[10px] font-mono border-l-2 border-zinc-800 pl-2 leading-relaxed"
+                        >
+                          <span className="font-extrabold uppercase text-indigo-400">
+                            {agent}:
+                          </span>
+                          <p className="text-zinc-450 mt-0.5 whitespace-pre-wrap">
+                            {txt}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-900 prose-code:text-indigo-400 prose-a:text-indigo-400 select-text leading-relaxed">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.content}
+                </ReactMarkdown>
+              </div>
+
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-900/30">
+                  {msg.citations.map((cit, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-1 bg-indigo-950/15 border border-indigo-900/30 text-[9px] text-indigo-300 font-mono px-2 py-0.5 rounded-full"
+                    >
+                      <FileText className="h-2.5 w-2.5 shrink-0" />
+                      <span>{cit.doc_id.split("/").pop()}</span>
+                      <span className="text-indigo-500">p.{cit.page}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {!isUser && (
+          <div className="flex items-center gap-3 px-1 text-[10px] text-zinc-500 select-none">
+            <button
+              onClick={() => onCopyToClipboard(msg.content)}
+              className="flex items-center gap-1 hover:text-zinc-300 transition"
+              title="Copy text"
+              aria-label="Copy response"
+            >
+              <Copy className="h-3 w-3" />
+              <span>Copy</span>
+            </button>
+            <span className="h-3 w-[1px] bg-zinc-850" />
+            <button
+              onClick={() => onSaveToNotebook(msg.content)}
+              className="flex items-center gap-1 hover:text-zinc-300 transition text-indigo-400/80 hover:text-indigo-300"
+              title="Save response as note in active Notebook"
+              aria-label="Save to notebook"
+            >
+              <Save className="h-3 w-3" />
+              <span>Save to Notebook</span>
+            </button>
+
+            {msg.modelUsed && (
+              <>
+                <span className="h-3 w-[1px] bg-zinc-850" />
+                <span className="font-mono text-[9px] text-zinc-600 truncate max-w-[120px]">
+                  {msg.modelUsed}
+                </span>
+              </>
+            )}
+            {msg.elapsedSeconds != null && (
+              <>
+                <span className="h-3 w-[1px] bg-zinc-850" />
+                <span className="font-mono text-[9px] text-zinc-600">
+                  {msg.elapsedSeconds}s
+                </span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {isUser && (
+        <div className="h-7 w-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 shrink-0 select-none">
+          <User className="h-4.5 w-4.5" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatMessageList({
   messages,
   isStreaming,
@@ -74,10 +230,18 @@ export function ChatMessageList({
   onCopyToClipboard,
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingAnswer, streamingSteps]);
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 120,
+    overscan: 5,
+  });
 
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
@@ -127,149 +291,41 @@ export function ChatMessageList({
         </div>
       )}
 
-      {messages.map((msg) => {
-        const isUser = msg.role === "user";
-        return (
+      {messages.length > 0 && (
+        <div
+          ref={parentRef}
+          className="max-w-3xl mx-auto overflow-auto"
+          style={{ maxHeight: "calc(100vh - 200px)", contain: "strict" }}
+        >
           <div
-            key={msg.id}
-            className={`flex gap-3 md:gap-4 max-w-3xl mx-auto ${
-              isUser ? "justify-end" : "justify-start"
-            }`}
+            style={{ height: virtualizer.getTotalSize(), position: "relative" }}
           >
-            {!isUser && (
-              <div className="h-7 w-7 rounded-lg bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 select-none">
-                <Brain className="h-4.5 w-4.5" />
-              </div>
-            )}
-
-            <div className="flex flex-col gap-2 min-w-0 max-w-[85%]">
-              <div
-                className={`rounded-2xl px-4.5 py-3 shadow-inner ${
-                  isUser
-                    ? "bg-indigo-600/20 border border-indigo-500/30 text-zinc-150"
-                    : "bg-zinc-900/40 border border-zinc-900/80 text-zinc-300"
-                }`}
-              >
-                {isUser ? (
-                  <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">
-                    {msg.content}
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {msg.steps && Object.keys(msg.steps).length > 0 && (
-                      <div className="border border-zinc-900/60 rounded-lg overflow-hidden bg-zinc-950/30">
-                        <button
-                          type="button"
-                          onClick={() => onToggleThought(msg.id)}
-                          className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-mono text-zinc-500 hover:text-zinc-300 transition focus:outline-none"
-                          aria-label="Toggle multi-agent steps"
-                          aria-expanded={expandedThoughtIndex === msg.id}
-                        >
-                          <span className="flex items-center gap-1.5 uppercase font-bold tracking-wider">
-                            <CheckSquare className="h-3.5 w-3.5 text-emerald-500" />
-                            Multi-Agent Steps (
-                            {Object.keys(msg.steps).length})
-                          </span>
-                          {expandedThoughtIndex === msg.id ? (
-                            <ChevronDown className="h-3 w-3" />
-                          ) : (
-                            <ChevronRight className="h-3 w-3" />
-                          )}
-                        </button>
-                        {expandedThoughtIndex === msg.id && (
-                          <div className="px-3 pb-3 pt-0 border-t border-zinc-900/40 max-h-60 overflow-y-auto space-y-2.5">
-                            {Object.entries(msg.steps).map(([agent, txt]) => (
-                              <div
-                                key={agent}
-                                className="text-[10px] font-mono border-l-2 border-zinc-800 pl-2 leading-relaxed"
-                              >
-                                <span className="font-extrabold uppercase text-indigo-400">
-                                  {agent}:
-                                </span>
-                                <p className="text-zinc-450 mt-0.5 whitespace-pre-wrap">
-                                  {txt}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-900 prose-code:text-indigo-400 prose-a:text-indigo-400 select-text leading-relaxed">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content}
-                      </ReactMarkdown>
-                    </div>
-
-                    {msg.citations && msg.citations.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-zinc-900/30">
-                        {msg.citations.map((cit, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-center gap-1 bg-indigo-950/15 border border-indigo-900/30 text-[9px] text-indigo-300 font-mono px-2 py-0.5 rounded-full"
-                          >
-                            <FileText className="h-2.5 w-2.5 shrink-0" />
-                            <span>{cit.doc_id.split("/").pop()}</span>
-                            <span className="text-indigo-500">p.{cit.page}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {!isUser && (
-                <div className="flex items-center gap-3 px-1 text-[10px] text-zinc-500 select-none">
-                  <button
-                    onClick={() => onCopyToClipboard(msg.content)}
-                    className="flex items-center gap-1 hover:text-zinc-300 transition"
-                    title="Copy text"
-                    aria-label="Copy response"
-                  >
-                    <Copy className="h-3 w-3" />
-                    <span>Copy</span>
-                  </button>
-                  <span className="h-3 w-[1px] bg-zinc-850" />
-                  <button
-                    onClick={() => onSaveToNotebook(msg.content)}
-                    className="flex items-center gap-1 hover:text-zinc-300 transition text-indigo-400/80 hover:text-indigo-300"
-                    title="Save response as note in active Notebook"
-                    aria-label="Save to notebook"
-                  >
-                    <Save className="h-3 w-3" />
-                    <span>Save to Notebook</span>
-                  </button>
-
-                  {msg.modelUsed && (
-                    <>
-                      <span className="h-3 w-[1px] bg-zinc-850" />
-                      <span className="font-mono text-[9px] text-zinc-600 truncate max-w-[120px]">
-                        {msg.modelUsed}
-                      </span>
-                    </>
-                  )}
-                  {msg.elapsedSeconds != null && (
-                    <>
-                      <span className="h-3 w-[1px] bg-zinc-850" />
-                      <span className="font-mono text-[9px] text-zinc-600">
-                        {msg.elapsedSeconds}s
-                      </span>
-                    </>
-                  )}
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const msg = messages[virtualRow.index];
+              return (
+                <div
+                  key={msg.id}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <MessageItem
+                    msg={msg}
+                    expandedThoughtIndex={expandedThoughtIndex}
+                    onToggleThought={onToggleThought}
+                    onSaveToNotebook={onSaveToNotebook}
+                    onCopyToClipboard={onCopyToClipboard}
+                  />
                 </div>
-              )}
-            </div>
-
-            {isUser && (
-              <div className="h-7 w-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 shrink-0 select-none">
-                <User className="h-4.5 w-4.5" />
-              </div>
-            )}
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      )}
 
       {isStreaming && (
         <div className="flex gap-3 md:gap-4 max-w-3xl mx-auto justify-start animate-pulse">
