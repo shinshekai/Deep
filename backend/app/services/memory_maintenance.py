@@ -35,6 +35,12 @@ async def memory_maintenance_loop(
             compacted = await memory_service.compact_episodes(older_than_days=COMPACT_DAYS)
             pruned = await memory_service.prune_usage(retention_days=90)
 
+            db = await memory_service._get_db()
+            try:
+                await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception as e:
+                logger.warning("WAL checkpoint failed: %s", e)
+
             elapsed = time.time() - start
             logger.info(
                 f"Memory maintenance complete: {decayed} facts decayed, {compacted} episodes compacted, {pruned} usage rows pruned in {elapsed:.2f}s"

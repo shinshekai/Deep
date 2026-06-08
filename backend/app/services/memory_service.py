@@ -182,7 +182,9 @@ class MemoryService:
     def __init__(self, db_path: str = "data/memory/deep_memory.db"):
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._resolved_path: Path | None = None
         self._profile_backoff_state: dict[str, float] = {}
+        self._write_semaphore = asyncio.Semaphore(1)
 
     async def _safe(self, coro, default=None):
         try:
@@ -218,6 +220,7 @@ class MemoryService:
         if not db_path.is_absolute():
             db_path = Path(__file__).resolve().parent.parent.parent.parent / db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._resolved_path = db_path
 
         self._db = await aiosqlite.connect(str(db_path))
         await self._db.execute("PRAGMA journal_mode=WAL")
@@ -276,7 +279,22 @@ class MemoryService:
     async def _get_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("MemoryService not initialized — call initialize() first")
+        try:
+            await self._db.execute("SELECT 1")
+        except Exception:
+            logger.warning("Database connection unhealthy, reconnecting")
+            await self._reconnect()
         return self._db
+
+    async def _reconnect(self):
+        try:
+            await self._db.close()
+        except Exception:
+            pass
+        self._db = await aiosqlite.connect(str(self._resolved_path))
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
+        await self._db.execute("PRAGMA foreign_keys=ON")
 
     @asynccontextmanager
     async def _transaction(self):
