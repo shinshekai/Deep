@@ -57,6 +57,12 @@ scripts/.bg-state/
 
 # QA, logs and prompt/telemetry docs
 docs/
+!docs/adr/
+docs/adr/*
+!docs/adr/*.md
+!docs/DEFERRED_ITEMS.md
+!docs/RELEASE_PROGRESS.md
+!docs/AUDIT_MASTER_SYNTHESIS.md
 claude_resume_bash.txt
 directory_tree.txt
 CLAUDE.md
