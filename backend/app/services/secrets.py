@@ -58,6 +58,8 @@ def is_keyring_available() -> bool:
         # Fail fast on known no-op backends that the library picks
         # when nothing better is available (e.g. headless Linux).
         if backend.__class__.__name__ in {"Fail", "NullKeyring"}:
+            _keyring_cache["available"] = False
+            _keyring_cache["ts"] = now
             return False
         # Probe with a unique value to confirm the backend actually
         # persists (some headless setups report a backend but throw on use).

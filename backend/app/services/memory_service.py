@@ -185,7 +185,33 @@ class MemoryService:
         await self._db.executescript(SCHEMA_SQL)
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
+        await self._migrate_fts_tokenizer()
         logger.info(f"MemoryService initialized at {db_path}")
+
+    async def _migrate_fts_tokenizer(self):
+        db = self._db
+        for table_name in ("episodes_fts", "facts_fts"):
+            try:
+                row = await db.execute_fetchall(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,),
+                )
+                if row and "porter" not in (row[0][0] or ""):
+                    logger.info(f"Migrating {table_name} to porter unicode61 tokenizer")
+                    await db.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    content_table = table_name.replace("_fts", "")
+                    if table_name == "episodes_fts":
+                        cols = "query, answer"
+                    else:
+                        cols = "content"
+                    await db.execute(
+                        f"CREATE VIRTUAL TABLE {table_name} USING fts5("
+                        f"{cols}, content={content_table}, content_rowid=rowid,"
+                        f"tokenize='porter unicode61')"
+                    )
+                    await db.commit()
+            except Exception as e:
+                logger.warning(f"FTS5 migration for {table_name} failed: {e}")
 
     async def _get_db(self) -> aiosqlite.Connection:
         if self._db is None:
