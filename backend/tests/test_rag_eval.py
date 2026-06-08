@@ -18,7 +18,7 @@ def test_rag_evaluator_creation():
 
     evaluator = RAGEvaluator()
     assert evaluator is not None
-    assert evaluator.is_available is True
+    assert evaluator.is_available is False
 
 
 def test_faithfulness_basic(sample_data):

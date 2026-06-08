@@ -134,7 +134,7 @@ class RAGEvaluator:
 
     @property
     def is_available(self) -> bool:
-        return True
+        return self.llm_client is not None and bool(self.model_id)
 
     async def compute_faithfulness(self, question: str, answer: str, contexts: list[str]) -> float:
         if self.llm_client and self.model_id:
@@ -181,9 +181,10 @@ class RAGEvaluator:
         if self.llm_client and self.model_id:
             judge_scores = await self.llm_judge(question, answer, contexts)
             return {
-                **judge_scores,
-                "context_precision": context_precision(contexts, gt),
-                "context_recall": context_recall(contexts, gt),
+                "faithfulness": judge_scores.get("faithfulness", faithfulness(answer, contexts)),
+                "answer_relevancy": judge_scores.get("answer_relevancy", answer_relevancy(question, answer)),
+                "context_precision": judge_scores.get("context_precision", context_precision(contexts, gt)),
+                "context_recall": judge_scores.get("context_recall", context_recall(contexts, gt)),
                 "method": "llm_judge",
             }
         return {

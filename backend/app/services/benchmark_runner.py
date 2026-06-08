@@ -474,14 +474,18 @@ class BenchmarkRunner:
             )
 
     async def _evaluate_retrieval_precision(self, run: BenchmarkRun, case: dict):
-        """Evaluate retrieval precision by checking if expected contexts are retrieved."""
-        # Simulate retrieval by checking if expected contexts match query
-        # In real implementation, this would call the retrieval pipeline
+        """Evaluate retrieval precision by checking keyword overlap between query and expected contexts."""
         query = case["query"]
         expected = case.get("expected_contexts", [])
 
-        # Simple check: did we find contexts containing key phrases?
-        precision = 1.0 if expected else 0.0
+        if not expected:
+            precision = 0.0
+        else:
+            query_tokens = set(query.lower().split())
+            all_context_text = " ".join(expected).lower()
+            context_tokens = set(all_context_text.split())
+            overlap = query_tokens & context_tokens
+            precision = len(overlap) / len(query_tokens) if query_tokens else 0.0
 
         self._add_result(
             run,
@@ -643,7 +647,7 @@ class BenchmarkRunner:
         )
 
         # Test 4: Burst load (rapid sequential requests)
-        start = time.time()
+        burst_start = time.time()
         if self.lm_client:
             burst_tasks = [
                 self.lm_client.stream_chat(
@@ -656,11 +660,11 @@ class BenchmarkRunner:
                 for _ in range(5)
             ]
             results = await asyncio.gather(*burst_tasks, return_exceptions=True)
-            latencies = [time.time() for _ in results if not isinstance(_, Exception)]
+            successes = [r for r in results if not isinstance(r, Exception)]
         else:
-            latencies = []
-        elapsed_burst = time.time() - start
-        p95 = max(latencies) - min(latencies) if latencies else 0
+            successes = []
+        elapsed_burst = time.time() - burst_start
+        avg_latency = elapsed_burst / len(successes) if successes else 0
 
         self._add_result(
             run,
@@ -668,10 +672,10 @@ class BenchmarkRunner:
                 test_id="throughput_burst",
                 category="throughput",
                 test_case="burst_load",
-                metric="burst_p95_latency_s",
-                value=round(p95, 3),
+                metric="burst_avg_latency_s",
+                value=round(avg_latency, 3),
                 threshold=THROUGHPUT_THRESHOLDS["burst_latency_p95"],
-                passed=p95 < THROUGHPUT_THRESHOLDS["burst_latency_p95"],
+                passed=avg_latency < THROUGHPUT_THRESHOLDS["burst_latency_p95"],
             ),
         )
 

@@ -999,7 +999,7 @@ class MemoryService:
                 db = await self._get_db()
                 cutoff = time.time() - older_than_days * 86400
                 rows = await db.execute_fetchall(
-                    """SELECT id, device_id, session_type, query
+                    """SELECT id, device_id, session_type, query, answer, citations
                        FROM episodes
                        WHERE archived = 0 AND created_at < ?""",
                     (cutoff,),
@@ -1015,8 +1015,11 @@ class MemoryService:
                         f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
                         episode_ids,
                     )
-                    for ep_id, device_id, session_type, query in rows:
-                        summary = f"Session summary ({session_type}): {query[:200]}"
+                    for ep_id, device_id, session_type, query, answer, citations_json in rows:
+                        answer_snippet = (answer or "")[:300]
+                        citations = json.loads(citations_json) if citations_json else []
+                        citation_summary = f" [{len(citations)} sources]" if citations else ""
+                        summary = f"Session ({session_type}): Q: {query[:200]} A: {answer_snippet}{citation_summary}"
                         fact_id = uuid.uuid4().hex[:12]
                         await db.execute(
                             """INSERT INTO facts

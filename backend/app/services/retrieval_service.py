@@ -137,13 +137,30 @@ async def retrieve(req: RetrieveRequest):
                 top_k=req.top_k,
                 min_score=req.min_score,
             )
-            seen = set()
-            for r in tree_results + vector_results:
+            k = 60
+            rrf_scores: dict[tuple, tuple[float, dict]] = {}
+            for rank, r in enumerate(tree_results):
                 key = (r.get("doc_id", ""), r.get("section", ""), r.get("page", 0))
-                if key not in seen:
-                    seen.add(key)
-                    results.append(r)
-            results = results[: req.top_k]
+                rrf = 1.0 / (k + rank + 1)
+                if key in rrf_scores:
+                    rrf_scores[key] = (rrf_scores[key][0] + rrf, r)
+                else:
+                    rrf_scores[key] = (rrf, r)
+            for rank, r in enumerate(vector_results):
+                key = (r.get("doc_id", ""), r.get("section", ""), r.get("page", 0))
+                rrf = 1.0 / (k + rank + 1)
+                if key in rrf_scores:
+                    rrf_scores[key] = (rrf_scores[key][0] + rrf, r)
+                else:
+                    rrf_scores[key] = (rrf, r)
+            merged = []
+            for _key, (rrf_score, r) in rrf_scores.items():
+                entry = dict(r)
+                entry["rrf_score"] = round(rrf_score, 4)
+                entry["relevance_score"] = round(rrf_score, 4)
+                merged.append(entry)
+            merged.sort(key=lambda r: r.get("rrf_score", 0), reverse=True)
+            results = merged[: req.top_k]
         elif pipeline == "ara":
             from app import state
             from app.services.ara_compiler import ARACompiler
