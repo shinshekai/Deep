@@ -102,7 +102,7 @@ async def test_lm_down_fallback():
 
     with patch("app.websocket_handlers.asyncio.sleep", new_callable=AsyncMock):
         await _run_solve_pipeline_for_message(
-            ws, {"query": "hello world", "mode": "auto"}, mock_state
+            ws, {"query": "hello world", "mode": "auto", "device_id": "test-device"}, mock_state
         )
 
     calls = ws.send_json.call_args_list
