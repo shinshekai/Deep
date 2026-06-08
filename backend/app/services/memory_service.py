@@ -184,7 +184,8 @@ class MemoryService:
         self._db: aiosqlite.Connection | None = None
         self._resolved_path: Path | None = None
         self._profile_backoff_state: dict[str, float] = {}
-        self._write_semaphore = asyncio.Semaphore(1)
+        self._write_lock = asyncio.Lock()
+        self._last_health_check: float = 0.0
 
     async def _safe(self, coro, default=None):
         try:
@@ -226,6 +227,7 @@ class MemoryService:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA foreign_keys=ON")
         await self._db.execute("PRAGMA busy_timeout=5000")
+        await self._db.execute("PRAGMA journal_size_limit=67108864")
         await self._db.executescript(SCHEMA_SQL)
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
@@ -254,7 +256,8 @@ class MemoryService:
                     await db.execute(f"DROP TABLE IF EXISTS {table_name}")
                     await db.execute(
                         f"CREATE VIRTUAL TABLE {table_name} USING fts5("
-                        f"chunk_text, content='', tokenize='porter unicode61')"
+                        f"chunk_text, content='',"
+                        f"tokenize='porter unicode61')"
                     )
                     rows = await db.execute_fetchall(f"SELECT id, device_id, created_at FROM {source_table}")
                     for source_row in rows:
@@ -270,7 +273,8 @@ class MemoryService:
                     await db.execute(f"DROP TABLE IF EXISTS {table_name}")
                     await db.execute(
                         f"CREATE VIRTUAL TABLE {table_name} USING fts5("
-                        f"chunk_text, content='', tokenize='porter unicode61')"
+                        f"chunk_text, content='',"
+                        f"tokenize='porter unicode61')"
                     )
                     await db.commit()
             except Exception as e:
@@ -279,22 +283,27 @@ class MemoryService:
     async def _get_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("MemoryService not initialized — call initialize() first")
-        try:
-            await self._db.execute("SELECT 1")
-        except Exception:
-            logger.warning("Database connection unhealthy, reconnecting")
-            await self._reconnect()
+        now = time.time()
+        if now - self._last_health_check > 30.0:
+            self._last_health_check = now
+            try:
+                await self._db.execute("SELECT 1")
+            except Exception:
+                logger.warning("Database connection unhealthy, reconnecting")
+                await self._reconnect()
         return self._db
 
     async def _reconnect(self):
-        try:
-            await self._db.close()
-        except Exception:
-            pass
-        self._db = await aiosqlite.connect(str(self._resolved_path))
-        await self._db.execute("PRAGMA journal_mode=WAL")
-        await self._db.execute("PRAGMA busy_timeout=5000")
-        await self._db.execute("PRAGMA foreign_keys=ON")
+        async with self._write_lock:
+            try:
+                await self._db.close()
+            except Exception:
+                pass
+            self._db = await aiosqlite.connect(str(self._resolved_path))
+            await self._db.execute("PRAGMA journal_mode=WAL")
+            await self._db.execute("PRAGMA busy_timeout=5000")
+            await self._db.execute("PRAGMA foreign_keys=ON")
+            await self._db.execute("PRAGMA journal_size_limit=67108864")
 
     @asynccontextmanager
     async def _transaction(self):
@@ -958,44 +967,49 @@ class MemoryService:
 
     async def compact_episodes(self, older_than_days: int = 90) -> int:
         with trace_span("memory.compact_episodes", {"older_than_days": older_than_days}):
-            db = await self._get_db()
-            cutoff = time.time() - older_than_days * 86400
-            rows = await db.execute_fetchall(
-                """SELECT id, device_id, session_type, query
-                   FROM episodes
-                   WHERE archived = 0 AND created_at < ? AND outcome_rating < 0.3""",
-                (cutoff,),
-            )
-            if not rows:
-                return 0
-            episode_ids = [r[0] for r in rows]
-            now = time.time()
-            try:
-                await db.execute("BEGIN IMMEDIATE")
-                placeholders = ",".join("?" * len(episode_ids))
-                await db.execute(
-                    f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
-                    episode_ids,
+            async with self._write_lock:
+                db = await self._get_db()
+                cutoff = time.time() - older_than_days * 86400
+                rows = await db.execute_fetchall(
+                    """SELECT id, device_id, session_type, query
+                       FROM episodes
+                       WHERE archived = 0 AND created_at < ? AND outcome_rating < 0.3""",
+                    (cutoff,),
                 )
-                for ep_id, device_id, session_type, query in rows:
-                    summary = f"Session summary ({session_type}): {query[:200]}"
-                    fact_id = uuid.uuid4().hex[:12]
-                    await db.execute(
-                        """INSERT OR IGNORE INTO facts
-                           (id, device_id, content, source_type, source_id,
-                            confidence, created_at, last_accessed, access_count)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
-                    )
-                await db.commit()
-            except Exception:
+                if not rows:
+                    return 0
+                episode_ids = [r[0] for r in rows]
+                now = time.time()
                 try:
-                    await db.execute("ROLLBACK")
+                    await db.execute("BEGIN IMMEDIATE")
+                    placeholders = ",".join("?" * len(episode_ids))
+                    await db.execute(
+                        f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
+                        episode_ids,
+                    )
+                    for ep_id, device_id, session_type, query in rows:
+                        summary = f"Session summary ({session_type}): {query[:200]}"
+                        fact_id = uuid.uuid4().hex[:12]
+                        await db.execute(
+                            """INSERT INTO facts
+                               (id, device_id, content, source_type, source_id,
+                                confidence, created_at, last_accessed, access_count)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(source_type, source_id)
+                               WHERE source_type = 'session_summary' AND source_id IS NOT NULL
+                               DO NOTHING""",
+                            (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                        )
+                    await db.commit()
                 except Exception:
-                    logger.exception("Failed to rollback compact_episodes")
-                raise
-            await self.track_usage(rows[0][1], "episodes_compacted", len(episode_ids))
-            return len(episode_ids)
+                    try:
+                        await db.execute("ROLLBACK")
+                    except Exception:
+                        logger.exception("Failed to rollback compact_episodes, invalidating connection")
+                        self._db = None
+                    raise
+                await self.track_usage(rows[0][1], "episodes_compacted", len(episode_ids))
+                return len(episode_ids)
 
     async def recover_partial_compactions(self) -> int:
         db = await self._get_db()

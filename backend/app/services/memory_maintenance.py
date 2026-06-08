@@ -37,7 +37,10 @@ async def memory_maintenance_loop(
 
             db = await memory_service._get_db()
             try:
-                await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                result = await db.execute_fetchall("PRAGMA wal_checkpoint(PASSIVE)")
+                if result and result[0][0] > 500:
+                    logger.warning("WAL still has %d pages after PASSIVE checkpoint, trying TRUNCATE", result[0][0])
+                    await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except Exception as e:
                 logger.warning("WAL checkpoint failed: %s", e)
 
