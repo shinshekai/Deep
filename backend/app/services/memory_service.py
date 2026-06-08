@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -145,10 +146,50 @@ END;
 """
 
 
+PROFILE_STALE_THRESHOLD = 300
+MAX_BACKOFF = 10.0
+CHUNK_SIZE = 2000
+CHUNK_OVERLAP = 200
+POOL_MAX_SIZE = 5
+
+
+class _ConnectionPool:
+    def __init__(self, max_size: int = POOL_MAX_SIZE):
+        self._max_size = max_size
+        self._pool: list[aiosqlite.Connection] = []
+        self._in_use: set[int] = set()
+
+    async def acquire(self) -> aiosqlite.Connection:
+        if self._pool:
+            conn = self._pool.pop()
+            self._in_use.add(id(conn))
+            return conn
+        if len(self._in_use) >= self._max_size:
+            raise RuntimeError("Connection pool exhausted")
+        conn = await aiosqlite.connect("DUMMY_PATH")
+        self._in_use.add(id(conn))
+        return conn
+
+    async def release(self, conn: aiosqlite.Connection):
+        self._in_use.discard(id(conn))
+        if len(self._pool) < self._max_size:
+            self._pool.append(conn)
+        else:
+            await conn.close()
+
+    async def close_all(self):
+        for conn in self._pool:
+            await conn.close()
+        self._pool.clear()
+        self._in_use.clear()
+
+
 class MemoryService:
     def __init__(self, db_path: str = "data/memory/deep_memory.db"):
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._profile_backoff_state: dict[str, float] = {}
+        self._pool = _ConnectionPool()
 
     async def _safe(self, coro, default=None):
         try:
@@ -156,6 +197,24 @@ class MemoryService:
         except Exception as e:
             logger.warning(f"Memory operation failed: {e}")
             return default
+
+    @staticmethod
+    def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+        if len(text) <= chunk_size:
+            return [text]
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            if end < len(text):
+                for sep in ("\n", ". ", "! ", "? "):
+                    last = text.rfind(sep, start + chunk_size // 2, end)
+                    if last > start:
+                        end = last + len(sep)
+                        break
+            chunks.append(text[start:end])
+            start = end - overlap
+        return chunks
 
     async def get_memory_stats_summary(self) -> dict:
         stats = await self.get_stats()
@@ -170,6 +229,7 @@ class MemoryService:
         self._db = await aiosqlite.connect(str(db_path))
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA foreign_keys=ON")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript(SCHEMA_SQL)
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
@@ -260,6 +320,16 @@ class MemoryService:
             await db.commit()
             await self.track_usage(device_id, "episodes_stored", 1)
             return episode_id
+
+    async def _stream_query(self, sql: str, params: tuple = (), chunk_size: int = 100):
+        db = await self._get_db()
+        async with db.execute(sql, params) as cursor:
+            while True:
+                batch = await cursor.fetchmany(chunk_size)
+                if not batch:
+                    break
+                for row in batch:
+                    yield row
 
     async def recall_episodes(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
         with trace_span("memory.recall_episodes", {"device_id": device_id, "top_k": top_k}):
@@ -516,10 +586,54 @@ class MemoryService:
 
             return contradictions
 
+    async def batch_resolve_contradictions(self, device_id: str, batch_size: int = 10) -> dict:
+        with trace_span("memory.batch_resolve_contradictions", {"device_id": device_id}):
+            contradictions = await self.detect_contradictions("", device_id)
+            if not contradictions:
+                return {"resolved": 0, "groups": 0, "merged_episodes": []}
+
+            groups: dict[str, list[dict]] = {}
+            for c in contradictions:
+                topic = c.get("relation_type", "unknown")
+                groups.setdefault(topic, []).append(c)
+
+            merged_episodes = []
+            resolved = 0
+            db = await self._get_db()
+            for topic, group in list(groups.items())[:batch_size]:
+                for c in group:
+                    await db.execute(
+                        "UPDATE facts SET archived = 1 WHERE id = ?",
+                        (c["existing_fact_id"],),
+                    )
+                    resolved += 1
+                merged_content = f"Resolved contradiction ({topic}): " + "; ".join(
+                    c["new_fact"] for c in group
+                )
+                ep_id = await self.store_episode(
+                    device_id=device_id,
+                    query=f"contradiction resolution: {topic}",
+                    answer=merged_content,
+                    session_type="maintenance",
+                )
+                merged_episodes.append(ep_id)
+            await db.commit()
+            return {
+                "resolved": resolved,
+                "groups": len(groups),
+                "merged_episodes": merged_episodes,
+            }
+
     # ── User Profile ──────────────────────────────────────────────────────────
+
+    def _get_profile_backoff(self, device_id: str) -> float:
+        return self._profile_backoff_state.get(device_id, 0.0)
 
     async def get_profile(self, device_id: str) -> dict:
         with trace_span("memory.get_profile", {"device_id": device_id}):
+            backoff = self._get_profile_backoff(device_id)
+            if backoff > 0:
+                await asyncio.sleep(backoff)
             db = await self._get_db()
             row = await db.execute_fetchall(
                 "SELECT profile_json, updated_at FROM user_profiles WHERE device_id = ?",
@@ -527,10 +641,20 @@ class MemoryService:
             )
             if not row:
                 return {"device_id": device_id, "preferences": {}, "updated_at": 0}
+            updated_at = row[0][1]
+            now = time.time()
+            if now - updated_at > PROFILE_STALE_THRESHOLD:
+                current = self._profile_backoff_state.get(device_id, 0.0)
+                if current == 0.0:
+                    self._profile_backoff_state[device_id] = 0.5
+                else:
+                    self._profile_backoff_state[device_id] = min(current * 2, MAX_BACKOFF)
+            else:
+                self._profile_backoff_state.pop(device_id, None)
             return {
                 "device_id": device_id,
                 **json.loads(row[0][0]),
-                "updated_at": row[0][1],
+                "updated_at": updated_at,
             }
 
     async def update_profile(self, device_id: str, updates: dict) -> dict:
@@ -847,3 +971,4 @@ class MemoryService:
         if self._db:
             await self._db.close()
             self._db = None
+        await self._pool.close_all()
