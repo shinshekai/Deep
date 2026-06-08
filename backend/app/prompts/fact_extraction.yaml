@@ -1,0 +1,18 @@
+version: "1.0.0"
+description: "Fact extraction from Q&A pairs"
+prompts:
+  extract:
+    version: "1.0.0"
+    content: |
+      Extract key facts from this Q&A pair. Return a JSON array of objects
+      with "content" (string) and "confidence" (0.0-1.0) keys.
+      Only extract genuinely useful, reusable facts. Return empty array if nothing notable.
+
+      Q: {query}
+
+      A: {answer}
+    max_tokens: 512
+    temperature: 0.3
+    variables:
+      - query
+      - answer

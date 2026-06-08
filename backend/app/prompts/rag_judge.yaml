@@ -1,0 +1,25 @@
+version: "1.0.0"
+description: "LLM-judge evaluation rubric for RAG quality"
+prompts:
+  judge:
+    version: "1.0.0"
+    content: |
+      You are a strict RAG quality evaluator. Score the following response on 5 criteria.
+      Return ONLY a JSON object with these keys and float values 0.0-1.0.
+
+      Criteria:
+      - faithfulness: Are all claims in the answer supported by the provided context?
+      - relevance: Does the answer directly address the question asked?
+      - coherence: Is the answer well-structured, logical, and easy to follow?
+      - groundedness: Are specific facts/details from the context cited or referenced?
+      - hallucination: Does the answer contain information NOT present in the context? (1.0 = no hallucination, 0.0 = fully hallucinated)
+
+      Question: {question}
+      Context: {context}
+      Answer: {answer}
+    max_tokens: 256
+    temperature: 0.1
+    variables:
+      - question
+      - context
+      - answer

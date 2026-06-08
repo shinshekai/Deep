@@ -1,17 +1,20 @@
-"""RAG evaluation service — lightweight replacement for ragas.
+"""RAG evaluation service — keyword heuristic + LLM-judge hybrid.
 
 Implements REQ-6.3: Faithfulness >= 0.85, AnswerRelevancy.
 
-Metrics:
+Metrics (keyword heuristic fallback):
 - Faithfulness: Are answer claims supported by the context?
 - AnswerRelevancy: Is the answer relevant to the question?
 - ContextPrecision: Are retrieved contexts precise?
 - ContextRecall: Do contexts cover ground truth?
 
-Uses keyword overlap and n-gram heuristics for scoring.
-No external LLM-based evaluation dependency.
+Metrics (LLM-judge, 5-criteria single-call rubric):
+- faithfulness, relevance, coherence, groundedness, hallucination
+
+Falls back to keyword heuristic when LLM client is unavailable.
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -19,6 +22,22 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 METRICS = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
+JUDGE_METRICS = ["faithfulness", "relevance", "coherence", "groundedness", "hallucination"]
+
+_JUDGE_PROMPT = (
+    "You are a strict RAG quality evaluator. Score the following response on 5 criteria. "
+    "Return ONLY a JSON object with these keys and float values 0.0-1.0.\n\n"
+    "Criteria:\n"
+    "- faithfulness: Are all claims in the answer supported by the provided context?\n"
+    "- relevance: Does the answer directly address the question asked?\n"
+    "- coherence: Is the answer well-structured, logical, and easy to follow?\n"
+    "- groundedness: Are specific facts/details from the context cited or referenced?\n"
+    "- hallucination: Does the answer contain information NOT present in the context? "
+    "(1.0 = no hallucination, 0.0 = fully hallucinated)\n\n"
+    "Question: {question}\n"
+    "Context: {context}\n"
+    "Answer: {answer}"
+)
 
 
 @dataclass
@@ -96,16 +115,60 @@ def context_recall(contexts: list[str], ground_truth: str) -> float:
     return round(min(1.0, recall), 3)
 
 
+def _parse_judge_response(raw: str) -> dict[str, float]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        scores = json.loads(text)
+        return {k: round(min(1.0, max(0.0, float(scores.get(k, 0.5)))), 3) for k in JUDGE_METRICS}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        logger.warning("Failed to parse LLM judge response: %s", raw[:200])
+        return {k: 0.5 for k in JUDGE_METRICS}
+
+
 @dataclass
 class RAGEvaluator:
     llm_client: object | None = None
+    model_id: str = ""
 
     @property
     def is_available(self) -> bool:
         return True
 
     async def compute_faithfulness(self, question: str, answer: str, contexts: list[str]) -> float:
+        if self.llm_client and self.model_id:
+            scores = await self.llm_judge(question, answer, contexts)
+            return scores.get("faithfulness", faithfulness(answer, contexts))
         return faithfulness(answer, contexts)
+
+    async def llm_judge(
+        self,
+        question: str,
+        answer: str,
+        contexts: list[str],
+    ) -> dict[str, float]:
+        if not self.llm_client:
+            return {k: 0.5 for k in JUDGE_METRICS}
+        context_text = "\n---\n".join(contexts[:5]) if contexts else "(no context)"
+        prompt = _JUDGE_PROMPT.format(
+            question=question[:2000],
+            context=context_text[:4000],
+            answer=answer[:4000],
+        )
+        try:
+            result = await self.llm_client.stream_chat_completion(
+                model=self.model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=256,
+            )
+            if result is None or result.get("error"):
+                logger.warning("LLM judge call failed: %s", result)
+                return {k: 0.5 for k in JUDGE_METRICS}
+            return _parse_judge_response(result.get("content", ""))
+        except Exception as e:
+            logger.warning("LLM judge exception: %s", e)
+            return {k: 0.5 for k in JUDGE_METRICS}
 
     async def evaluate_sample(
         self,
@@ -115,11 +178,20 @@ class RAGEvaluator:
         ground_truth: str | None = None,
     ) -> dict:
         gt = ground_truth or ""
+        if self.llm_client and self.model_id:
+            judge_scores = await self.llm_judge(question, answer, contexts)
+            return {
+                **judge_scores,
+                "context_precision": context_precision(contexts, gt),
+                "context_recall": context_recall(contexts, gt),
+                "method": "llm_judge",
+            }
         return {
             "faithfulness": faithfulness(answer, contexts),
             "answer_relevancy": answer_relevancy(question, answer),
             "context_precision": context_precision(contexts, gt),
             "context_recall": context_recall(contexts, gt),
+            "method": "keyword_heuristic",
         }
 
     async def evaluate_dataset(self, dataset_path: str) -> dict:

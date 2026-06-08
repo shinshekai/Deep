@@ -80,8 +80,9 @@ async def test_evaluate_sample(sample_data):
     assert "answer_relevancy" in metrics
     assert "context_precision" in metrics
     assert "context_recall" in metrics
-    for v in metrics.values():
-        assert 0.0 <= v <= 1.0
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)):
+            assert 0.0 <= v <= 1.0, f"{k}={v} out of range"
 
 
 @pytest.mark.asyncio

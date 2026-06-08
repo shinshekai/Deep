@@ -3,7 +3,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOKEN_BUDGET = 2000
-CHARS_PER_TOKEN = 4
+
+_encoder = None
+
+
+def _get_encoder():
+    global _encoder
+    if _encoder is None:
+        try:
+            import tiktoken
+            _encoder = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            logger.debug("tiktoken unavailable, falling back to char heuristic")
+            _encoder = False
+    return _encoder
+
+
+def _estimate_tokens(text: str) -> int:
+    enc = _get_encoder()
+    if enc:
+        return len(enc.encode(text))
+    return max(1, len(text) // 4)
 
 
 def build_memory_context(
@@ -90,7 +110,3 @@ def _format_profile(static: dict, dynamic: dict) -> str:
     if preferred_style:
         lines.append(f"  Style: {preferred_style}")
     return "\n".join(lines) if lines else ""
-
-
-def _estimate_tokens(text: str) -> int:
-    return max(1, len(text) // CHARS_PER_TOKEN)
