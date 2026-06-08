@@ -33,10 +33,11 @@ async def memory_maintenance_loop(
 
             decayed = await memory_service.decay_old_facts(days=DECAY_DAYS, decay_rate=DECAY_RATE)
             compacted = await memory_service.compact_episodes(older_than_days=COMPACT_DAYS)
+            pruned = await memory_service.prune_usage(retention_days=90)
 
             elapsed = time.time() - start
             logger.info(
-                f"Memory maintenance complete: {decayed} facts decayed, {compacted} episodes compacted in {elapsed:.2f}s"
+                f"Memory maintenance complete: {decayed} facts decayed, {compacted} episodes compacted, {pruned} usage rows pruned in {elapsed:.2f}s"
             )
 
             from app import state
@@ -50,7 +51,7 @@ async def memory_maintenance_loop(
                 await task_wal.record_complete(
                     iteration_id,
                     "completed",
-                    {"decayed": decayed, "compacted": compacted, "elapsed": elapsed},
+                    {"decayed": decayed, "compacted": compacted, "pruned": pruned, "elapsed": elapsed},
                 )
         except asyncio.CancelledError:
             logger.info("Memory maintenance loop cancelled")

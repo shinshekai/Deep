@@ -134,7 +134,7 @@ def test_audit_emits_structured_log(caplog):
     """audit() should write to the 'app.audit' logger with the event tag."""
     from app.services.audit import audit
 
-    with caplog.at_level("INFO", logger="app.audit"):
+    with caplog.at_level("WARNING", logger="app.audit"):
         audit("test.event", user="alice", action="delete", count=3)
 
     messages = [r.message for r in caplog.records if r.name == "app.audit"]

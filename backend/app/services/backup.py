@@ -176,23 +176,31 @@ def list_backups() -> list[dict]:
     """List all available backups sorted by creation time (newest first)."""
     backup_dir = get_backup_dir()
     backups = []
+    seen = set()
     for item in sorted(backup_dir.iterdir(), reverse=True):
+        name = None
         if item.is_dir() and item.name.startswith("kb_backup_"):
-            gz = backup_dir / f"{item.name}.tar.gz"
-            sha = backup_dir / f"{item.name}.sha256"
-            size = gz.stat().st_size if gz.exists() else sum(
-                f.stat().st_size for f in item.rglob("*") if f.is_file()
+            name = item.name
+        elif item.suffix == ".gz" and item.name.endswith(".tar.gz") and item.name.startswith("kb_backup_"):
+            name = item.name.removesuffix(".tar.gz")
+        elif item.suffix == ".sha256" and item.name.startswith("kb_backup_"):
+            name = item.name.removesuffix(".sha256")
+        if name and name not in seen:
+            seen.add(name)
+            gz = backup_dir / f"{name}.tar.gz"
+            sha = backup_dir / f"{name}.sha256"
+            size = gz.stat().st_size if gz.exists() else (
+                sum(f.stat().st_size for f in item.rglob("*") if f.is_file()) if item.is_dir() else 0
             )
             checksum = sha.read_text().strip() if sha.exists() else None
+            created_ts = item.stat().st_mtime
             backups.append(
                 {
-                    "name": item.name,
-                    "path": str(item),
+                    "name": name,
+                    "path": str(backup_dir / name),
                     "size_bytes": size,
                     "sha256": checksum,
-                    "created": datetime.fromtimestamp(
-                        item.stat().st_mtime, tz=timezone.utc
-                    ).isoformat(),
+                    "created": datetime.fromtimestamp(created_ts, tz=timezone.utc).isoformat(),
                 }
             )
     return backups
@@ -201,17 +209,24 @@ def list_backups() -> list[dict]:
 def _rotate_backups():
     """Remove oldest backups if count exceeds MAX_BACKUPS."""
     backup_dir = get_backup_dir()
+    names = set()
+    for item in backup_dir.iterdir():
+        if item.is_dir() and item.name.startswith("kb_backup_"):
+            names.add(item.name)
+        elif item.name.endswith(".tar.gz") and item.name.startswith("kb_backup_"):
+            names.add(item.name.removesuffix(".tar.gz"))
     backups = sorted(
-        [d for d in backup_dir.iterdir() if d.is_dir() and d.name.startswith("kb_backup_")],
-        key=lambda d: d.stat().st_mtime,
+        [(backup_dir / n) for n in names],
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
     )
     while len(backups) > MAX_BACKUPS:
         oldest = backups.pop(0)
-        shutil.rmtree(oldest)
-        gz = backup_dir / f"{oldest.name}.tar.gz"
-        sha = backup_dir / f"{oldest.name}.sha256"
+        name = oldest.name
+        shutil.rmtree(oldest, ignore_errors=True)
+        gz = backup_dir / f"{name}.tar.gz"
+        sha = backup_dir / f"{name}.sha256"
         if gz.exists():
             gz.unlink()
         if sha.exists():
             sha.unlink()
-        logger.info("backup_rotated: removed=%s", oldest.name)
+        logger.info("backup_rotated: removed=%s", name)
