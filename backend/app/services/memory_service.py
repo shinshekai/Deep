@@ -544,9 +544,9 @@ class MemoryService:
         query_pattern: str,
         strategy: str,
         outcome_quality: float,
+        device_id: str,
         model_used: str = "",
         tier: int = 0,
-        device_id: str = "default",
     ) -> None:
         with trace_span(
             "memory.record_agent_outcome", {"agent_type": agent_type, "device_id": device_id}

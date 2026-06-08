@@ -41,7 +41,7 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
     kb_name = _safe_name(data.get("kb_name", ""), default="")
     mode = data.get("mode", "auto")
     retrieval_pipeline = data.get("retrieval_pipeline", "tree")
-    device_id = data.get("device_id", "default")
+    device_id = data["device_id"]
 
     await ws.send_json(
         {

@@ -46,12 +46,14 @@ class TestAgentOutcomes:
                 query_pattern="deploy",
                 strategy="docker",
                 outcome_quality=0.6,
+                device_id="test-device",
             )
             await svc.record_agent_outcome(
                 agent_type="solve",
                 query_pattern="deploy",
                 strategy="kubernetes",
                 outcome_quality=0.9,
+                device_id="test-device",
             )
 
             strategies = await svc.get_agent_strategies("solve", "deploy")
@@ -74,12 +76,14 @@ class TestAgentOutcomes:
                 query_pattern="q1",
                 strategy="s1",
                 outcome_quality=0.8,
+                device_id="test-device",
             )
             await svc.record_agent_outcome(
                 agent_type="research",
                 query_pattern="q1",
                 strategy="s2",
                 outcome_quality=0.7,
+                device_id="test-device",
             )
 
             solve_strats = await svc.get_agent_strategies("solve")
@@ -150,7 +154,7 @@ class TestMemoryMaintenance:
 
             await svc.store_episode("dev1", "q1", "a1", session_type="chat")
             await svc.store_fact("dev1", "fact1", "conversation")
-            await svc.record_agent_outcome("solve", "pattern1", "strategy1", 0.8)
+            await svc.record_agent_outcome("solve", "pattern1", "strategy1", 0.8, device_id="dev1")
 
             stats = await svc.get_stats("dev1")
             assert stats["episodes"] >= 1
