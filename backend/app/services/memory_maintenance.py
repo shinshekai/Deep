@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -39,7 +40,10 @@ async def memory_maintenance_loop(
             try:
                 result = await db.execute_fetchall("PRAGMA wal_checkpoint(PASSIVE)")
                 if result and result[0][0] > 500:
-                    logger.warning("WAL still has %d pages after PASSIVE checkpoint, trying TRUNCATE", result[0][0])
+                    logger.warning(
+                        "WAL still has %d pages after PASSIVE checkpoint, trying TRUNCATE",
+                        result[0][0],
+                    )
                     await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except Exception as e:
                 logger.warning("WAL checkpoint failed: %s", e)
@@ -60,21 +64,22 @@ async def memory_maintenance_loop(
                 await task_wal.record_complete(
                     iteration_id,
                     "completed",
-                    {"decayed": decayed, "compacted": compacted, "pruned": pruned, "elapsed": elapsed},
+                    {
+                        "decayed": decayed,
+                        "compacted": compacted,
+                        "pruned": pruned,
+                        "elapsed": elapsed,
+                    },
                 )
         except asyncio.CancelledError:
             logger.info("Memory maintenance loop cancelled")
             if task_wal is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await task_wal.record_complete(iteration_id, "failed", {"error": "cancelled"})
-                except Exception:
-                    pass
             break
         except Exception as e:
             logger.error(f"Memory maintenance error: {e}", exc_info=True)
             if task_wal is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await task_wal.record_complete(iteration_id, "failed", {"error": str(e)})
-                except Exception:
-                    pass
             await asyncio.sleep(60)

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -42,7 +43,7 @@ class NotebookService:
         from app import state
 
         if state.memory_service and device_id:
-            try:
+            with contextlib.suppress(Exception):
                 _global_registry.spawn(
                     state.memory_service.store_episode(
                         device_id=device_id,
@@ -52,8 +53,6 @@ class NotebookService:
                         session_type="content",
                     )
                 )
-            except Exception:
-                pass
         return data
 
     def list_notebooks(self) -> list[dict[str, Any]]:
@@ -93,7 +92,7 @@ class NotebookService:
     ) -> dict[str, Any]:
         data = self.get_notebook(notebook_id)
         note = {
-            "id": f"note_{int(time.time()*1000)}",
+            "id": f"note_{int(time.time() * 1000)}",
             "content": content,
             "source": source,
             "timestamp": time.time(),
@@ -109,7 +108,7 @@ class NotebookService:
         from app import state
 
         if state.memory_service and device_id:
-            try:
+            with contextlib.suppress(Exception):
                 _global_registry.spawn(
                     state.memory_service.store_fact(
                         device_id=device_id,
@@ -119,8 +118,6 @@ class NotebookService:
                         confidence=0.6,
                     )
                 )
-            except Exception:
-                pass
         return note
 
 
@@ -187,7 +184,7 @@ class CoWriterService:
             doc_id = res.get("doc_id", "unknown")
             page = res.get("page", "unknown")
             score = res.get("relevance_score", 0)
-            context_text += f"--- Source {i+1} ---\n{content}\n\n"
+            context_text += f"--- Source {i + 1} ---\n{content}\n\n"
             provenance_sources.append(
                 {
                     "doc_id": doc_id,

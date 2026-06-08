@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -55,7 +56,7 @@ class GuidedLearningService:
         context_text = ""
         for i, res in enumerate(rag_results):
             content = res.get("content", "") or res.get("summary", "")
-            context_text += f"--- Source {i+1} ---\n{content}\n\n"
+            context_text += f"--- Source {i + 1} ---\n{content}\n\n"
 
         if not context_text.strip():
             context_text = "No document context available. Rely on internal knowledge."
@@ -202,7 +203,7 @@ class GuidedLearningService:
         from app import state
 
         if state.memory_service and device_id:
-            try:
+            with contextlib.suppress(Exception):
                 await state.memory_service.record_agent_outcome(
                     agent_type="learning",
                     query_pattern=point_title[:100],
@@ -211,8 +212,6 @@ class GuidedLearningService:
                     model_used=model_id,
                     device_id=device_id,
                 )
-            except Exception:
-                pass
 
         return html_content
 
@@ -239,9 +238,7 @@ class GuidedLearningService:
             {"role": msg["role"], "content": msg["content"]}
             for msg in session_data["chat_history"]
             if msg.get("point_index") == point_index
-        ][
-            -5:
-        ]  # Keep last 5 turns for context limit
+        ][-5:]  # Keep last 5 turns for context limit
 
         system_prompt = (
             "You are the ChatAgent, a helpful tutor. You are currently teaching the student about: "

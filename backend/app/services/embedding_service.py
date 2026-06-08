@@ -90,10 +90,10 @@ class EmbeddingService:
         vectors = await self.embed_texts(texts, model=model)
 
         enriched = []
-        for chunk, vec in zip(chunks, vectors):
+        for chunk, vec in zip(chunks, vectors, strict=False):
             enriched.append({**chunk, "embedding": vec})
 
         logger.info(
-            f"EmbeddingService: embedded {len(enriched)} chunks " f"(model={model or 'default'})"
+            f"EmbeddingService: embedded {len(enriched)} chunks (model={model or 'default'})"
         )
         return enriched

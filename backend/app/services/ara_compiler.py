@@ -248,7 +248,7 @@ class ARACompiler:
         for i, item in enumerate(items):
             claims.append(
                 Claim(
-                    claim_id=f"CLM-{i+1:03d}",
+                    claim_id=f"CLM-{i + 1:03d}",
                     statement=item.get("statement", str(item)),
                     evidence_refs=item.get("evidence_hints", []),
                 )
@@ -262,8 +262,8 @@ class ARACompiler:
         for i, item in enumerate(items):
             concepts.append(
                 Concept(
-                    concept_id=f"CON-{i+1:03d}",
-                    name=item.get("name", f"Concept {i+1}"),
+                    concept_id=f"CON-{i + 1:03d}",
+                    name=item.get("name", f"Concept {i + 1}"),
                     definition=item.get("definition", str(item)),
                     related_concepts=item.get("related", []),
                 )
@@ -277,7 +277,7 @@ class ARACompiler:
         for i, item in enumerate(items):
             heuristics.append(
                 Heuristic(
-                    heuristic_id=f"HEU-{i+1:03d}",
+                    heuristic_id=f"HEU-{i + 1:03d}",
                     description=item.get("description", str(item)),
                     rationale=item.get("rationale", ""),
                     constraints=item.get("constraints", []),
@@ -292,7 +292,7 @@ class ARACompiler:
         for i, item in enumerate(items):
             nodes.append(
                 ExplorationNode(
-                    node_id=f"EXP-{i+1:03d}",
+                    node_id=f"EXP-{i + 1:03d}",
                     node_type=item.get("type", "hypothesis"),
                     description=item.get("description", str(item)),
                     outcome=item.get("outcome", ""),

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -117,7 +118,7 @@ class DeepResearchService:
         from app import state
 
         if state.memory_service and device_id:
-            try:
+            with contextlib.suppress(Exception):
                 await state.memory_service.store_episode(
                     device_id=device_id,
                     query=query,
@@ -126,8 +127,6 @@ class DeepResearchService:
                     model_used=model_id,
                     session_type="research",
                 )
-            except Exception:
-                pass
 
         # 3. Kick off Phase 2 in the background
         task = _global_registry.spawn(self._process_queue(session_id, device_id))
@@ -250,7 +249,9 @@ class DeepResearchService:
                 content = res.get("content", "") or res.get("summary", "")
                 doc_id = res.get("doc_id", "unknown")
                 page = res.get("page", "unknown")
-                context_text += f"--- Source {i+1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
+                context_text += (
+                    f"--- Source {i + 1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
+                )
 
             if not context_text.strip():
                 context_text = "No document context available."

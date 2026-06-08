@@ -111,7 +111,7 @@ async def _check_vram() -> None:
         # Fire
         if _alert_state.vram_critical and not was_crit:
             logger.critical(
-                f"ALERT VRAM_CRITICAL: {used_pct:.1f}% used " f"(threshold: {VRAM_CRIT_PCT}%)"
+                f"ALERT VRAM_CRITICAL: {used_pct:.1f}% used (threshold: {VRAM_CRIT_PCT}%)"
             )
             ALERT_ACTIVE.labels(severity="critical", type="vram").set(1)
             ALERT_INFO.labels(type="vram").info(
@@ -119,7 +119,7 @@ async def _check_vram() -> None:
             )
         elif _alert_state.vram_warning and not was_warn:
             logger.warning(
-                f"ALERT VRAM_WARNING: {used_pct:.1f}% used " f"(threshold: {VRAM_WARN_PCT}%)"
+                f"ALERT VRAM_WARNING: {used_pct:.1f}% used (threshold: {VRAM_WARN_PCT}%)"
             )
             ALERT_ACTIVE.labels(severity="warning", type="vram").set(1)
             ALERT_INFO.labels(type="vram").info(

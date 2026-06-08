@@ -40,7 +40,7 @@ def route_query(
     if retrieval_pipeline:
         if retrieval_pipeline not in VALID_PIPELINES:
             logger.warning(
-                f"Unknown retrieval pipeline '{retrieval_pipeline}', " f"defaulting to 'tree'"
+                f"Unknown retrieval pipeline '{retrieval_pipeline}', defaulting to 'tree'"
             )
             return "tree"
         return retrieval_pipeline

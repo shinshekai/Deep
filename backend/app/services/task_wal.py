@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -45,10 +46,8 @@ class TaskWAL:
                 json.dump(self._entries, f, indent=2)
             os.replace(tmp_path, self.wal_path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     async def record_start(self, task_name: str, task_id: str, payload: dict) -> None:

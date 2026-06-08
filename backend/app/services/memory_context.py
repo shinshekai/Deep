@@ -12,6 +12,7 @@ def _get_encoder():
     if _encoder is None:
         try:
             import tiktoken
+
             _encoder = tiktoken.get_encoding("cl100k_base")
         except Exception:
             logger.debug("tiktoken unavailable, falling back to char heuristic")
@@ -50,7 +51,7 @@ def build_memory_context(
         for ep in episodes[:5]:
             query = ep.get("query", "")[:200]
             answer = ep.get("answer", "")[:300]
-            score = ep.get("score", 0)
+            ep.get("score", 0)
             line = f"- [{ep.get('session_type', 'unknown')}] Q: {query}\n  A: {answer}"
             line_tokens = _estimate_tokens(line)
             if used_tokens + line_tokens <= token_budget:

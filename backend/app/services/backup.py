@@ -1,6 +1,5 @@
 """Knowledge base backup service — automated backup with rotation."""
 
-import gzip
 import hashlib
 import logging
 import os
@@ -25,6 +24,7 @@ def _sha256_file(path: Path) -> str:
 
 def _compress_tree(src: Path, dst_gz: Path) -> int:
     import tarfile
+
     with tarfile.open(dst_gz, "w:gz") as tar:
         tar.add(src, arcname=src.name)
     return dst_gz.stat().st_size
@@ -32,6 +32,7 @@ def _compress_tree(src: Path, dst_gz: Path) -> int:
 
 def _decompress_tree(archive: Path, dest: Path) -> None:
     import tarfile
+
     with tarfile.open(archive, "r:gz") as tar:
         tar.extractall(dest)
 
@@ -94,8 +95,13 @@ def create_backup(kb_name: str | None = None) -> dict:
         checksum_path = backup_path.parent / f"{backup_path.name}.sha256"
         checksum_path.write_text(checksum, encoding="utf-8")
         shutil.rmtree(backup_path)
-        logger.info("backup_created: name=%s raw=%d compressed=%d sha256=%s",
-                     backup_name, raw_size, compressed_size, checksum[:16])
+        logger.info(
+            "backup_created: name=%s raw=%d compressed=%d sha256=%s",
+            backup_name,
+            raw_size,
+            compressed_size,
+            checksum[:16],
+        )
         _rotate_backups()
         return {
             "success": True,
@@ -181,7 +187,11 @@ def list_backups() -> list[dict]:
         name = None
         if item.is_dir() and item.name.startswith("kb_backup_"):
             name = item.name
-        elif item.suffix == ".gz" and item.name.endswith(".tar.gz") and item.name.startswith("kb_backup_"):
+        elif (
+            item.suffix == ".gz"
+            and item.name.endswith(".tar.gz")
+            and item.name.startswith("kb_backup_")
+        ):
             name = item.name.removesuffix(".tar.gz")
         elif item.suffix == ".sha256" and item.name.startswith("kb_backup_"):
             name = item.name.removesuffix(".sha256")
@@ -189,8 +199,14 @@ def list_backups() -> list[dict]:
             seen.add(name)
             gz = backup_dir / f"{name}.tar.gz"
             sha = backup_dir / f"{name}.sha256"
-            size = gz.stat().st_size if gz.exists() else (
-                sum(f.stat().st_size for f in item.rglob("*") if f.is_file()) if item.is_dir() else 0
+            size = (
+                gz.stat().st_size
+                if gz.exists()
+                else (
+                    sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+                    if item.is_dir()
+                    else 0
+                )
             )
             checksum = sha.read_text().strip() if sha.exists() else None
             created_ts = item.stat().st_mtime

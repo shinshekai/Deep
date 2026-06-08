@@ -46,7 +46,13 @@ def _load_or_create_token() -> str:
                 username = os.environ.get("USERNAME", "")
                 if username:
                     subprocess.run(
-                        ["icacls", str(_TOKEN_FILE), "/grant:r", f"{username}:(R)", "/inheritance:r"],
+                        [
+                            "icacls",
+                            str(_TOKEN_FILE),
+                            "/grant:r",
+                            f"{username}:(R)",
+                            "/inheritance:r",
+                        ],
                         check=True,
                         capture_output=True,
                         timeout=5,
@@ -56,8 +62,7 @@ def _load_or_create_token() -> str:
         else:
             os.chmod(_TOKEN_FILE, 0o600)
         logger.info(
-            "Generated new auth token and persisted to %s — "
-            "set WS_AUTH_TOKEN env var to override.",
+            "Generated new auth token and persisted to %s — set WS_AUTH_TOKEN env var to override.",
             _TOKEN_FILE,
         )
     except OSError as e:

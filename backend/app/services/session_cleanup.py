@@ -13,7 +13,6 @@ Tunable via env:
   ``UDIP_SESSION_MAX_AGE_DAYS`` (default 30) — max age in days
 """
 
-import asyncio
 import logging
 import os
 import time
@@ -70,7 +69,7 @@ def _cleanup_directory(root: Path, cutoff_ts: float) -> tuple[int, int, list]:
     errors: list = []
     if not root.exists():
         return deleted_files, deleted_dirs, errors
-    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+    for dirpath, _dirnames, filenames in os.walk(root, topdown=False):
         for fname in filenames:
             fpath = Path(dirpath) / fname
             if not _is_older_than(fpath, cutoff_ts):
@@ -121,7 +120,7 @@ def run_cleanup() -> CleanupResult:
     elapsed = time.time() - started
     if total_files or total_dirs:
         logger.info(
-            f"Session cleanup: removed {total_files} files, " f"{total_dirs} dirs in {elapsed:.2f}s"
+            f"Session cleanup: removed {total_files} files, {total_dirs} dirs in {elapsed:.2f}s"
         )
     if all_errors:
         logger.warning(f"Session cleanup had {len(all_errors)} errors (first 5): {all_errors[:5]}")

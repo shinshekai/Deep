@@ -222,7 +222,7 @@ class LMStudioClient:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await proc.communicate()
+                _stdout, stderr = await proc.communicate()
                 if proc.returncode == 0:
                     logger.info(f"Model {model_id} load requested via CLI")
                     load_success = True
@@ -291,7 +291,7 @@ class LMStudioClient:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await proc.communicate()
+                _stdout, stderr = await proc.communicate()
                 if proc.returncode == 0:
                     logger.info(f"Model {model_id} unload requested via CLI")
                     unload_success = True

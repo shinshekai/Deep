@@ -70,9 +70,8 @@ async def retrieve(req: RetrieveRequest):
         "retrieval.execute",
         {"kb": req.kb_name, "pipeline_requested": req.retrieval_pipeline, "top_k": req.top_k},
     ):
-
-        from app.services.query_router import RouteContext, route_query
         from app.services.complexity_scorer import score_query_complexity
+        from app.services.query_router import RouteContext, route_query
 
         tree_docs = _list_pageindex_docs(req.kb_name)
         has_trees = len(tree_docs) > 0
@@ -85,7 +84,9 @@ async def retrieve(req: RetrieveRequest):
             kb_name=req.kb_name,
             doc_id=req.doc_id,
             retrieval_pipeline=req.retrieval_pipeline,
-            context=RouteContext(has_trees=has_trees, has_vectors=has_vectors, complexity=complexity),
+            context=RouteContext(
+                has_trees=has_trees, has_vectors=has_vectors, complexity=complexity
+            ),
         )
         add_event(
             "pipeline_selected",

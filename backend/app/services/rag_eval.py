@@ -109,7 +109,7 @@ def _parse_judge_response(raw: str) -> dict[str, float]:
         return {k: round(min(1.0, max(0.0, float(scores.get(k, 0.5)))), 3) for k in JUDGE_METRICS}
     except (json.JSONDecodeError, TypeError, ValueError):
         logger.warning("Failed to parse LLM judge response: %s", raw[:200])
-        return {k: 0.5 for k in JUDGE_METRICS}
+        return dict.fromkeys(JUDGE_METRICS, 0.5)
 
 
 @dataclass
@@ -134,7 +134,7 @@ class RAGEvaluator:
         contexts: list[str],
     ) -> dict[str, float]:
         if not self.llm_client:
-            return {k: 0.5 for k in JUDGE_METRICS}
+            return dict.fromkeys(JUDGE_METRICS, 0.5)
         context_text = "\n---\n".join(contexts[:5]) if contexts else "(no context)"
         try:
             from app.services.prompt_registry import get_prompt_registry
@@ -172,11 +172,11 @@ class RAGEvaluator:
             )
             if result is None or result.get("error"):
                 logger.warning("LLM judge call failed: %s", result)
-                return {k: 0.5 for k in JUDGE_METRICS}
+                return dict.fromkeys(JUDGE_METRICS, 0.5)
             return _parse_judge_response(result.get("content", ""))
         except Exception as e:
             logger.warning("LLM judge exception: %s", e)
-            return {k: 0.5 for k in JUDGE_METRICS}
+            return dict.fromkeys(JUDGE_METRICS, 0.5)
 
     async def evaluate_sample(
         self,
@@ -190,7 +190,9 @@ class RAGEvaluator:
             judge_scores = await self.llm_judge(question, answer, contexts)
             return {
                 "faithfulness": judge_scores.get("faithfulness", faithfulness(answer, contexts)),
-                "answer_relevancy": judge_scores.get("relevance", answer_relevancy(question, answer)),
+                "answer_relevancy": judge_scores.get(
+                    "relevance", answer_relevancy(question, answer)
+                ),
                 "context_precision": context_precision(contexts, gt),
                 "context_recall": context_recall(contexts, gt),
                 "method": "llm_judge",

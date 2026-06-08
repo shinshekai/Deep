@@ -286,7 +286,7 @@ class RecursiveSolver:
         expert_outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
         expert_summaries = []
-        for expert, output in zip(experts, expert_outputs):
+        for expert, output in zip(experts, expert_outputs, strict=False):
             if isinstance(output, Exception):
                 content = f"[{expert}] Error: {output!s}"
             else:

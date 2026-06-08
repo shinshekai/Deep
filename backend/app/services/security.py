@@ -206,6 +206,4 @@ def is_safe_path_segment(segment: str) -> bool:
         return False
     if segment.startswith("."):
         return False
-    if "\x00" in segment:
-        return False
-    return True
+    return "\x00" not in segment

@@ -137,7 +137,7 @@ async def get_stats(device_id: str):
 
 
 @router.get("/usage/{device_id}")
-async def get_usage(device_id: str, metric: str = None, hours: int = 24):
+async def get_usage(device_id: str, metric: str | None = None, hours: int = 24):
     svc = _require_memory()
     usage = await svc.get_usage(device_id, metric_name=metric, hours=hours)
     return {"device_id": device_id, "usage": usage}

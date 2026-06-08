@@ -28,9 +28,7 @@ METRICS_DIR.mkdir(parents=True, exist_ok=True)
 _metrics_history: list = []
 
 # Simple KV cache state registry — tracks per-model cache info
-_cache_state: dict = (
-    {}
-)  # model_id -> {cache_type_k, cache_type_v, context_tokens, estimated_size_mb}
+_cache_state: dict = {}  # model_id -> {cache_type_k, cache_type_v, context_tokens, estimated_size_mb}
 
 _rotation_history: list = []
 _ROTATION_HISTORY_MAX = 50
@@ -412,7 +410,7 @@ async def list_models():
     loaded = model_manager._loaded_models
     tier_info = {}
 
-    for tier_num, tier_data in MODEL_TIERS.items():
+    for _tier_num, tier_data in MODEL_TIERS.items():
         for mid in tier_data.get("models", []):
             tier_info[mid] = tier_data
 
@@ -792,6 +790,8 @@ async def get_latest_benchmark():
 
 # ── Provider Marketplace Config & Health ──
 
+import contextlib
+
 from app.services.model_discovery import CLOUD_PROVIDERS, LOCAL_PROVIDERS
 
 
@@ -811,10 +811,8 @@ def _update_env_file(updates: dict[str, str]):
     env_path = Path(".env")
     lines = []
     if env_path.exists():
-        try:
+        with contextlib.suppress(Exception):
             lines = env_path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            pass
 
     env_vars = {}
     for line in lines:

@@ -164,7 +164,7 @@ class ModelManager:
         on consumer hardware by respecting VRAM constraints.
         """
         # First, check if any model in the desired tier or below is already loaded
-        for tier_level in range(1, target_tier + 1):
+        for _tier_level in range(1, target_tier + 1):
             for model_id, info in self._loaded_models.items():
                 if info["tier"] <= target_tier:
                     return model_id

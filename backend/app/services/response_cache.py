@@ -34,6 +34,7 @@ class ResponseCache:
         if self._disk_cache is None:
             try:
                 import diskcache
+
                 self._cache_dir.mkdir(parents=True, exist_ok=True)
                 self._disk_cache = diskcache.Cache(
                     str(self._cache_dir),
@@ -53,13 +54,20 @@ class ResponseCache:
         max_tokens: int,
     ) -> str:
         payload = json.dumps(
-            {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+            {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
             sort_keys=True,
             separators=(",", ":"),
         )
         return hashlib.sha256(payload.encode()).hexdigest()
 
-    def get(self, model: str, messages: list[dict], temperature: float, max_tokens: int) -> str | None:
+    def get(
+        self, model: str, messages: list[dict], temperature: float, max_tokens: int
+    ) -> str | None:
         cache = self._get_cache()
         if not cache:
             return None
@@ -76,7 +84,9 @@ class ResponseCache:
         except Exception:
             return None
 
-    def set(self, model: str, messages: list[dict], temperature: float, max_tokens: int, response: str) -> None:
+    def set(
+        self, model: str, messages: list[dict], temperature: float, max_tokens: int, response: str
+    ) -> None:
         cache = self._get_cache()
         if not cache:
             return

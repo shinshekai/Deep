@@ -3,7 +3,7 @@ import json
 import logging
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import aiosqlite
@@ -196,7 +196,9 @@ class MemoryService:
             return default
 
     @staticmethod
-    def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    def _chunk_text(
+        text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP
+    ) -> list[str]:
         if len(text) <= chunk_size:
             return [text]
         chunks = []
@@ -252,16 +254,24 @@ class MemoryService:
                 sql = row[0][0] or ""
                 if "content=" in sql and "content=''" not in sql:
                     logger.info(f"Migrating {table_name} to contentless FTS5 with chunks")
-                    chunk_table = "episode_chunks" if table_name == "episodes_fts" else "fact_chunks"
+                    chunk_table = (
+                        "episode_chunks" if table_name == "episodes_fts" else "fact_chunks"
+                    )
                     source_table = "episodes" if table_name == "episodes_fts" else "facts"
-                    col = "content" if table_name == "facts_fts" else "query || char(10) || char(10) || answer"
+                    col = (
+                        "content"
+                        if table_name == "facts_fts"
+                        else "query || char(10) || char(10) || answer"
+                    )
                     await db.execute(f"DROP TABLE IF EXISTS {table_name}")
                     await db.execute(
                         f"CREATE VIRTUAL TABLE {table_name} USING fts5("
                         f"chunk_text, content='',"
                         f"tokenize='porter unicode61')"
                     )
-                    rows = await db.execute_fetchall(f"SELECT id, device_id, created_at FROM {source_table}")
+                    rows = await db.execute_fetchall(
+                        f"SELECT id, device_id, created_at FROM {source_table}"
+                    )
                     for source_row in rows:
                         sid, did, created = source_row
                         text_row = await db.execute_fetchall(
@@ -297,10 +307,8 @@ class MemoryService:
 
     async def _reconnect(self):
         async with self._write_lock:
-            try:
+            with suppress(Exception):
                 await self._db.close()
-            except Exception:
-                pass
             self._db = await aiosqlite.connect(str(self._resolved_path))
             await self._db.execute("PRAGMA journal_mode=WAL")
             await self._db.execute("PRAGMA busy_timeout=5000")
@@ -321,7 +329,9 @@ class MemoryService:
                 logger.exception("Failed to rollback transaction")
             raise
 
-    async def _store_chunks(self, table: str, source_id: str, device_id: str, text: str, created_at: float) -> None:
+    async def _store_chunks(
+        self, table: str, source_id: str, device_id: str, text: str, created_at: float
+    ) -> None:
         if table not in VALID_CHUNK_TABLES:
             raise ValueError(f"Invalid chunk table: {table}")
         db = await self._get_db()
@@ -734,7 +744,13 @@ class MemoryService:
                             negation = True
                             break
                     if jaccard > 0.3 and negation:
-                        group.append({"id": rows[j][0], "content": rows[j][1], "confidence": rows[j][2] or 0.5})
+                        group.append(
+                            {
+                                "id": rows[j][0],
+                                "content": rows[j][1],
+                                "confidence": rows[j][2] or 0.5,
+                            }
+                        )
                         seen.add(rows[j][0])
                 if len(group) > 1:
                     seen.add(rows[i][0])
@@ -746,7 +762,9 @@ class MemoryService:
                 for item in group:
                     await db.execute("UPDATE facts SET archived = 1 WHERE id = ?", (item["id"],))
                     resolved += 1
-                merged_content = "Resolved contradiction: " + "; ".join(item["content"] for item in group)
+                merged_content = "Resolved contradiction: " + "; ".join(
+                    item["content"] for item in group
+                )
                 ep_id = uuid.uuid4().hex[:12]
                 now = time.time()
                 await db.execute(
@@ -1044,14 +1062,26 @@ class MemoryService:
                                ON CONFLICT(source_type, source_id)
                                WHERE source_type = 'session_summary' AND source_id IS NOT NULL
                                DO NOTHING""",
-                            (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                            (
+                                fact_id,
+                                device_id,
+                                summary,
+                                "session_summary",
+                                ep_id,
+                                0.5,
+                                now,
+                                now,
+                                0,
+                            ),
                         )
                     await db.commit()
                 except Exception:
                     try:
                         await db.execute("ROLLBACK")
                     except Exception:
-                        logger.exception("Failed to rollback compact_episodes, invalidating connection")
+                        logger.exception(
+                            "Failed to rollback compact_episodes, invalidating connection"
+                        )
                         self._db = None
                     raise
                 device_counts: dict[str, int] = {}
@@ -1156,7 +1186,9 @@ class MemoryService:
         )
         await db.commit()
 
-    async def get_usage(self, device_id: str, metric_name: str = None, hours: int = 24) -> list:
+    async def get_usage(
+        self, device_id: str, metric_name: str | None = None, hours: int = 24
+    ) -> list:
         db = await self._get_db()
         if metric_name:
             rows = await db.execute_fetchall(

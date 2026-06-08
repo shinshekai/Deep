@@ -357,7 +357,7 @@ def _rrf_merge(
             key = (result.get("doc_id", ""), result.get("section", ""))
             rrf = 1.0 / (k + rank + 1)
             if key in scores:
-                old_score, old_result = scores[key]
+                old_score, _old_result = scores[key]
                 scores[key] = (old_score + rrf, result)
             else:
                 scores[key] = (rrf, result)

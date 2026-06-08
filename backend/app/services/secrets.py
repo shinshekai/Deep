@@ -15,6 +15,7 @@ manager.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -68,10 +69,8 @@ def is_keyring_available() -> bool:
         try:
             keyring.set_password(probe_service, probe_user, "ok")
             got = keyring.get_password(probe_service, probe_user)
-            try:
+            with contextlib.suppress(KeyringError):
                 keyring.delete_password(probe_service, probe_user)
-            except KeyringError:
-                pass
             result = got == "ok"
             _keyring_cache["available"] = result
             _keyring_cache["ts"] = now

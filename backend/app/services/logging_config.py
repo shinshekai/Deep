@@ -140,10 +140,7 @@ def configure_logging(level: str | int | None = None) -> None:
         root.removeHandler(h)
 
     # Build formatter -------------------------------------------------------
-    if _FORMAT == "json":
-        formatter = _build_json_formatter()
-    else:
-        formatter = _build_text_formatter()
+    formatter = _build_json_formatter() if _FORMAT == "json" else _build_text_formatter()
 
     # Correlation-ID filter (applied to all handlers)
     correlation_filter = CorrelationIdFilter()

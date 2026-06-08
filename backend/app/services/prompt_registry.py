@@ -65,7 +65,9 @@ class PromptRegistry:
                     self._prompts[name] = pd
                     self._versions.setdefault(name, []).append(pd.version)
                     count += 1
-                logger.debug("Loaded %d prompts from %s", len(data.get("prompts", {})), yaml_file.name)
+                logger.debug(
+                    "Loaded %d prompts from %s", len(data.get("prompts", {})), yaml_file.name
+                )
             except Exception as e:
                 logger.error("Failed to load prompts from %s: %s", yaml_file.name, e)
         logger.info("Prompt registry loaded %d prompts", count)

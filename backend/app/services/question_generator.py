@@ -39,7 +39,7 @@ class QuestionGenService:
             content = res.get("content", "") or res.get("summary", "")
             doc_id = res.get("doc_id", "unknown")
             page = res.get("page", "unknown")
-            context_text += f"--- Source {i+1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
+            context_text += f"--- Source {i + 1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
 
         if not context_text.strip():
             logger.warning(

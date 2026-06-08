@@ -80,7 +80,7 @@ class PageIndexTreeGenerator:
         results = await asyncio.gather(
             *(self._summarize_node(node, pages, model_id) for node in nodes_with_ranges),
         )
-        for node, summary in zip(nodes_with_ranges, results):
+        for node, summary in zip(nodes_with_ranges, results, strict=False):
             node["summary"] = summary
 
         return self._structure_tree(nodes_with_ranges, doc_id, total_pages, doc_id)

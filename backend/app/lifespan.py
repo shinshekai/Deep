@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
 
     async def _replay_handler(entry: dict) -> None:
         logger.info(
-            f"Replaying pending WAL entry: {entry.get('task_name')} " f"({entry.get('task_id')})"
+            f"Replaying pending WAL entry: {entry.get('task_name')} ({entry.get('task_id')})"
         )
 
     replayed = await state.task_wal.replay_pending(_replay_handler)
@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
         t.cancel()
     if pending:
         results = await asyncio.gather(*pending, return_exceptions=True)
-        for t, r in zip(pending, results):
+        for t, r in zip(pending, results, strict=False):
             if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
                 logger.warning(f"Background task {t.get_name()} raised on shutdown: {r}")
     await _lifespan_registry.cancel_all(timeout=5.0)

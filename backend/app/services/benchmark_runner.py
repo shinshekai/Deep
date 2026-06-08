@@ -18,6 +18,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+import contextlib
+
 from app.services.rag_eval import answer_relevancy, faithfulness
 from app.services.task_registry import _global_registry
 
@@ -203,7 +205,7 @@ class BenchmarkRunner:
             # Attempt real LM call if available
             if self.lm_client:
                 try:
-                    result = await self.lm_client.stream_chat(
+                    await self.lm_client.stream_chat(
                         messages=[
                             {"role": "system", "content": "You are a helpful assistant."},
                             {"role": "user", "content": query},
@@ -266,7 +268,7 @@ class BenchmarkRunner:
             ("split_kv", "split"),
         ]
 
-        for i, (name, cache_type) in enumerate(test_cases):
+        for i, (name, _cache_type) in enumerate(test_cases):
             if self.vram_monitor and self.vram_monitor.is_active:
                 vram_before = await self.vram_monitor.poll_once()
                 before_mb = vram_before.get("vram_used_mb", 0)
@@ -275,7 +277,7 @@ class BenchmarkRunner:
 
             # Simulate a request to measure cache impact
             if self.lm_client:
-                try:
+                with contextlib.suppress(Exception):
                     await self.lm_client.stream_chat(
                         messages=[
                             {"role": "system", "content": "You are a helpful assistant."},
@@ -283,8 +285,6 @@ class BenchmarkRunner:
                         ],
                         max_tokens=1024,
                     )
-                except Exception:
-                    pass
 
             if self.vram_monitor and self.vram_monitor.is_active:
                 vram_after = await self.vram_monitor.poll_once()
@@ -401,7 +401,8 @@ class BenchmarkRunner:
 
             if faith_data["question"]:
                 scores = [
-                    faithfulness(a, c) for a, c in zip(faith_data["answer"], faith_data["contexts"])
+                    faithfulness(a, c)
+                    for a, c in zip(faith_data["answer"], faith_data["contexts"], strict=False)
                 ]
                 faith_score = sum(scores) / len(scores) if scores else 0.0
                 self._add_result(
@@ -420,7 +421,7 @@ class BenchmarkRunner:
             if relev_data["question"]:
                 scores = [
                     answer_relevancy(q, a)
-                    for q, a in zip(relev_data["question"], relev_data["answer"])
+                    for q, a in zip(relev_data["question"], relev_data["answer"], strict=False)
                 ]
                 relev_score = sum(scores) / len(scores) if scores else 0.0
                 self._add_result(
@@ -601,7 +602,7 @@ class BenchmarkRunner:
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
         elapsed_3 = time.time() - start
-        avg_tps_3 = 3 / elapsed_3 if elapsed_3 > 0 else 0
+        3 / elapsed_3 if elapsed_3 > 0 else 0
 
         self._add_result(
             run,
@@ -631,7 +632,7 @@ class BenchmarkRunner:
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
         elapsed_10 = time.time() - start
-        avg_tps_10 = 10 / elapsed_10 if elapsed_10 > 0 else 0
+        10 / elapsed_10 if elapsed_10 > 0 else 0
 
         self._add_result(
             run,

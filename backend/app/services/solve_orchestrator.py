@@ -67,7 +67,6 @@ async def run_solve_pipeline(
     start_time = time.time()
 
     with trace_span("solve.pipeline", {"session_id": session_id, "mode": mode, "kb_name": kb_name}):
-
         # ── Step 1: Complexity scoring and tier routing ──
         # Resolve real VRAM from monitor
         from app.state import get_metrics
@@ -266,7 +265,7 @@ async def _run_dual_loop(
                 tool_context = "Extracted Knowledge Base Context:\n"
                 for i, res in enumerate(rag_results):
                     content = res.get("content", "") or res.get("summary", "")
-                    tool_context += f"--- Chunk {i+1} ---\n{content}\n\n"
+                    tool_context += f"--- Chunk {i + 1} ---\n{content}\n\n"
 
         user_prompt = query
         if memory_context:

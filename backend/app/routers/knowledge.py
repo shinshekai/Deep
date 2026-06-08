@@ -112,10 +112,10 @@ def _acquire_registry_lock():
 
         # No-op context manager
         class _NullLock:
-            def __enter__(self_inner):
-                return self_inner
+            def __enter__(self):
+                return self
 
-            def __exit__(self_inner, *exc):
+            def __exit__(self, *exc):
                 return False
 
         return _NullLock()
@@ -358,7 +358,7 @@ async def _process_document(
         _tasks[task_id]["status"] = "complete"
         _tasks[task_id]["progress"] = 100
 
-        tree_sections = len(tree.get("root", {}).get("children", []))
+        len(tree.get("root", {}).get("children", []))
         tree_pages = tree.get("total_pages", 0)
 
         msg_parts = [f"PageIndex tree ({tree_pages} pages)"]
@@ -420,7 +420,7 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=(
-                f"Declared Content-Type {declared_mime!r} is not in the " "document MIME allowlist."
+                f"Declared Content-Type {declared_mime!r} is not in the document MIME allowlist."
             ),
         )
 

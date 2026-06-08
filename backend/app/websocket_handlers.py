@@ -4,6 +4,7 @@ Handles: /api/v1/solve (Smart Solve dual-loop), /ws/metrics (broadcast)
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
@@ -88,7 +89,7 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                 rag_results = retrieval_resp.get("results", [])
                 if rag_results:
                     for i, res in enumerate(rag_results):
-                        context += f"--- Chunk {i+1} ---\n{res.get('content', '')}\n\n"
+                        context += f"--- Chunk {i + 1} ---\n{res.get('content', '')}\n\n"
 
             memory_context = ""
             if state.memory_service:
@@ -225,10 +226,8 @@ async def ws_solve(ws: WebSocket):
 
                 if in_flight is not None and not in_flight.done():
                     in_flight.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
                         await in_flight
-                    except (asyncio.CancelledError, Exception):
-                        pass
                     in_flight = None
 
                 in_flight = asyncio.create_task(_run_solve_pipeline_for_message(ws, data, state))
@@ -260,10 +259,8 @@ async def ws_solve(ws: WebSocket):
     finally:
         if in_flight is not None and not in_flight.done():
             in_flight.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await in_flight
-            except (asyncio.CancelledError, Exception):
-                pass
         ACTIVE_WS_CONNECTIONS.dec()
 
 
