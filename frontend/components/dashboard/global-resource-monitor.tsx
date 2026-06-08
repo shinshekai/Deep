@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useId } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWebSocket } from "@/providers/websocket-provider";
@@ -46,6 +46,7 @@ export function GlobalResourceMonitor() {
   const { vram, pressure } = useWebSocket();
   const [history, setHistory] = useState<{ timestamp: string; pct: number }[]>([]);
   const lastUpdateRef = useRef(0);
+  const gradientId = useId();
 
   useEffect(() => {
     if (!vram) return;
@@ -160,7 +161,7 @@ export function GlobalResourceMonitor() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
                 <defs>
-                  <linearGradient id="vramGlow" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={sparklineColor} stopOpacity={0.25}/>
                     <stop offset="95%" stopColor={sparklineColor} stopOpacity={0}/>
                   </linearGradient>
@@ -171,7 +172,7 @@ export function GlobalResourceMonitor() {
                   stroke={sparklineColor}
                   strokeWidth={2}
                   fillOpacity={1}
-                  fill="url(#vramGlow)"
+                  fill={`url(#${gradientId})`}
                   isAnimationActive={false}
                 />
               </AreaChart>
