@@ -8,17 +8,16 @@ existing tests and clients continue to work.
 """
 
 import re
-import time
-from typing import Any, Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import state
-from app.services.question_generator import QuestionGenService
+from app.services.content_creation import CoWriterService, IdeaGenService, NotebookService
 from app.services.guided_learning import GuidedLearningService
+from app.services.question_generator import QuestionGenService
 from app.services.security import safe_name
-from app.services.content_creation import NotebookService, CoWriterService, IdeaGenService
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
 
@@ -49,6 +48,7 @@ def _validate_model_id(model_id: str) -> str:
 
 class _StrictModel(BaseModel):
     """Base model: reject unknown fields so attackers can't smuggle extras."""
+
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
@@ -72,7 +72,7 @@ class QuestionsRequest(_StrictModel):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     type: Literal["multiple_choice", "open_ended", "true_false", "short_answer"] = "multiple_choice"
     mode: Literal["custom", "from_documents", "from_topic"] = "custom"
-    reference_text: Optional[str] = None
+    reference_text: str | None = None
     retrieval_pipeline: Literal["tree", "hybrid", "naive", "combined"] = "tree"
     model_id: str = "Qwen3-1.7B-Q4_K_M"
 
@@ -121,7 +121,9 @@ class NoteAddRequest(_StrictModel):
 
 class CoWriterEditRequest(_StrictModel):
     text: str = Field(default="", max_length=50_000)
-    action: Literal["rewrite", "shorten", "expand", "tone", "summarize", "translate", "custom"] = "rewrite"
+    action: Literal["rewrite", "shorten", "expand", "tone", "summarize", "translate", "custom"] = (
+        "rewrite"
+    )
     instruction: str = Field(default="", max_length=2000)
     model_id: str = "Qwen3-1.7B-Q4_K_M"
 
@@ -142,9 +144,11 @@ class IdeaGenRequest(_StrictModel):
 
     def sanitized(self) -> "IdeaGenRequest":
         # Each notebook id is used as a filesystem path segment downstream
-        return self.model_copy(update={
-            "notebook_ids": [safe_name(nid, default="default") for nid in self.notebook_ids]
-        })
+        return self.model_copy(
+            update={
+                "notebook_ids": [safe_name(nid, default="default") for nid in self.notebook_ids]
+            }
+        )
 
 
 # ── Research endpoints ────────────────────────────────────────────────────
@@ -153,10 +157,14 @@ class IdeaGenRequest(_StrictModel):
 @router.post("/research")
 async def start_research(payload: ResearchRequest):
     from app.services.telemetry import trace_span
-    with trace_span("agent.start_research", {
-        "kb_name": payload.kb_name,
-        "mode": payload.mode,
-    }):
+
+    with trace_span(
+        "agent.start_research",
+        {
+            "kb_name": payload.kb_name,
+            "mode": payload.mode,
+        },
+    ):
         payload = payload.sanitized()
         model_id = _validate_model_id(payload.model_id)
         dr_service = state.deep_research_service
@@ -187,10 +195,14 @@ async def get_research_status(session_id: str):
 @router.post("/questions/generate")
 async def generate_questions(payload: QuestionsRequest):
     from app.services.telemetry import trace_span
-    with trace_span("agent.generate_questions", {
-        "kb_name": payload.kb_name,
-        "count": payload.count,
-    }):
+
+    with trace_span(
+        "agent.generate_questions",
+        {
+            "kb_name": payload.kb_name,
+            "count": payload.count,
+        },
+    ):
         payload = payload.sanitized()
         model_id = _validate_model_id(payload.model_id)
         qgen_service = QuestionGenService(lm_client=state.lm_client)
@@ -214,6 +226,7 @@ async def generate_questions(payload: QuestionsRequest):
 @router.post("/learning/start")
 async def start_learning(payload: LearningStartRequest):
     from app.services.telemetry import trace_span
+
     with trace_span("agent.start_learning", {"topic": payload.topic}):
         payload = payload.sanitized()
         model_id = _validate_model_id(payload.model_id)
@@ -233,7 +246,10 @@ async def generate_learning_page(session_id: str, payload: LearningPageRequest):
     model_id = _validate_model_id(payload.model_id)
     gl_service = GuidedLearningService(lm_client=state.lm_client)
     html_content = await gl_service.generate_interactive_page(
-        session_id=session_id, point_index=payload.point_index, model_id=model_id, device_id=payload.device_id
+        session_id=session_id,
+        point_index=payload.point_index,
+        model_id=model_id,
+        device_id=payload.device_id,
     )
     return {"html": html_content}
 
@@ -290,7 +306,7 @@ async def add_note(notebook_id: str, payload: NoteAddRequest):
         return nb_service.add_note(notebook_id, payload.content, device_id=payload.device_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Notebook not found.")
-    except ValueError as e:
+    except ValueError:
         # Corrupted notebook — surface as 500 with a generic message so
         # the client doesn't see filesystem paths.
         raise HTTPException(status_code=500, detail="Notebook is corrupted.")
@@ -302,9 +318,7 @@ async def add_note(notebook_id: str, payload: NoteAddRequest):
 async def cowriter_edit(payload: CoWriterEditRequest):
     model_id = _validate_model_id(payload.model_id)
     cw_service = CoWriterService(lm_client=state.lm_client)
-    result = await cw_service.edit_text(
-        payload.text, payload.action, payload.instruction, model_id
-    )
+    result = await cw_service.edit_text(payload.text, payload.action, payload.instruction, model_id)
     return {"text": result["text"], "provenance": result["provenance"]}
 
 

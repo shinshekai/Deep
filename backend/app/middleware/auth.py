@@ -1,9 +1,9 @@
 """Authentication middleware — token validation + error sanitization."""
 
+import logging
 import os
 import re
 import time
-import logging
 from collections import defaultdict
 from time import monotonic
 
@@ -27,6 +27,7 @@ def register_auth(app, settings):
     ``ws_auth_token``.  Also sanitizes error messages to prevent
     internal path disclosure, and records latency metrics.
     """
+
     @app.middleware("http")
     async def secure_http_middleware(request: Request, call_next):
         # 1. CORS Preflight & Open Routes Bypass
@@ -39,10 +40,13 @@ def register_auth(app, settings):
 
         # 2. Authentication check
         from app.services.security import safe_compare
+
         token = settings.ws_auth_token
         if token:
             api_key = request.headers.get("X-DEEP-API-KEY") or request.headers.get("x-deep-api-key")
-            auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+            auth_header = request.headers.get("Authorization") or request.headers.get(
+                "authorization"
+            )
             if auth_header and auth_header.startswith("Bearer "):
                 api_key = auth_header.split(" ", 1)[1]
 
@@ -62,10 +66,15 @@ def register_auth(app, settings):
                     "token" in request.query_params,
                 )
                 from app.services.audit import audit
-                audit("auth.http_failure", path=path, remote=client,
-                      method=request.method,
-                      has_header=bool(request.headers.get("X-DEEP-API-KEY")),
-                      has_bearer=bool(auth_header and auth_header.startswith("Bearer ")))
+
+                audit(
+                    "auth.http_failure",
+                    path=path,
+                    remote=client,
+                    method=request.method,
+                    has_header=bool(request.headers.get("X-DEEP-API-KEY")),
+                    has_bearer=bool(auth_header and auth_header.startswith("Bearer ")),
+                )
                 now = monotonic()
                 _auth_failures[client].append(now)
                 _auth_failures[client] = [
@@ -89,8 +98,8 @@ def register_auth(app, settings):
                     content={
                         "success": False,
                         "error": "Unauthorized",
-                        "message": "Access denied. Valid API Token is missing or invalid."
-                    }
+                        "message": "Access denied. Valid API Token is missing or invalid.",
+                    },
                 )
 
         # 3. Request processing with error sanitization
@@ -107,7 +116,7 @@ def register_auth(app, settings):
                     "success": False,
                     "error": "InternalServerError",
                     "message": "An unexpected server error occurred.",
-                }
+                },
             )
 
         # 4. Latency metric

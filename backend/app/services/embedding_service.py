@@ -55,9 +55,7 @@ class EmbeddingService:
                 else:
                     all_vectors.extend(vectors)
             except Exception as e:
-                logger.error(
-                    f"EmbeddingService: batch {i // self.batch_size + 1} failed: {e}"
-                )
+                logger.error(f"EmbeddingService: batch {i // self.batch_size + 1} failed: {e}")
                 # On failure, emit empty placeholders so indexes align
                 all_vectors.extend([] for _ in batch)
 
@@ -96,7 +94,6 @@ class EmbeddingService:
             enriched.append({**chunk, "embedding": vec})
 
         logger.info(
-            f"EmbeddingService: embedded {len(enriched)} chunks "
-            f"(model={model or 'default'})"
+            f"EmbeddingService: embedded {len(enriched)} chunks " f"(model={model or 'default'})"
         )
         return enriched

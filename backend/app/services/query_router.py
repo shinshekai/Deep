@@ -9,7 +9,6 @@ Routes queries to appropriate pipeline (tree/hybrid/naive/combined) based on:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +18,7 @@ VALID_PIPELINES = {"tree", "hybrid", "naive", "combined"}
 @dataclass
 class RouteContext:
     """Context for routing decisions."""
+
     has_trees: bool = True
     has_vectors: bool = False
     complexity: float = 0.5
@@ -28,9 +28,9 @@ class RouteContext:
 def route_query(
     query: str,
     kb_name: str,
-    doc_id: Optional[str] = None,
-    retrieval_pipeline: Optional[str] = None,
-    context: Optional[RouteContext] = None,
+    doc_id: str | None = None,
+    retrieval_pipeline: str | None = None,
+    context: RouteContext | None = None,
 ) -> str:
     """Determine the best retrieval pipeline for a query.
 
@@ -40,8 +40,7 @@ def route_query(
     if retrieval_pipeline:
         if retrieval_pipeline not in VALID_PIPELINES:
             logger.warning(
-                f"Unknown retrieval pipeline '{retrieval_pipeline}', "
-                f"defaulting to 'tree'"
+                f"Unknown retrieval pipeline '{retrieval_pipeline}', " f"defaulting to 'tree'"
             )
             return "tree"
         return retrieval_pipeline

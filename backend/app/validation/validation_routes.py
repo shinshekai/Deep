@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from app.validation.baselines import ValidationReport
 from app.validation.config_validator import validate_config
 from app.validation.health_checker import validate_health
-from app.validation.remediation_tracker import validate_remediation, REMEDIATION_ITEMS
+from app.validation.remediation_tracker import REMEDIATION_ITEMS, validate_remediation
 
 router = APIRouter(prefix="/api/v1/validation", tags=["validation"])
 
@@ -44,6 +44,7 @@ async def run_validation(fast: bool = True):
     if not fast:
         try:
             from app.validation.coverage_tracker import validate_coverage
+
             validate_coverage(report, run_pytest=False)
         except Exception:
             pass

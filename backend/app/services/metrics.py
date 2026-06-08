@@ -11,21 +11,14 @@ Usage::
     REQUEST_COUNT.labels(method="POST", endpoint="/api/v1/query", status="200").inc()
 """
 
-import time
 import logging
-from typing import Callable
+import time
+from collections.abc import Callable
 
-from prometheus_client import (
-    Counter,
-    Histogram,
-    Gauge,
-    Info,
-    generate_latest,
-    CONTENT_TYPE_LATEST,
-)
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, Info, generate_latest
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +104,7 @@ def _normalise_endpoint(path: str) -> str:
 
 # ── Middleware ────────────────────────────────────────────────────────
 
+
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Collect Prometheus metrics for every HTTP request.
 
@@ -148,6 +142,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         # Record for error-rate alerting
         try:
             from app.services.alerting import get_alert_state
+
             get_alert_state().record_request(response.status_code)
         except Exception:
             pass
@@ -156,6 +151,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 
 # ── /metrics endpoint ────────────────────────────────────────────────
+
 
 def metrics_endpoint(request: Request) -> Response:
     """Return all Prometheus metrics in the exposition format."""

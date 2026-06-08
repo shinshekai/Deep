@@ -6,9 +6,8 @@ installed — the helpers silently become no-ops.
 
 import logging
 import socket
-import time
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +31,12 @@ def is_enabled() -> bool:
 
 # ── Setup ──────────────────────────────────────────────────────────
 
+
 def setup_tracing(
     service_name: str,
-    otlp_endpoint: Optional[str] = None,
+    otlp_endpoint: str | None = None,
     console_export: bool = False,
-) -> Optional[Any]:
+) -> Any | None:
     """Configure the global OpenTelemetry TracerProvider with OTLP/console exporters.
 
     Returns the configured TracerProvider so callers can shut it down on exit,
@@ -44,19 +44,21 @@ def setup_tracing(
     """
     global _tracer
     try:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider as _TP
         from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     except ImportError:
         logger.warning("OpenTelemetry SDK not installed; tracing disabled")
         return None
 
-    resource = Resource.create({
-        "service.name": service_name,
-        "service.version": "0.1.0",
-        "service.instance.id": socket.gethostname(),
-    })
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": "0.1.0",
+            "service.instance.id": socket.gethostname(),
+        }
+    )
     provider = _TP(resource=resource)
     if otlp_endpoint:
         provider.add_span_processor(
@@ -71,10 +73,11 @@ def setup_tracing(
 
 # ── Span helpers ────────────────────────────────────────────────────
 
+
 @contextmanager
 def trace_span(
     name: str,
-    attributes: Optional[dict[str, Any]] = None,
+    attributes: dict[str, Any] | None = None,
 ):
     """Context-manager that wraps a block in an OTel span.
 
@@ -103,7 +106,7 @@ def trace_span(
 
 def start_span(
     name: str,
-    attributes: Optional[dict[str, Any]] = None,
+    attributes: dict[str, Any] | None = None,
 ):
     """Start a span and return it (caller must end it)."""
     if not _OTEL_AVAILABLE or _tracer is None:
@@ -116,7 +119,7 @@ def start_span(
     return span
 
 
-def end_span(span, status_ok: bool = True, error: Optional[str] = None):
+def end_span(span, status_ok: bool = True, error: str | None = None):
     """End a span started with start_span()."""
     if isinstance(span, _NoOpSpan):
         return
@@ -124,6 +127,7 @@ def end_span(span, status_ok: bool = True, error: Optional[str] = None):
         return
     try:
         from opentelemetry.trace import StatusCode as SC
+
         if error:
             span.set_status(SC.ERROR, error)
         elif status_ok:
@@ -133,7 +137,7 @@ def end_span(span, status_ok: bool = True, error: Optional[str] = None):
         pass
 
 
-def add_event(name: str, attributes: Optional[dict[str, Any]] = None):
+def add_event(name: str, attributes: dict[str, Any] | None = None):
     """Add an event to the current active span (if any)."""
     if not _OTEL_AVAILABLE:
         return
@@ -144,6 +148,7 @@ def add_event(name: str, attributes: Optional[dict[str, Any]] = None):
 
 
 # ── Internal helpers ────────────────────────────────────────────────
+
 
 def _safe_attr(value: Any) -> Any:
     """Coerce values to OTel-compatible attribute types (str, int, float, bool)."""

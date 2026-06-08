@@ -64,7 +64,11 @@ async def _with_retry(
             delay += random.uniform(0, backoff)  # jitter
             logger.warning(
                 "%s retry %d/%d after %.2fs (status=%d)",
-                label, attempt, attempts, delay, status,
+                label,
+                attempt,
+                attempts,
+                delay,
+                status,
             )
             await asyncio.sleep(delay)
         except (httpx.TimeoutException, httpx.NetworkError) as e:
@@ -75,7 +79,12 @@ async def _with_retry(
             delay += random.uniform(0, backoff)
             logger.warning(
                 "%s retry %d/%d after %.2fs (%s: %s)",
-                label, attempt, attempts, delay, type(e).__name__, e,
+                label,
+                attempt,
+                attempts,
+                delay,
+                type(e).__name__,
+                e,
             )
             await asyncio.sleep(delay)
     # Unreachable — the loop either returns or raises — but keep mypy happy
@@ -85,11 +94,11 @@ async def _with_retry(
 class LMStudioClient:
     """HTTP client for LM Studio's OpenAI-compatible API."""
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None,
-                 metrics_callback=None):
+    def __init__(
+        self, base_url: str | None = None, api_key: str | None = None, metrics_callback=None
+    ):
         settings = get_settings()
-        self.base_url = (base_url or settings.llm_host
-                         or f"http://localhost:{settings.llm_port}")
+        self.base_url = base_url or settings.llm_host or f"http://localhost:{settings.llm_port}"
         self.api_key = api_key or settings.llm_api_key or "lm-studio"
         self._headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -100,9 +109,9 @@ class LMStudioClient:
         # Priority Queue + Semaphores (Phase 2)
         self._queue = asyncio.PriorityQueue()
         self._semaphores = {
-            1: asyncio.Semaphore(4), # Tier 1 (Retrieval)
-            2: asyncio.Semaphore(2), # Tier 2 (Reasoning)
-            3: asyncio.Semaphore(1), # Tier 3 (Generation)
+            1: asyncio.Semaphore(4),  # Tier 1 (Retrieval)
+            2: asyncio.Semaphore(2),  # Tier 2 (Reasoning)
+            3: asyncio.Semaphore(1),  # Tier 3 (Generation)
         }
         self.queue_depths = {1: 0, 2: 0, 3: 0}
 
@@ -135,10 +144,9 @@ class LMStudioClient:
     async def check_health(self) -> bool:
         async def _do_request():
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    f"{self.base_url}/v1/models", headers=self._headers
-                )
+                resp = await client.get(f"{self.base_url}/v1/models", headers=self._headers)
                 return resp.status_code == 200
+
         try:
             return await _with_retry(_do_request, label="check_health")
         except Exception:
@@ -147,18 +155,19 @@ class LMStudioClient:
     async def list_models(self) -> list[dict]:
         async def _do_request():
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{self.base_url}/v1/models", headers=self._headers
-                )
+                resp = await client.get(f"{self.base_url}/v1/models", headers=self._headers)
                 resp.raise_for_status()
                 return resp.json().get("data", [])
+
         try:
             return await _with_retry(_do_request, label="list_models")
         except Exception as e:
             logger.error(f"list_models failed: {e}")
             return []
 
-    async def load_model(self, model_id: str, cache_type_k: str | None = None, cache_type_v: str | None = None) -> bool:
+    async def load_model(
+        self, model_id: str, cache_type_k: str | None = None, cache_type_v: str | None = None
+    ) -> bool:
         """Load a model into LM Studio via REST API or CLI fallback.
 
         ``model_id`` is whitelist-validated before being passed to the
@@ -180,6 +189,7 @@ class LMStudioClient:
             payload["cache_type_v"] = cache_type_v
 
         load_success = False
+
         # Try REST API first (with retry)
         async def _do_load_request():
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -206,7 +216,9 @@ class LMStudioClient:
             logger.info(f"Falling back to CLI for loading {model_id}")
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "lms", "load", model_id,
+                    "lms",
+                    "load",
+                    model_id,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -218,10 +230,10 @@ class LMStudioClient:
                     logger.error(f"CLI load failed: {stderr.decode().strip() if stderr else ''}")
             except Exception as e:
                 logger.error(f"CLI load failed: {e}")
-                
+
         if not load_success:
             return False
-            
+
         # Verify load via /v1/models poll
         for _ in range(5):
             await asyncio.sleep(2.0)
@@ -248,6 +260,7 @@ class LMStudioClient:
         logger.info(f"Unloading model: {model_id}")
 
         unload_success = False
+
         async def _do_unload_request():
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
@@ -272,7 +285,9 @@ class LMStudioClient:
             logger.info(f"Falling back to CLI for unloading {model_id}")
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "lms", "unload", model_id,
+                    "lms",
+                    "unload",
+                    model_id,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -284,13 +299,14 @@ class LMStudioClient:
                     logger.error(f"CLI unload failed: {stderr.decode().strip() if stderr else ''}")
             except Exception as e:
                 logger.error(f"CLI unload failed: {e}")
-                
+
         if not unload_success:
             return False
-            
+
         # Verify VRAM reclamation via pynvml
         try:
             import pynvml
+
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -299,7 +315,7 @@ class LMStudioClient:
             pass
         except Exception as e:
             logger.warning(f"pynvml verification failed: {e}")
-            
+
         # Verify unload via /v1/models poll
         for _ in range(5):
             await asyncio.sleep(2.0)
@@ -329,6 +345,7 @@ class LMStudioClient:
 
         # SSRF protection: validate the embedding host URL
         from app.services.security import is_safe_base_url
+
         if not is_safe_base_url(base):
             logger.error("SSRF blocked: unsafe embedding_host %s", base)
             return []
@@ -342,6 +359,7 @@ class LMStudioClient:
             body["model"] = embed_model
 
         try:
+
             async def _do_request():
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     resp = await client.post(
@@ -353,6 +371,7 @@ class LMStudioClient:
                     data = resp.json().get("data", [])
                     data_sorted = sorted(data, key=lambda x: x.get("index", 0))
                     return [item["embedding"] for item in data_sorted]
+
             return await _with_retry(_do_request, label="embed")
         except Exception as e:
             logger.error(f"embed() failed: {e}")
@@ -406,16 +425,18 @@ class LMStudioClient:
         self.queue_depths[priority] += 1
         # Update metrics via callback (avoid circular import)
         if self._metrics_callback:
-            self._metrics_callback({
-                "queue_depths": {
-                    "retrieval": self.queue_depths.get(1, 0),
-                    "reasoning": self.queue_depths.get(2, 0),
-                    "generation": self.queue_depths.get(3, 0),
+            self._metrics_callback(
+                {
+                    "queue_depths": {
+                        "retrieval": self.queue_depths.get(1, 0),
+                        "reasoning": self.queue_depths.get(2, 0),
+                        "generation": self.queue_depths.get(3, 0),
+                    }
                 }
-            })
-            
+            )
+
         future = asyncio.get_running_loop().create_future()
-        
+
         async def _execute():
             try:
                 # Use semaphore for concurrency limits
@@ -439,6 +460,7 @@ class LMStudioClient:
                     # partial bytes would duplicate chunks already sent to
                     # the chunk callback.
                     llm_start = time.perf_counter()
+
                     async def _open_stream():
                         client = httpx.AsyncClient(timeout=120.0)
                         resp_ctx = client.stream(
@@ -495,6 +517,7 @@ class LMStudioClient:
                     llm_elapsed = time.perf_counter() - llm_start
                     try:
                         from app.services.metrics import LLM_LATENCY, LLM_REQUEST_COUNT
+
                         LLM_LATENCY.labels(method="stream_chat").observe(llm_elapsed)
                         LLM_REQUEST_COUNT.labels(method="stream_chat").inc()
                     except Exception:
@@ -511,13 +534,15 @@ class LMStudioClient:
             finally:
                 self.queue_depths[priority] -= 1
                 if self._metrics_callback:
-                    self._metrics_callback({
-                        "queue_depths": {
-                            "retrieval": self.queue_depths.get(1, 0),
-                            "reasoning": self.queue_depths.get(2, 0),
-                            "generation": self.queue_depths.get(3, 0)
+                    self._metrics_callback(
+                        {
+                            "queue_depths": {
+                                "retrieval": self.queue_depths.get(1, 0),
+                                "reasoning": self.queue_depths.get(2, 0),
+                                "generation": self.queue_depths.get(3, 0),
+                            }
                         }
-                    })
+                    )
 
         # Execute directly via task (semaphore inside _execute handles concurrency)
         _global_registry.spawn(_execute())
@@ -533,4 +558,3 @@ class LMStudioClient:
             _, _, func = await self._queue.get()
             await func()
             self._queue.task_done()
-

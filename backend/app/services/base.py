@@ -1,9 +1,9 @@
 """Service registry — auto-discovers services and registers them with the DI container."""
 
-from pathlib import Path
-from typing import TypeVar, Generic, get_type_hints
 import importlib
 import pkgutil
+from pathlib import Path
+from typing import Generic, TypeVar
 
 from app.dependencies import container
 
@@ -35,7 +35,15 @@ def discover_services() -> dict[str, type]:
     package = _SERVICES_DIR
     services: dict[str, type] = {}
     for _, module_name, _ in pkgutil.iter_modules([str(package)]):
-        if module_name.startswith("_") or module_name in ("base", "logging_config", "metrics", "security", "audit", "secrets", "telemetry"):
+        if module_name.startswith("_") or module_name in (
+            "base",
+            "logging_config",
+            "metrics",
+            "security",
+            "audit",
+            "secrets",
+            "telemetry",
+        ):
             continue
         try:
             mod = importlib.import_module(f"app.services.{module_name}")

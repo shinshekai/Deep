@@ -1,16 +1,14 @@
 """Document processor — extract text from PDF/TXT/MD files."""
 
 import asyncio
-import io
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
+def _extract_text_from_pdf_sync(file_path: Path) -> list[dict] | None:
     """Sync helper: extract text and page boundaries from PDF using PyMuPDF.
 
     For image-only (scanned) pages where PyMuPDF returns no text,
@@ -18,6 +16,7 @@ def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
     """
     try:
         import fitz  # PyMuPDF
+
         doc = fitz.open(file_path)
         pages = []
         for i in range(len(doc)):
@@ -29,6 +28,7 @@ def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
                 if images:
                     try:
                         import tempfile
+
                         from app.services.ocr_engine import get_ocr_engine
 
                         xref = images[0][0]
@@ -45,12 +45,14 @@ def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
                             tmp_path.unlink(missing_ok=True)
                     except Exception as ocr_err:
                         logger.warning(f"OCR failed for page {i + 1}: {ocr_err}")
-            pages.append({
-                "page_num": i + 1,
-                "text": text.strip() if isinstance(text, str) else "",
-                "width": page.rect.width,
-                "height": page.rect.height,
-            })
+            pages.append(
+                {
+                    "page_num": i + 1,
+                    "text": text.strip() if isinstance(text, str) else "",
+                    "width": page.rect.width,
+                    "height": page.rect.height,
+                }
+            )
         doc.close()
         return pages
     except ImportError:
@@ -61,7 +63,7 @@ def _extract_text_from_pdf_sync(file_path: Path) -> Optional[list[dict]]:
         return None
 
 
-async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
+async def extract_text_from_pdf(file_path: Path) -> list[dict] | None:
     """Extract text and page boundaries from PDF using PyMuPDF.
 
     For image-only (scanned) pages where PyMuPDF returns no text,
@@ -70,10 +72,11 @@ async def extract_text_from_pdf(file_path: Path) -> Optional[list[dict]]:
     return await asyncio.to_thread(_extract_text_from_pdf_sync, file_path)
 
 
-def _extract_text_from_spreadsheet_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_spreadsheet_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from Excel/CSV files using pandas."""
     try:
         import pandas as pd
+
         if file_path.suffix.lower() == ".csv":
             try:
                 df = pd.read_csv(file_path)
@@ -92,15 +95,16 @@ def _extract_text_from_spreadsheet_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_spreadsheet(file_path: Path) -> Optional[str]:
+async def extract_text_from_spreadsheet(file_path: Path) -> str | None:
     """Extract text from Excel/CSV files using pandas."""
     return await asyncio.to_thread(_extract_text_from_spreadsheet_sync, file_path)
 
 
-def _extract_text_from_docx_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_docx_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from Word documents using python-docx."""
     try:
         from docx import Document
+
         doc = Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs])
     except ImportError:
@@ -111,12 +115,12 @@ def _extract_text_from_docx_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_docx(file_path: Path) -> Optional[str]:
+async def extract_text_from_docx(file_path: Path) -> str | None:
     """Extract text from Word documents using python-docx."""
     return await asyncio.to_thread(_extract_text_from_docx_sync, file_path)
 
 
-def _extract_text_from_image_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_image_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from images using OCR via the ocr_engine abstraction."""
     try:
         from app.services.ocr_engine import get_ocr_engine
@@ -130,15 +134,16 @@ def _extract_text_from_image_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_image(file_path: Path) -> Optional[str]:
+async def extract_text_from_image(file_path: Path) -> str | None:
     """Extract text from images using OCR via the ocr_engine abstraction."""
     return await asyncio.to_thread(_extract_text_from_image_sync, file_path)
 
 
-def _extract_text_from_pptx_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_pptx_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from PowerPoint presentations."""
     try:
         from pptx import Presentation
+
         prs = Presentation(file_path)
         text_runs = []
         for slide in prs.slides:
@@ -154,15 +159,16 @@ def _extract_text_from_pptx_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_pptx(file_path: Path) -> Optional[str]:
+async def extract_text_from_pptx(file_path: Path) -> str | None:
     """Extract text from PowerPoint presentations."""
     return await asyncio.to_thread(_extract_text_from_pptx_sync, file_path)
 
 
-def _extract_text_from_html_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_html_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from HTML files."""
     try:
         from bs4 import BeautifulSoup
+
         html = file_path.read_text(encoding="utf-8", errors="ignore")
         soup = BeautifulSoup(html, "lxml")
         # Remove script and style elements
@@ -177,16 +183,17 @@ def _extract_text_from_html_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_html(file_path: Path) -> Optional[str]:
+async def extract_text_from_html(file_path: Path) -> str | None:
     """Extract text from HTML files."""
     return await asyncio.to_thread(_extract_text_from_html_sync, file_path)
 
 
-def _extract_text_from_odt_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_odt_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from OpenDocument Text (.odt)."""
     try:
-        from odf import text, teletype
+        from odf import teletype, text
         from odf.opendocument import load
+
         textdoc = load(str(file_path))
         allparagraphs = textdoc.getElementsByType(text.P)
         return "\n".join([teletype.extractText(p) for p in allparagraphs])
@@ -198,15 +205,16 @@ def _extract_text_from_odt_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_odt(file_path: Path) -> Optional[str]:
+async def extract_text_from_odt(file_path: Path) -> str | None:
     """Extract text from OpenDocument Text (.odt)."""
     return await asyncio.to_thread(_extract_text_from_odt_sync, file_path)
 
 
-def _extract_text_from_rtf_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_rtf_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from RTF files."""
     try:
         from striprtf.striprtf import rtf_to_text
+
         rtf = file_path.read_text(encoding="utf-8", errors="ignore")
         return rtf_to_text(rtf)
     except ImportError:
@@ -217,18 +225,18 @@ def _extract_text_from_rtf_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_rtf(file_path: Path) -> Optional[str]:
+async def extract_text_from_rtf(file_path: Path) -> str | None:
     """Extract text from RTF files."""
     return await asyncio.to_thread(_extract_text_from_rtf_sync, file_path)
 
 
-def _extract_text_from_epub_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_epub_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from EPUB files."""
     try:
         import ebooklib
-        from ebooklib import epub
-        from bs4 import BeautifulSoup
         import html2text
+        from bs4 import BeautifulSoup
+        from ebooklib import epub
 
         book = epub.read_epub(str(file_path))
         chapters = []
@@ -247,23 +255,25 @@ def _extract_text_from_epub_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_epub(file_path: Path) -> Optional[str]:
+async def extract_text_from_epub(file_path: Path) -> str | None:
     """Extract text from EPUB files."""
     return await asyncio.to_thread(_extract_text_from_epub_sync, file_path)
 
 
-def _extract_text_from_email_sync(file_path: Path) -> Optional[str]:
+def _extract_text_from_email_sync(file_path: Path) -> str | None:
     """Sync helper: extract text from .msg or .eml files."""
     ext = file_path.suffix.lower()
     try:
         if ext == ".msg":
             import extract_msg
+
             msg = extract_msg.Message(str(file_path))
             return f"Subject: {msg.subject}\nFrom: {msg.sender}\nDate: {msg.date}\n\n{msg.body}"
         elif ext == ".eml":
             import email
             from email.policy import default as default_policy
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+
+            with open(file_path, encoding="utf-8", errors="replace") as f:
                 mail = email.message_from_file(f, policy=default_policy)
             subject = mail.get("Subject", "")
             from_addr = mail.get("From", "")
@@ -285,28 +295,28 @@ def _extract_text_from_email_sync(file_path: Path) -> Optional[str]:
         return None
 
 
-async def extract_text_from_email(file_path: Path) -> Optional[str]:
+async def extract_text_from_email(file_path: Path) -> str | None:
     """Extract text from .msg or .eml files."""
     return await asyncio.to_thread(_extract_text_from_email_sync, file_path)
 
 
-def _extract_zip_to_temp(file_path: Path) -> Optional[Path]:
+def _extract_zip_to_temp(file_path: Path) -> Path | None:
     """Sync helper: extract a zip to a temp directory (zip-slip safe).
 
     Returns the temp directory path on success, or None on zip-slip /
     bad-zip / OS error. The temp directory is cleaned up internally on
     any failure path; on success the caller is responsible for cleanup.
     """
-    import zipfile
-    import tempfile
     import shutil
+    import tempfile
+    import zipfile
 
     tmpdir = None
     success = False
     try:
         tmpdir = Path(tempfile.mkdtemp())
         tmpdir_resolved = tmpdir.resolve()
-        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+        with zipfile.ZipFile(file_path, "r") as zip_ref:
             # Zip-slip protection: validate every member path before extraction
             for member in zip_ref.namelist():
                 member_path = (tmpdir_resolved / member).resolve()
@@ -329,7 +339,7 @@ def _walk_files(root: Path) -> list[Path]:
     return [Path(r) / f for r, _, fs in os.walk(root) for f in fs]
 
 
-async def extract_text_from_archive(file_path: Path) -> Optional[str]:
+async def extract_text_from_archive(file_path: Path) -> str | None:
     """Extract text from all files in a ZIP archive with zip-slip protection."""
     import shutil
 
@@ -350,25 +360,26 @@ async def extract_text_from_archive(file_path: Path) -> Optional[str]:
     finally:
         await asyncio.to_thread(shutil.rmtree, tmpdir, ignore_errors=True)
 
-async def extract_text(file_path: Path) -> Optional[dict]:
+
+async def extract_text(file_path: Path) -> dict | None:
     """Extract text from any supported format. Returns {type, content, pages}."""
     ext = file_path.suffix.lower()
-    
+
     pages = []
     full_text = ""
-    
+
     if ext == ".pdf":
         pages = await extract_text_from_pdf(file_path)
         if pages is None:
             return None
         full_text = "\n".join(p["text"] for p in pages)
-        
+
     elif ext in (".xls", ".xlsx", ".csv"):
         full_text = await extract_text_from_spreadsheet(file_path)
-        
+
     elif ext == ".docx":
         full_text = await extract_text_from_docx(file_path)
-            
+
     elif ext in (".jpg", ".png", ".bmp", ".gif", ".jpeg"):
         full_text = await extract_text_from_image(file_path)
 
@@ -392,13 +403,27 @@ async def extract_text(file_path: Path) -> Optional[dict]:
 
     elif ext == ".zip":
         full_text = await extract_text_from_archive(file_path)
-            
-    elif ext in (".txt", ".md", ".py", ".js", ".ts", ".cpp", ".c", ".h", ".java", ".json", ".yaml", ".yml", ".xml"):
+
+    elif ext in (
+        ".txt",
+        ".md",
+        ".py",
+        ".js",
+        ".ts",
+        ".cpp",
+        ".c",
+        ".h",
+        ".java",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".xml",
+    ):
         try:
             full_text = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             full_text = file_path.read_text(encoding="latin-1")
-            
+
     else:
         # Fallback: try reading as text if it's not a known binary format
         try:
@@ -406,14 +431,14 @@ async def extract_text(file_path: Path) -> Optional[dict]:
         except (UnicodeDecodeError, ValueError, OSError):
             logger.warning(f"Cannot read as text, unsupported file type: {ext}")
             return None
-            
+
     if full_text is None:
         return None
-        
+
     # Standardize output for non-PDFs
     if ext != ".pdf":
         pages = [{"page_num": 1, "text": full_text}]
-        
+
     return {
         "type": ext.lstrip("."),
         "content": full_text,
@@ -429,16 +454,18 @@ def recursive_chunk(text: str, chunk_size: int = 512, overlap: int = 64) -> list
     i = 0
     chunk_idx = 0
     while i < len(tokens):
-        chunk_tokens = tokens[i:i + chunk_size]
+        chunk_tokens = tokens[i : i + chunk_size]
         if len(chunk_tokens) < chunk_size // 2 and chunk_idx > 0:
             break
-        chunks.append({
-            "chunk_id": chunk_idx,
-            "text": " ".join(chunk_tokens),
-            "token_count": len(chunk_tokens),
-            "start_token": i,
-            "end_token": i + len(chunk_tokens),
-        })
+        chunks.append(
+            {
+                "chunk_id": chunk_idx,
+                "text": " ".join(chunk_tokens),
+                "token_count": len(chunk_tokens),
+                "start_token": i,
+                "end_token": i + len(chunk_tokens),
+            }
+        )
         i += chunk_size - overlap
         chunk_idx += 1
     return chunks

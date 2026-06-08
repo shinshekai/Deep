@@ -15,7 +15,8 @@ Usage:
 """
 
 import enum
-from typing import Any, Callable, TypeVar, Generic
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -26,7 +27,7 @@ class Lifetime(enum.Enum):
 
 
 class _Registration:
-    __slots__ = ("factory", "lifetime", "_instance")
+    __slots__ = ("_instance", "factory", "lifetime")
 
     def __init__(self, factory: Callable, lifetime: Lifetime):
         self.factory = factory

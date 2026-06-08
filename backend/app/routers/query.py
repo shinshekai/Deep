@@ -7,12 +7,12 @@ Implements POST /api/v1/query with:
 - Structured response with citations and metadata
 """
 
-import asyncio
-import time
 import logging
-from typing import Optional, Literal
-from pydantic import BaseModel
+import time
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +25,21 @@ router = APIRouter(prefix="/api/v1", tags=["query"])
 
 # ── Request/Response Schemas ──
 
+
 class QueryRequest(BaseModel):
     """Request body for POST /api/v1/query."""
+
     query: str
     kb_name: str
-    mode: Optional[Literal["auto", "detailed", "quick"]] = "auto"
-    retrieval_pipeline: Optional[Literal["tree", "hybrid", "naive", "combined"]] = "tree"
-    session_id: Optional[str] = None
+    mode: Literal["auto", "detailed", "quick"] | None = "auto"
+    retrieval_pipeline: Literal["tree", "hybrid", "naive", "combined"] | None = "tree"
+    session_id: str | None = None
     device_id: str
 
 
 class Citation(BaseModel):
     """Citation pointing to source document section."""
+
     doc_id: str
     page: int = 0
     section: str = ""
@@ -45,6 +48,7 @@ class Citation(BaseModel):
 
 class AgentStep(BaseModel):
     """Individual agent step for transparency."""
+
     agent: str
     content: str
     timestamp: float
@@ -52,6 +56,7 @@ class AgentStep(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response body for POST /api/v1/query."""
+
     answer: str
     citations: list[Citation] = []
     agent_steps: list[AgentStep] = []
@@ -64,12 +69,14 @@ class QueryResponse(BaseModel):
 
 # ── Endpoint ──
 
+
 @router.post("/query", response_model=QueryResponse)
 async def http_query(request: QueryRequest):
     """HTTP fallback for Q&A - non-streaming synchronous endpoint."""
     import os
+
+    from app.routers.retrieval import RetrieveRequest, retrieve
     from app.services.complexity_scorer import score_query_complexity
-    from app.routers.retrieval import retrieve, RetrieveRequest
 
     start_time = time.time()
 
@@ -90,6 +97,7 @@ async def http_query(request: QueryRequest):
     if state.memory_service:
         try:
             from app.services.memory_context import build_memory_context
+
             recall = await state.memory_service.recall_episodes(device_id, request.query)
             facts = await state.memory_service.recall_facts(device_id, request.query)
             profile = await state.memory_service.get_profile(device_id)
@@ -100,11 +108,13 @@ async def http_query(request: QueryRequest):
     agent_steps = []
 
     # ── Step 1: Run retrieval using the same pipeline as WebSocket ──
-    agent_steps.append(AgentStep(
-        agent="retrieve",
-        content=f"Running {request.retrieval_pipeline} retrieval for query: {request.query[:100]}...",
-        timestamp=time.time(),
-    ))
+    agent_steps.append(
+        AgentStep(
+            agent="retrieve",
+            content=f"Running {request.retrieval_pipeline} retrieval for query: {request.query[:100]}...",
+            timestamp=time.time(),
+        )
+    )
 
     retrieve_req = RetrieveRequest(
         query=request.query,
@@ -125,11 +135,13 @@ async def http_query(request: QueryRequest):
         retrieved_chunks = 0
         pipeline_used = "none"
 
-    agent_steps.append(AgentStep(
-        agent="retrieve",
-        content=f"Retrieved {retrieved_chunks} chunks via {pipeline_used} pipeline",
-        timestamp=time.time(),
-    ))
+    agent_steps.append(
+        AgentStep(
+            agent="retrieve",
+            content=f"Retrieved {retrieved_chunks} chunks via {pipeline_used} pipeline",
+            timestamp=time.time(),
+        )
+    )
 
     # ── Step 2: Complexity scoring ──
     # Get VRAM status for scoring
@@ -157,11 +169,13 @@ async def http_query(request: QueryRequest):
     model_tier = state.model_manager.get_tier_for_model(model_id) if model_id else target_tier
     model_tier_str = model_id or f"T{model_tier}"
 
-    agent_steps.append(AgentStep(
-        agent="route",
-        content=f"Complexity score: {score:.3f}, target tier: T{target_tier}, model: {model_id or 'none'}",
-        timestamp=time.time(),
-    ))
+    agent_steps.append(
+        AgentStep(
+            agent="route",
+            content=f"Complexity score: {score:.3f}, target tier: T{target_tier}, model: {model_id or 'none'}",
+            timestamp=time.time(),
+        )
+    )
 
     # ── Step 4: Build context from retrieval results ──
     context_parts = []
@@ -173,12 +187,14 @@ async def http_query(request: QueryRequest):
             f"[{r.get('section', 'Unknown')}] "
             f"(doc:{r.get('doc_id', '')}, p.{r.get('page', 0)}): {content[:500]}"
         )
-        citations.append(Citation(
-            doc_id=r.get("doc_id", ""),
-            page=r.get("page", 0),
-            section=r.get("section", ""),
-            node_id=r.get("node_id", ""),
-        ))
+        citations.append(
+            Citation(
+                doc_id=r.get("doc_id", ""),
+                page=r.get("page", 0),
+                section=r.get("section", ""),
+                node_id=r.get("node_id", ""),
+            )
+        )
 
     context = "\n\n".join(context_parts) if context_parts else ""
 
@@ -206,16 +222,19 @@ async def http_query(request: QueryRequest):
         ]
 
         try:
-            answer = await state.lm_client.stream_chat(
-                messages=messages,
-                model=model_id,
-                max_tokens=4096,
-                priority=3,  # Generation priority
-            ) or "No response generated."
+            answer = (
+                await state.lm_client.stream_chat(
+                    messages=messages,
+                    model=model_id,
+                    max_tokens=4096,
+                    priority=3,  # Generation priority
+                )
+                or "No response generated."
+            )
             state.model_manager.on_query_start(model_id)
         except Exception as e:
             logger.error(f"LLM call failed: {e}", exc_info=True)
-            answer = f"Error generating answer: {str(e)}"
+            answer = f"Error generating answer: {e!s}"
     else:
         answer = (
             f"LM Studio is not available or no model loaded. "
@@ -223,11 +242,13 @@ async def http_query(request: QueryRequest):
             f"Retrieved {retrieved_chunks} context sections from {request.kb_name}."
         )
 
-    agent_steps.append(AgentStep(
-        agent="solve",
-        content=answer[:500],  # Truncate for step log
-        timestamp=time.time(),
-    ))
+    agent_steps.append(
+        AgentStep(
+            agent="solve",
+            content=answer[:500],  # Truncate for step log
+            timestamp=time.time(),
+        )
+    )
 
     # ── Step 6: Persist session artifacts ──
     try:
@@ -235,7 +256,7 @@ async def http_query(request: QueryRequest):
             f.write(f"# Query Session: {session_id}\n\n")
             f.write(f"## Query\n{request.query}\n\n")
             f.write(f"## Answer\n{answer}\n\n")
-            f.write(f"## Citations\n")
+            f.write("## Citations\n")
             for c in citations:
                 f.write(f"- {c.doc_id} p.{c.page}: {c.section}\n")
     except Exception as e:
@@ -244,24 +265,36 @@ async def http_query(request: QueryRequest):
     if state.memory_service:
         try:
             from app.services.fact_extractor import extract_and_store_facts
+
             async def _run_with_telemetry():
                 try:
                     await extract_and_store_facts(
-                        device_id=device_id, query=request.query, answer=answer,
-                        source_id=session_id, lm_client=state.lm_client, memory_service=state.memory_service,
+                        device_id=device_id,
+                        query=request.query,
+                        answer=answer,
+                        source_id=session_id,
+                        lm_client=state.lm_client,
+                        memory_service=state.memory_service,
                     )
                 except Exception as e:
                     logger.error(f"fact_extraction_failed: {e}", exc_info=False)
                     try:
                         from app.services.metrics import FACT_EXTRACTION_FAILURES
+
                         FACT_EXTRACTION_FAILURES.inc()
                     except ImportError:
                         pass
+
             _global_registry.spawn(_run_with_telemetry())
-            _global_registry.spawn(state.memory_service.store_episode(
-                device_id=device_id, query=request.query, answer=answer,
-                model_used=model_id or "", session_type="query",
-            ))
+            _global_registry.spawn(
+                state.memory_service.store_episode(
+                    device_id=device_id,
+                    query=request.query,
+                    answer=answer,
+                    model_used=model_id or "",
+                    session_type="query",
+                )
+            )
         except Exception:
             pass
 

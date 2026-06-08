@@ -18,14 +18,13 @@ Key features:
 Reference: https://github.com/Orchestra-Research/Agent-Native-Research-Artifact
 """
 
-import os
-import json
-import time
-import logging
 import asyncio
+import json
+import logging
+import time
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional, Literal
-from dataclasses import dataclass, field, asdict
+from typing import Literal
 
 from app.services.lm_studio_client import LMStudioClient
 
@@ -38,6 +37,7 @@ ProvenanceTag = Literal["user", "ai-suggested", "ai-executed", "user-revised"]
 @dataclass
 class Claim:
     """A falsifiable assertion extracted from the document."""
+
     claim_id: str
     statement: str
     evidence_refs: list[str] = field(default_factory=list)
@@ -48,6 +48,7 @@ class Claim:
 @dataclass
 class Concept:
     """A formal definition or key concept."""
+
     concept_id: str
     name: str
     definition: str
@@ -58,6 +59,7 @@ class Concept:
 @dataclass
 class Heuristic:
     """An implementation trick or practical insight."""
+
     heuristic_id: str
     description: str
     rationale: str
@@ -65,13 +67,14 @@ class Heuristic:
     provenance: ProvenanceTag = "ai-suggested"
 
 
-@dataclass 
+@dataclass
 class ExplorationNode:
     """A node in the research exploration DAG."""
+
     node_id: str
     node_type: str  # hypothesis, experiment, dead-end, pivot, result
     description: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     children: list[str] = field(default_factory=list)
     outcome: str = ""  # success, failure, partial, abandoned
     provenance: ProvenanceTag = "ai-suggested"
@@ -80,6 +83,7 @@ class ExplorationNode:
 @dataclass
 class ARArtifact:
     """Complete ARA knowledge package for a document."""
+
     doc_id: str
     title: str
     summary: str  # ~200 tokens for progressive disclosure
@@ -180,7 +184,7 @@ class ARACompiler:
         manifest_task = self._extract("manifest", text_chunk, model_id)
         claims_task = self._extract("claims", text_chunk, model_id)
         concepts_task = self._extract("concepts", text_chunk, model_id)
-        
+
         manifest, claims_raw, concepts_raw = await asyncio.gather(
             manifest_task, claims_task, concepts_task
         )
@@ -242,11 +246,13 @@ class ARACompiler:
         items = self._safe_parse_json(raw)
         claims = []
         for i, item in enumerate(items):
-            claims.append(Claim(
-                claim_id=f"CLM-{i+1:03d}",
-                statement=item.get("statement", str(item)),
-                evidence_refs=item.get("evidence_hints", []),
-            ))
+            claims.append(
+                Claim(
+                    claim_id=f"CLM-{i+1:03d}",
+                    statement=item.get("statement", str(item)),
+                    evidence_refs=item.get("evidence_hints", []),
+                )
+            )
         return claims
 
     def _parse_concepts(self, raw: str) -> list[Concept]:
@@ -254,12 +260,14 @@ class ARACompiler:
         items = self._safe_parse_json(raw)
         concepts = []
         for i, item in enumerate(items):
-            concepts.append(Concept(
-                concept_id=f"CON-{i+1:03d}",
-                name=item.get("name", f"Concept {i+1}"),
-                definition=item.get("definition", str(item)),
-                related_concepts=item.get("related", []),
-            ))
+            concepts.append(
+                Concept(
+                    concept_id=f"CON-{i+1:03d}",
+                    name=item.get("name", f"Concept {i+1}"),
+                    definition=item.get("definition", str(item)),
+                    related_concepts=item.get("related", []),
+                )
+            )
         return concepts
 
     def _parse_heuristics(self, raw: str) -> list[Heuristic]:
@@ -267,12 +275,14 @@ class ARACompiler:
         items = self._safe_parse_json(raw)
         heuristics = []
         for i, item in enumerate(items):
-            heuristics.append(Heuristic(
-                heuristic_id=f"HEU-{i+1:03d}",
-                description=item.get("description", str(item)),
-                rationale=item.get("rationale", ""),
-                constraints=item.get("constraints", []),
-            ))
+            heuristics.append(
+                Heuristic(
+                    heuristic_id=f"HEU-{i+1:03d}",
+                    description=item.get("description", str(item)),
+                    rationale=item.get("rationale", ""),
+                    constraints=item.get("constraints", []),
+                )
+            )
         return heuristics
 
     def _parse_exploration(self, raw: str) -> list[ExplorationNode]:
@@ -280,12 +290,14 @@ class ARACompiler:
         items = self._safe_parse_json(raw)
         nodes = []
         for i, item in enumerate(items):
-            nodes.append(ExplorationNode(
-                node_id=f"EXP-{i+1:03d}",
-                node_type=item.get("type", "hypothesis"),
-                description=item.get("description", str(item)),
-                outcome=item.get("outcome", ""),
-            ))
+            nodes.append(
+                ExplorationNode(
+                    node_id=f"EXP-{i+1:03d}",
+                    node_type=item.get("type", "hypothesis"),
+                    description=item.get("description", str(item)),
+                    outcome=item.get("outcome", ""),
+                )
+            )
         return nodes
 
     @staticmethod
@@ -303,18 +315,19 @@ class ARACompiler:
             pass
         # Try extracting JSON from markdown code block
         import re
-        match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', raw, re.DOTALL)
+
+        match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(1))
             except json.JSONDecodeError:
                 pass
         # Try finding array substring
-        start = raw.find('[')
-        end = raw.rfind(']')
+        start = raw.find("[")
+        end = raw.rfind("]")
         if start >= 0 and end > start:
             try:
-                return json.loads(raw[start:end + 1])
+                return json.loads(raw[start : end + 1])
             except json.JSONDecodeError:
                 pass
         return []
@@ -388,16 +401,14 @@ class ARACompiler:
     def search_claims(self, artifact: ARArtifact, query: str) -> list[Claim]:
         """Search claims by keyword matching."""
         query_lower = query.lower()
-        return [
-            c for c in artifact.claims
-            if query_lower in c.statement.lower()
-        ]
+        return [c for c in artifact.claims if query_lower in c.statement.lower()]
 
     def search_heuristics(self, artifact: ARArtifact, query: str) -> list[Heuristic]:
         """Search heuristics by keyword matching."""
         query_lower = query.lower()
         return [
-            h for h in artifact.heuristics
+            h
+            for h in artifact.heuristics
             if query_lower in h.description.lower() or query_lower in h.rationale.lower()
         ]
 
@@ -405,7 +416,7 @@ class ARACompiler:
         """Return the full exploration DAG."""
         return artifact.exploration_nodes
 
-    def load(self, base_path: Path, doc_id: str) -> Optional[ARArtifact]:
+    def load(self, base_path: Path, doc_id: str) -> ARArtifact | None:
         """Load a persisted ARA artifact from disk."""
         ara_dir = base_path / "ara" / doc_id
         if not ara_dir.exists():
@@ -418,25 +429,35 @@ class ARACompiler:
             # Skip title line and join the rest as the summary
             summary = "\n".join(lines[2:]) if len(lines) > 2 else ""
 
-            claims_data = json.loads(
-                (ara_dir / "logic" / "claims.json").read_text(encoding="utf-8")
-            ) if (ara_dir / "logic" / "claims.json").exists() else []
+            claims_data = (
+                json.loads((ara_dir / "logic" / "claims.json").read_text(encoding="utf-8"))
+                if (ara_dir / "logic" / "claims.json").exists()
+                else []
+            )
 
-            concepts_data = json.loads(
-                (ara_dir / "logic" / "concepts.json").read_text(encoding="utf-8")
-            ) if (ara_dir / "logic" / "concepts.json").exists() else []
+            concepts_data = (
+                json.loads((ara_dir / "logic" / "concepts.json").read_text(encoding="utf-8"))
+                if (ara_dir / "logic" / "concepts.json").exists()
+                else []
+            )
 
-            heuristics_data = json.loads(
-                (ara_dir / "solution" / "heuristics.json").read_text(encoding="utf-8")
-            ) if (ara_dir / "solution" / "heuristics.json").exists() else []
+            heuristics_data = (
+                json.loads((ara_dir / "solution" / "heuristics.json").read_text(encoding="utf-8"))
+                if (ara_dir / "solution" / "heuristics.json").exists()
+                else []
+            )
 
-            architecture = (ara_dir / "solution" / "architecture.md").read_text(
-                encoding="utf-8"
-            ) if (ara_dir / "solution" / "architecture.md").exists() else ""
+            architecture = (
+                (ara_dir / "solution" / "architecture.md").read_text(encoding="utf-8")
+                if (ara_dir / "solution" / "architecture.md").exists()
+                else ""
+            )
 
-            exploration_data = json.loads(
-                (ara_dir / "trace" / "exploration.json").read_text(encoding="utf-8")
-            ) if (ara_dir / "trace" / "exploration.json").exists() else []
+            exploration_data = (
+                json.loads((ara_dir / "trace" / "exploration.json").read_text(encoding="utf-8"))
+                if (ara_dir / "trace" / "exploration.json").exists()
+                else []
+            )
 
             return ARArtifact(
                 doc_id=doc_id,

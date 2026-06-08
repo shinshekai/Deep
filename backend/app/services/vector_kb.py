@@ -28,10 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 UPLOAD_BASE = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "data"
-    / "knowledge_bases"
-    / "uploads"
+    Path(__file__).resolve().parent.parent.parent.parent / "data" / "knowledge_bases" / "uploads"
 )
 
 
@@ -47,8 +44,8 @@ class VectorKBService:
         self.lm_client = lm_client
         # LRU cache for loaded vectors: {kb_name: (timestamp, embeddings, chunks)}
         self._vector_cache: OrderedDict[str, tuple[float, object, list]] = OrderedDict()
-        self._cache_max = 8       # max KBs cached
-        self._cache_ttl = 300.0   # seconds
+        self._cache_max = 8  # max KBs cached
+        self._cache_ttl = 300.0  # seconds
 
     # ── Storage ──────────────────────────────────────────────────────────────
 
@@ -71,7 +68,7 @@ class VectorKBService:
             Number of vectors stored, or 0 on failure.
         """
         try:
-            import numpy as np  # noqa: PLC0415
+            import numpy as np
         except ImportError:
             logger.error("numpy is required for vector storage. Run: pip install numpy")
             return 0
@@ -95,6 +92,7 @@ class VectorKBService:
             meta_tmp.write_text(json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
             np.save(str(npy_path), embeddings.astype(np.float32))
             import os
+
             os.replace(str(meta_tmp), str(meta_path))
             count = len(embeddings)
             logger.info(f"Stored {count} vectors for {kb_name}/{doc_id}")
@@ -144,7 +142,7 @@ class VectorKBService:
                 del self._vector_cache[kb_name]
 
         try:
-            import numpy as np  # noqa: PLC0415
+            import numpy as np
         except ImportError:
             return None, []
 
@@ -211,7 +209,7 @@ class VectorKBService:
             return []
 
         try:
-            import numpy as np  # noqa: PLC0415
+            import numpy as np
         except ImportError:
             logger.error("numpy not installed — cannot run vector search")
             return []
@@ -308,7 +306,7 @@ class VectorKBService:
 
             try:
                 if file_path.suffix == ".pdf":
-                    import fitz  # noqa: PLC0415
+                    import fitz
 
                     doc = fitz.open(str(file_path))
                     text = "\n".join(page.get_text("text") for page in doc)

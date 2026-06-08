@@ -19,7 +19,6 @@ import sys
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional
 
 _CONFIGURED = False
 
@@ -34,9 +33,7 @@ _BACKUP_COUNT = int(os.environ.get("UDIP_LOG_BACKUP_COUNT", "5"))
 # Correlation-ID context variable
 # ---------------------------------------------------------------------------
 
-correlation_id_var: ContextVar[Optional[str]] = ContextVar(
-    "correlation_id", default=None
-)
+correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
 def get_or_create_correlation_id(request) -> str:  # type: ignore[no-untyped-def]

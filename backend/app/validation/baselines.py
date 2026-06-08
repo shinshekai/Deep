@@ -12,11 +12,11 @@ from typing import Optional
 
 
 class Severity(str, Enum):
-    CRITICAL = "critical"   # Build-breaking, blocks deployment
-    HIGH = "high"           # Must fix before next release
-    MEDIUM = "medium"       # Should fix within sprint
-    LOW = "low"             # Track and address when convenient
-    INFO = "info"           # Informational only
+    CRITICAL = "critical"  # Build-breaking, blocks deployment
+    HIGH = "high"  # Must fix before next release
+    MEDIUM = "medium"  # Should fix within sprint
+    LOW = "low"  # Track and address when convenient
+    INFO = "info"  # Informational only
 
 
 class CheckCategory(str, Enum):
@@ -31,6 +31,7 @@ class CheckCategory(str, Enum):
 @dataclass(frozen=True)
 class PerformanceBaselines:
     """From NFR-1.x in 01-product-requirements.md and Section 1 of 03-inference-strategy.md."""
+
     # NFR-1.3: Query-to-first-token latency (Smart Solver)
     ttft_max_ms: float = 3000.0
     # NFR-1.5: Token generation throughput with TurboQuant
@@ -52,6 +53,7 @@ class PerformanceBaselines:
 @dataclass(frozen=True)
 class VRAMBaselines:
     """From Section 2 of 03-inference-strategy.md."""
+
     # Pressure thresholds (percentage of total VRAM)
     green_max_pct: float = 70.0
     yellow_max_pct: float = 85.0
@@ -69,6 +71,7 @@ class VRAMBaselines:
 @dataclass(frozen=True)
 class CoverageBaselines:
     """From NFR-5.x in 01-product-requirements.md."""
+
     # NFR-5.1: Minimum 80% line coverage on backend Python code
     global_min_pct: float = 80.0
     # Critical module minimum (higher bar for core services)
@@ -92,6 +95,7 @@ CRITICAL_MODULES = [
 @dataclass(frozen=True)
 class ModelTierSpec:
     """Per-tier specifications from Section 1 of 03-inference-strategy.md."""
+
     tier: int
     name: str
     model_patterns: tuple[str, ...]
@@ -105,25 +109,37 @@ class ModelTierSpec:
 
 TIER_SPECS = {
     1: ModelTierSpec(
-        tier=1, name="Lightweight",
+        tier=1,
+        name="Lightweight",
         model_patterns=("qwen3-0.6b", "qwen3-1.7b"),
         vram_range_gb=(0.5, 1.2),
-        kv_cache_k="q4_0", kv_cache_v="q4_0",
-        max_concurrent=4, ttl_seconds=None, context_length=4096,
+        kv_cache_k="q4_0",
+        kv_cache_v="q4_0",
+        max_concurrent=4,
+        ttl_seconds=None,
+        context_length=4096,
     ),
     2: ModelTierSpec(
-        tier=2, name="Medium",
+        tier=2,
+        name="Medium",
         model_patterns=("qwen3-4b", "qwen3-8b"),
         vram_range_gb=(2.5, 5.5),
-        kv_cache_k="q8_0", kv_cache_v="q4_0",
-        max_concurrent=2, ttl_seconds=600, context_length=8192,
+        kv_cache_k="q8_0",
+        kv_cache_v="q4_0",
+        max_concurrent=2,
+        ttl_seconds=600,
+        context_length=8192,
     ),
     3: ModelTierSpec(
-        tier=3, name="Heavy",
+        tier=3,
+        name="Heavy",
         model_patterns=("qwen3-14b", "qwen3-30b"),
         vram_range_gb=(8.5, 18.0),
-        kv_cache_k="q8_0", kv_cache_v="q8_0",
-        max_concurrent=1, ttl_seconds=300, context_length=16384,
+        kv_cache_k="q8_0",
+        kv_cache_v="q8_0",
+        max_concurrent=1,
+        ttl_seconds=300,
+        context_length=16384,
     ),
 }
 
@@ -131,6 +147,7 @@ TIER_SPECS = {
 @dataclass
 class ValidationResult:
     """Single validation check result."""
+
     check_id: str
     category: CheckCategory
     severity: Severity
@@ -160,6 +177,7 @@ class ValidationResult:
 @dataclass
 class ValidationReport:
     """Aggregate report from a full validation run."""
+
     timestamp: str
     results: list[ValidationResult] = field(default_factory=list)
     total_checks: int = 0
@@ -202,8 +220,7 @@ class ValidationReport:
         lines = [
             f"# Validation Report — {status}",
             f"**Time:** {self.timestamp}",
-            f"**Checks:** {self.passed}/{self.total_checks} passed "
-            f"({self.pass_rate:.0f}%)",
+            f"**Checks:** {self.passed}/{self.total_checks} passed " f"({self.pass_rate:.0f}%)",
             "",
         ]
         if self.critical_failures:
@@ -220,9 +237,7 @@ class ValidationReport:
                 f"({len(cat_results) - len(failures)}/{len(cat_results)})"
             )
             for r in failures:
-                lines.append(
-                    f"- **[{r.severity.value.upper()}]** {r.message}"
-                )
+                lines.append(f"- **[{r.severity.value.upper()}]** {r.message}")
                 if r.remediation:
                     lines.append(f"  → Fix: {r.remediation}")
             lines.append("")

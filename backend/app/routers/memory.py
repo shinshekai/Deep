@@ -171,7 +171,7 @@ async def submit_feedback(request: FeedbackRequest):
     svc = _require_memory()
     if not 0.0 <= request.rating <= 5.0:
         raise HTTPException(status_code=400, detail="Rating must be between 0.0 and 5.0")
-    
+
     episode = await svc.get_episode(request.episode_id)
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")

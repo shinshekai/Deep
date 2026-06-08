@@ -8,12 +8,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from app.validation.baselines import (
-    CheckCategory,
-    Severity,
-    ValidationReport,
-    ValidationResult,
-)
+from app.validation.baselines import CheckCategory, Severity, ValidationReport, ValidationResult
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 _APP_DIR = _BACKEND_ROOT / "app"
@@ -35,23 +30,29 @@ REMEDIATION_ITEMS = []
 
 def _register(item_id, sprint, title, severity, blocks=None):
     """Decorator to register a remediation check function."""
+
     def decorator(fn):
-        REMEDIATION_ITEMS.append({
-            "id": item_id,
-            "sprint": sprint,
-            "title": title,
-            "severity": severity,
-            "blocks": blocks or [],
-            "check_fn": fn,
-        })
+        REMEDIATION_ITEMS.append(
+            {
+                "id": item_id,
+                "sprint": sprint,
+                "title": title,
+                "severity": severity,
+                "blocks": blocks or [],
+                "check_fn": fn,
+            }
+        )
         return fn
+
     return decorator
 
 
 # ── Sprint 1: Critical Bugs ──────────────────────────────────────────────
 
-@_register("REM-S1-01", 1, "Fix end_learning truncated function", Severity.CRITICAL,
-           blocks=["REM-S3-13"])
+
+@_register(
+    "REM-S1-01", 1, "Fix end_learning truncated function", Severity.CRITICAL, blocks=["REM-S3-13"]
+)
 def _check_end_learning_fixed():
     """end_learning in agent.py must have a return statement."""
     path = _APP_DIR / "routers" / "agent.py"
@@ -60,8 +61,7 @@ def _check_end_learning_fixed():
     content = path.read_text(encoding="utf-8")
     # Find the end_learning function and check for return
     match = re.search(
-        r'async def end_learning\(.*?\n(.*?)(?=\n@router\.|\nclass |\Z)',
-        content, re.DOTALL
+        r"async def end_learning\(.*?\n(.*?)(?=\n@router\.|\nclass |\Z)", content, re.DOTALL
     )
     if not match:
         return False
@@ -71,8 +71,10 @@ def _check_end_learning_fixed():
 @_register("REM-S1-02", 1, "Add asyncio.Lock to Deep Research file I/O", Severity.CRITICAL)
 def _check_deep_research_lock():
     try:
-        from app.services.deep_research import DeepResearchService
         from unittest.mock import MagicMock
+
+        from app.services.deep_research import DeepResearchService
+
         svc = DeepResearchService(lm_client=MagicMock())
         lock = svc._get_lock("validation-probe")
         return isinstance(lock, asyncio.Lock)
@@ -100,6 +102,7 @@ def _check_api_centralized():
 
 # ── Sprint 2: Security & Reliability ─────────────────────────────────────
 
+
 @_register("REM-S2-05", 2, "Sanitize HTML in guide page (DOMPurify)", Severity.HIGH)
 def _check_dompurify():
     path = _FRONTEND_DIR / "app" / "(platform)" / "guide" / "page.tsx"
@@ -125,10 +128,7 @@ def _check_ws_session_filtering():
 
 @_register("REM-S2-07", 2, "Create .env.example with all required vars", Severity.HIGH)
 def _check_env_example():
-    return (
-        (_PROJECT_ROOT / ".env.example").exists()
-        or (_BACKEND_ROOT / ".env.example").exists()
-    )
+    return (_PROJECT_ROOT / ".env.example").exists() or (_BACKEND_ROOT / ".env.example").exists()
 
 
 @_register("REM-S2-08", 2, "Settings page loads current config on mount", Severity.MEDIUM)
@@ -137,7 +137,11 @@ def _check_settings_loads_config():
     if not path.exists():
         return False
     content = path.read_text(encoding="utf-8")
-    return "useEffect" in content and ("fetch" in content.lower() or "get" in content.lower()) and "/config" in content
+    return (
+        "useEffect" in content
+        and ("fetch" in content.lower() or "get" in content.lower())
+        and "/config" in content
+    )
 
 
 @_register("REM-S2-09", 2, "Fix Documents page to fetch real document list", Severity.MEDIUM)
@@ -150,6 +154,7 @@ def _check_documents_page_fetches():
 
 
 # ── Sprint 3: Frontend Integration ───────────────────────────────────────
+
 
 @_register("REM-S3-10", 3, "Add React error boundaries", Severity.MEDIUM)
 def _check_error_boundaries():
@@ -193,7 +198,9 @@ def _check_session_persistence():
             continue
         try:
             content = f.read_text(encoding="utf-8")
-            if "localStorage" in content and ("chat" in str(f).lower() or "session" in content.lower()):
+            if "localStorage" in content and (
+                "chat" in str(f).lower() or "session" in content.lower()
+            ):
                 return True
         except Exception:
             continue
@@ -201,6 +208,7 @@ def _check_session_persistence():
 
 
 # ── Sprint 4: Production Hardening ───────────────────────────────────────
+
 
 @_register("REM-S4-14", 4, "Verify LM Studio model load/unload with pynvml", Severity.HIGH)
 def _check_lm_lifecycle_verification():
@@ -215,10 +223,12 @@ def _check_lm_lifecycle_verification():
 def _check_otel():
     try:
         from app.services.telemetry import setup_tracing
+
         provider = setup_tracing("udip-validation-probe", console_export=False)
         if provider is None:
             return False
         from opentelemetry import trace
+
         tracer = trace.get_tracer("udip.validation.probe")
         with tracer.start_as_current_span("validation_probe") as span:
             span.set_attribute("validation.probe", True)
@@ -229,8 +239,9 @@ def _check_otel():
 
 @_register("REM-S4-16", 4, "Create docker-compose.yml", Severity.MEDIUM)
 def _check_docker():
-    return (_PROJECT_ROOT / "docker-compose.yml").exists() or \
-           (_PROJECT_ROOT / "docker-compose.yaml").exists()
+    return (_PROJECT_ROOT / "docker-compose.yml").exists() or (
+        _PROJECT_ROOT / "docker-compose.yaml"
+    ).exists()
 
 
 @_register("REM-S4-17", 4, "Expand agent service test coverage to >80%", Severity.HIGH)
@@ -266,6 +277,7 @@ def _check_kv_params_wired():
 
 # ── Public API ────────────────────────────────────────────────────────────
 
+
 def validate_remediation(report: ValidationReport) -> None:
     """Run all remediation progress checks."""
     total = len(REMEDIATION_ITEMS)
@@ -295,24 +307,28 @@ def validate_remediation(report: ValidationReport) -> None:
         if blocked_by and not passed:
             status = f"BLOCKED by {', '.join(blocked_by)}"
 
-        report.add(ValidationResult(
-            check_id=item["id"],
-            category=CheckCategory.REMEDIATION,
-            severity=item["severity"] if not passed else Severity.INFO,
-            passed=passed,
-            message=f"Sprint {item['sprint']}: {item['title']} — {status}",
-            metric_name="remediation_progress",
-            metric_value=1.0 if passed else 0.0,
-        ))
+        report.add(
+            ValidationResult(
+                check_id=item["id"],
+                category=CheckCategory.REMEDIATION,
+                severity=item["severity"] if not passed else Severity.INFO,
+                passed=passed,
+                message=f"Sprint {item['sprint']}: {item['title']} — {status}",
+                metric_name="remediation_progress",
+                metric_value=1.0 if passed else 0.0,
+            )
+        )
 
     # Summary metric
-    report.add(ValidationResult(
-        check_id="REM-SUMMARY",
-        category=CheckCategory.REMEDIATION,
-        severity=Severity.HIGH if done < total else Severity.INFO,
-        passed=done == total,
-        message=f"Remediation progress: {done}/{total} items complete ({done/total*100:.0f}%)",
-        metric_name="remediation_total_pct",
-        metric_value=float(done),
-        threshold=float(total),
-    ))
+    report.add(
+        ValidationResult(
+            check_id="REM-SUMMARY",
+            category=CheckCategory.REMEDIATION,
+            severity=Severity.HIGH if done < total else Severity.INFO,
+            passed=done == total,
+            message=f"Remediation progress: {done}/{total} items complete ({done/total*100:.0f}%)",
+            metric_name="remediation_total_pct",
+            metric_value=float(done),
+            threshold=float(total),
+        )
+    )

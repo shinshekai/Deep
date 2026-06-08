@@ -10,7 +10,6 @@ page ranges, extracts raw text from source PDF.
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 from app.services.text_extractor import TextExtractor
 
@@ -59,8 +58,8 @@ class TreeSearch:
         self,
         query: str,
         kb_name: str,
-        doc_id: Optional[str] = None,
-        tree: Optional[dict] = None,
+        doc_id: str | None = None,
+        tree: dict | None = None,
         top_k: int = 5,
         min_score: float = 0.3,
     ) -> list[dict]:
@@ -85,7 +84,13 @@ class TreeSearch:
             results.extend(scored)
         else:
             # Search across all docs in KB
-            pi_dir = Path(__file__).resolve().parent.parent.parent / "data" / "knowledge_bases" / kb_name / "pageindex"
+            pi_dir = (
+                Path(__file__).resolve().parent.parent.parent
+                / "data"
+                / "knowledge_bases"
+                / kb_name
+                / "pageindex"
+            )
             if pi_dir.exists():
                 for tree_file in sorted(pi_dir.glob("*.json")):
                     if doc_id and tree_file.stem != doc_id:
@@ -114,9 +119,7 @@ class TreeSearch:
 
         return results
 
-    async def _score_tree(
-        self, doc_id: str, tree: dict, query: str
-    ) -> list[dict]:
+    async def _score_tree(self, doc_id: str, tree: dict, query: str) -> list[dict]:
         """Score nodes in a PageIndex tree using LLM reasoning."""
         tree_json = self._serialize_tree_compact(tree.get("root", {}))
         if not tree_json:
@@ -129,9 +132,7 @@ class TreeSearch:
             return self._keyword_score(doc_id, tree, query)
 
         # LLM scoring
-        prompt = TREE_SCORE_PROMPT.format(
-            tree_json=tree_json, query=query
-        )
+        prompt = TREE_SCORE_PROMPT.format(tree_json=tree_json, query=query)
         messages = [
             {"role": "system", "content": TREE_SCORE_FEW_SHOT_SYSTEM},
             {"role": "user", "content": prompt},
@@ -161,16 +162,14 @@ class TreeSearch:
         page_start = node.get("page_start", 0)
         page_end = node.get("page_end", 0)
 
-        lines.append(
-            f"{indent}- [{nid}] {title} (pages {page_start}-{page_end}): {summary}"
-        )
+        lines.append(f"{indent}- [{nid}] {title} (pages {page_start}-{page_end}): {summary}")
         for child in node.get("children", []):
             child_text = self._serialize_tree_compact(child, depth + 1)
             if child_text:
                 lines.append(child_text)
         return "\n".join(lines)
 
-    def _parse_llm_results(self, response: str) -> Optional[list[dict]]:
+    def _parse_llm_results(self, response: str) -> list[dict] | None:
         """Parse LLM JSON response into scored node list."""
         text = response.strip()
         # Strip markdown fences if present
@@ -192,39 +191,39 @@ class TreeSearch:
                     continue
                 if "node_id" not in item:
                     continue
-                results.append({
-                    "node_id": item["node_id"],
-                    "score": float(item.get("score", 0)),
-                    "reason": item.get("reason", ""),
-                })
+                results.append(
+                    {
+                        "node_id": item["node_id"],
+                        "score": float(item.get("score", 0)),
+                        "reason": item.get("reason", ""),
+                    }
+                )
             return results
         except (json.JSONDecodeError, ValueError):
             return None
 
-    def _build_results(
-        self, doc_id: str, tree: dict, scored_nodes: list[dict]
-    ) -> list[dict]:
+    def _build_results(self, doc_id: str, tree: dict, scored_nodes: list[dict]) -> list[dict]:
         """Map scored node_ids to result dicts using tree metadata."""
         results = []
         for scored in scored_nodes:
-            node = self._find_node_by_id(
-                tree.get("root", {}), scored["node_id"]
-            )
+            node = self._find_node_by_id(tree.get("root", {}), scored["node_id"])
             if node:
-                results.append({
-                    "doc_id": doc_id,
-                    "page": node.get("page_start", 0),
-                    "page_end": node.get("page_end", 0),
-                    "section": node.get("title", ""),
-                    "summary": node.get("summary", ""),
-                    "relevance_score": round(scored["score"], 3),
-                    "node_id": scored["node_id"],
-                    "reasoning": scored.get("reason", ""),
-                    "content": "",  # Filled by search() caller
-                })
+                results.append(
+                    {
+                        "doc_id": doc_id,
+                        "page": node.get("page_start", 0),
+                        "page_end": node.get("page_end", 0),
+                        "section": node.get("title", ""),
+                        "summary": node.get("summary", ""),
+                        "relevance_score": round(scored["score"], 3),
+                        "node_id": scored["node_id"],
+                        "reasoning": scored.get("reason", ""),
+                        "content": "",  # Filled by search() caller
+                    }
+                )
         return results
 
-    def _find_node_by_id(self, node: dict, node_id: str) -> Optional[dict]:
+    def _find_node_by_id(self, node: dict, node_id: str) -> dict | None:
         """Recursively find a node by its node_id."""
         if node.get("node_id") == node_id:
             return node
@@ -234,9 +233,7 @@ class TreeSearch:
                 return found
         return None
 
-    def _keyword_score(
-        self, doc_id: str, tree: dict, query: str
-    ) -> list[dict]:
+    def _keyword_score(self, doc_id: str, tree: dict, query: str) -> list[dict]:
         """Fallback keyword scoring when LLM is unavailable."""
         results = []
         query_terms = set(query.lower().split())
@@ -251,17 +248,19 @@ class TreeSearch:
             if score > 0:
                 max_possible = len(query_terms) * 3
                 relevance = score / max_possible
-                results.append({
-                    "doc_id": doc_id,
-                    "page": node.get("page_start", 0),
-                    "page_end": node.get("page_end", 0),
-                    "section": node.get("title", ""),
-                    "summary": node.get("summary", ""),
-                    "relevance_score": round(relevance, 3),
-                    "node_id": node.get("node_id", ""),
-                    "reasoning": "",
-                    "content": "",
-                })
+                results.append(
+                    {
+                        "doc_id": doc_id,
+                        "page": node.get("page_start", 0),
+                        "page_end": node.get("page_end", 0),
+                        "section": node.get("title", ""),
+                        "summary": node.get("summary", ""),
+                        "relevance_score": round(relevance, 3),
+                        "node_id": node.get("node_id", ""),
+                        "reasoning": "",
+                        "content": "",
+                    }
+                )
             for child in node.get("children", []):
                 walk(child)
 

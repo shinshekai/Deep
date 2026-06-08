@@ -4,8 +4,8 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class TaskWAL:
             return
         if self.wal_path.exists():
             try:
-                with open(self.wal_path, "r", encoding="utf-8") as f:
+                with open(self.wal_path, encoding="utf-8") as f:
                     data = json.load(f)
                 if isinstance(data, list):
                     self._entries = data
@@ -54,13 +54,15 @@ class TaskWAL:
     async def record_start(self, task_name: str, task_id: str, payload: dict) -> None:
         async with self._lock:
             await self._ensure_loaded()
-            self._entries.append({
-                "task_id": task_id,
-                "task_name": task_name,
-                "payload": payload,
-                "started_at": time.time(),
-                "status": "running",
-            })
+            self._entries.append(
+                {
+                    "task_id": task_id,
+                    "task_name": task_name,
+                    "payload": payload,
+                    "started_at": time.time(),
+                    "status": "running",
+                }
+            )
             await self._flush()
 
     async def record_complete(self, task_id: str, status: str, result: dict | None = None) -> None:
@@ -85,9 +87,9 @@ class TaskWAL:
             await self._ensure_loaded()
             cutoff = time.time() - since_seconds
             return [
-                e for e in self._entries
-                if e.get("status") != "running"
-                and (e.get("completed_at") or 0) >= cutoff
+                e
+                for e in self._entries
+                if e.get("status") != "running" and (e.get("completed_at") or 0) >= cutoff
             ]
 
     async def replay_pending(self, handler: Callable[[dict], Awaitable[None]]) -> int:

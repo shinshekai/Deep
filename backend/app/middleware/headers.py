@@ -1,6 +1,7 @@
 """Security headers middleware — defense-in-depth response headers."""
 
 import os
+
 from fastapi import Request
 
 
@@ -13,6 +14,7 @@ def register_security_headers(app):
     ``UDIP_HSTS_ENABLED=1`` because sending it over plain HTTP is
     meaningless.
     """
+
     @app.middleware("http")
     async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)

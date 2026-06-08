@@ -12,9 +12,8 @@ Tunable via env:
 
 import logging
 import os
-import shutil
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -115,8 +114,7 @@ def run_cleanup() -> CleanupResult:
     elapsed = time.time() - started
     if total_files or total_dirs:
         logger.info(
-            f"Session cleanup: removed {total_files} files, "
-            f"{total_dirs} dirs in {elapsed:.2f}s"
+            f"Session cleanup: removed {total_files} files, " f"{total_dirs} dirs in {elapsed:.2f}s"
         )
     if all_errors:
         logger.warning(f"Session cleanup had {len(all_errors)} errors (first 5): {all_errors[:5]}")

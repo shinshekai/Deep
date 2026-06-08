@@ -1,12 +1,12 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
 class OCREngine:
-    def __init__(self, backend: Optional[str] = None):
+    def __init__(self, backend: str | None = None):
         self.backend = (backend or os.environ.get("OCR_BACKEND", "pytesseract")).lower()
         self._easyocr_reader = None
 
@@ -29,8 +29,8 @@ class OCREngine:
             return []
 
     def _pytesseract(self, image_path: Path) -> list[dict]:
-        from PIL import Image
         import pytesseract
+        from PIL import Image
 
         img = Image.open(image_path)
         data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
@@ -40,11 +40,13 @@ class OCREngine:
             conf = float(data["conf"][i]) if data["conf"][i] != "-1" else 0.0
             if text and conf > 0:
                 x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
-                results.append({
-                    "text": text,
-                    "confidence": conf / 100.0,
-                    "bbox": [x, y, x + w, y + h],
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "confidence": conf / 100.0,
+                        "bbox": [x, y, x + w, y + h],
+                    }
+                )
         return results
 
     def _easyocr(self, image_path: Path) -> list[dict]:
@@ -63,7 +65,7 @@ class OCREngine:
         ]
 
 
-_default_engine: Optional[OCREngine] = None
+_default_engine: OCREngine | None = None
 
 
 def get_ocr_engine() -> OCREngine:

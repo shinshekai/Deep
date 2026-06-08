@@ -5,10 +5,8 @@ Tier 2 (Semi-Resident):   nvidia/nemotron-3-nano-4b, deepseek/deepseek-r1-0528-q
 Tier 3 (On-Demand):       google/gemma-4-26b-a4b, qwen/qwen3.6-35b-a3b    — VRAM 25-40 GB, TTL 300s
 """
 
-import asyncio
 import logging
 import time
-from typing import Optional
 
 from app.config import get_settings
 
@@ -69,7 +67,9 @@ class ModelManager:
     def loaded_models(self) -> dict:
         return dict(self._loaded_models)
 
-    def set_active_selection(self, tier: str, provider_type: str, provider_id: str, model_id: Optional[str] = None) -> dict:
+    def set_active_selection(
+        self, tier: str, provider_type: str, provider_id: str, model_id: str | None = None
+    ) -> dict:
         """Set the explicit user-selected model target for a specific tier (T1, T2, T3)."""
         if model_id is None:
             # 3-argument call: (provider_type, provider_id, model_id), default tier T3
@@ -77,10 +77,10 @@ class ModelManager:
             provider_id = provider_type
             provider_type = tier
             tier = "T3"
-            
+
         if tier not in {"T1", "T2", "T3"}:
             tier = "T3"
-            
+
         self._active_selections[tier] = {
             "provider_type": provider_type,
             "provider_id": provider_id,
@@ -89,7 +89,7 @@ class ModelManager:
         }
         return dict(self._active_selections[tier])
 
-    def clear_active_selection(self, tier: Optional[str] = None):
+    def clear_active_selection(self, tier: str | None = None):
         if tier:
             if tier in self._active_selections:
                 self._active_selections[tier] = None
@@ -104,7 +104,7 @@ class ModelManager:
         """Return full mapping of tier-specific active selections."""
         return {k: (dict(v) if v else None) for k, v in self._active_selections.items()}
 
-    async def get_model_for_tier(self, tier: int) -> Optional[str]:
+    async def get_model_for_tier(self, tier: int) -> str | None:
         """Return the first available model for the given tier, loading it if necessary."""
         selected = await self._get_selected_local_model(f"T{tier}")
         if selected:
@@ -128,18 +128,25 @@ class ModelManager:
     def get_kv_config(self, tier: int) -> dict:
         """Get KV config based on tier and global TurboQuant settings."""
         # Baseline from static tiers
-        base_config = dict(MODEL_TIERS.get(tier, {}).get("kv_cache", {"cache_type_k": "q8_0", "cache_type_v": "q8_0"}))
-        
+        base_config = dict(
+            MODEL_TIERS.get(tier, {}).get(
+                "kv_cache", {"cache_type_k": "q8_0", "cache_type_v": "q8_0"}
+            )
+        )
+
         if self._settings.turboquant_enabled:
             bits = self._settings.turboquant_bits
             # Recommendation: asymmetric is safest for general models (q8_0 K, turbo V)
             turbo_type = f"turbo{bits}"
-            
+
             # Optionally check turboquant_tier setting
-            if self._settings.turboquant_tier == "auto" or str(tier) == self._settings.turboquant_tier:
+            if (
+                self._settings.turboquant_tier == "auto"
+                or str(tier) == self._settings.turboquant_tier
+            ):
                 base_config["cache_type_k"] = "q8_0"
                 base_config["cache_type_v"] = turbo_type
-                
+
         return base_config
 
     def get_tier_from_complexity(self, score: float) -> int:
@@ -150,7 +157,7 @@ class ModelManager:
             return 2
         return 3
 
-    async def get_best_available_model(self, target_tier: int = 1) -> Optional[str]:
+    async def get_best_available_model(self, target_tier: int = 1) -> str | None:
         """Get selected or safest loaded model respecting the target tier.
 
         FIX: Never try to load a model above target_tier - prevents overheating
@@ -184,14 +191,18 @@ class ModelManager:
             success = await self.lm_client.load_model(
                 model_id,
                 cache_type_k=kv_config.get("cache_type_k"),
-                cache_type_v=kv_config.get("cache_type_v")
+                cache_type_v=kv_config.get("cache_type_v"),
             )
             if success:
-                self._loaded_models[model_id] = {"tier": tier, "loaded_at": time.time(), "last_used": time.time()}
+                self._loaded_models[model_id] = {
+                    "tier": tier,
+                    "loaded_at": time.time(),
+                    "last_used": time.time(),
+                }
                 return model_id
         return None
 
-    async def _get_selected_local_model(self, tier: str = "T3") -> Optional[str]:
+    async def _get_selected_local_model(self, tier: str = "T3") -> str | None:
         """Return/load the explicitly selected local model for a specific tier when supported."""
         selection = self._active_selections.get(tier)
         if not selection or selection.get("provider_type") != "local":
@@ -243,9 +254,9 @@ class ModelManager:
             tier = info["tier"]
             ttl = TTL_DEFAULTS.get(tier, 600)
             if tier == 2:
-                ttl = settings.t2_ttl if hasattr(settings, 't2_ttl') else 600
+                ttl = settings.t2_ttl if hasattr(settings, "t2_ttl") else 600
             elif tier == 3:
-                ttl = settings.t3_ttl if hasattr(settings, 't3_ttl') else 300
+                ttl = settings.t3_ttl if hasattr(settings, "t3_ttl") else 300
 
             if ttl == float("inf"):
                 continue
@@ -269,32 +280,26 @@ class ModelManager:
                 await self.lm_client.unload_model(mid)
                 # Determine downgraded config
                 kv_config = self.get_kv_config(3)
-                kv_config["cache_type_v"] = "q4_0" # Downgrade V cache
+                kv_config["cache_type_v"] = "q4_0"  # Downgrade V cache
                 if self._settings.turboquant_enabled:
-                    kv_config["cache_type_v"] = "turbo2" # Max compression
+                    kv_config["cache_type_v"] = "turbo2"  # Max compression
                 await self.lm_client.load_model(
                     mid,
                     cache_type_k=kv_config.get("cache_type_k"),
-                    cache_type_v=kv_config.get("cache_type_v")
+                    cache_type_v=kv_config.get("cache_type_v"),
                 )
                 self._loaded_models[mid]["last_used"] = time.time()
-                
+
         elif pressure_level == "orange":
             # Unload T3 models, route to T2
-            to_remove = [
-                mid for mid, info in self._loaded_models.items()
-                if info["tier"] == 3
-            ]
+            to_remove = [mid for mid, info in self._loaded_models.items() if info["tier"] == 3]
             for mid in to_remove:
                 await self.lm_client.unload_model(mid)
                 del self._loaded_models[mid]
                 logger.info(f"ORANGE pressure: unloaded T3 model {mid}")
         elif pressure_level == "red":
             # Emergency: unload T2, T1-only with 2K truncation
-            to_remove = [
-                mid for mid, info in self._loaded_models.items()
-                if info["tier"] in (2, 3)
-            ]
+            to_remove = [mid for mid, info in self._loaded_models.items() if info["tier"] in (2, 3)]
             for mid in to_remove:
                 await self.lm_client.unload_model(mid)
                 del self._loaded_models[mid]
@@ -307,13 +312,15 @@ class ModelManager:
             for model_id in info["models"]:
                 is_loaded = model_id in self._loaded_models
                 loaded_info = self._loaded_models.get(model_id, {})
-                result.append({
-                    "id": model_id,
-                    "name": model_id,
-                    "tier": tier,
-                    "status": "loaded" if is_loaded else "unloaded",
-                    "vram_used_mb": loaded_info.get("vram_mb", 0),
-                    "kv_cache_config": info["kv_cache"],
-                    "max_concurrent": info["max_concurrent"],
-                })
+                result.append(
+                    {
+                        "id": model_id,
+                        "name": model_id,
+                        "tier": tier,
+                        "status": "loaded" if is_loaded else "unloaded",
+                        "vram_used_mb": loaded_info.get("vram_mb", 0),
+                        "kv_cache_config": info["kv_cache"],
+                        "max_concurrent": info["max_concurrent"],
+                    }
+                )
         return result

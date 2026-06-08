@@ -1,15 +1,17 @@
-import os
-import json
-import time
 import asyncio
+import json
 import logging
-from typing import Dict, Any, List
+import os
+import time
+from typing import Any
 
 from app.services.lm_studio_client import LMStudioClient
-from app.services.retrieval_service import retrieve as run_retrieval, RetrieveRequest
+from app.services.retrieval_service import RetrieveRequest
+from app.services.retrieval_service import retrieve as run_retrieval
 from app.services.task_registry import _global_registry
 
 logger = logging.getLogger(__name__)
+
 
 class DeepResearchService:
     def __init__(self, lm_client: LMStudioClient):
@@ -18,7 +20,7 @@ class DeepResearchService:
         os.makedirs(self.sessions_dir, exist_ok=True)
         # We store active background tasks here so they don't get garbage collected
         self.active_tasks = set()
-        self._locks: Dict[str, asyncio.Lock] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def _get_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:
@@ -28,18 +30,18 @@ class DeepResearchService:
     def _get_session_path(self, session_id: str) -> str:
         return os.path.join(self.sessions_dir, f"session_{session_id}.json")
 
-    def _load_session(self, session_id: str) -> Dict[str, Any]:
+    def _load_session(self, session_id: str) -> dict[str, Any]:
         path = self._get_session_path(session_id)
         if not os.path.exists(path):
             raise ValueError(f"Session {session_id} not found.")
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load deep research session {session_id}: {e}")
             raise
 
-    def _save_session(self, session_id: str, data: Dict[str, Any]):
+    def _save_session(self, session_id: str, data: dict[str, Any]):
         path = self._get_session_path(session_id)
         try:
             with open(path, "w", encoding="utf-8") as f:
@@ -49,11 +51,17 @@ class DeepResearchService:
             raise
 
     async def start_research(
-        self, kb_name: str, query: str, mode: str = "parallel", retrieval_pipeline: str = "combined", model_id: str = "Qwen3-1.7B-Q4_K_M", device_id: str = ""
+        self,
+        kb_name: str,
+        query: str,
+        mode: str = "parallel",
+        retrieval_pipeline: str = "combined",
+        model_id: str = "Qwen3-1.7B-Q4_K_M",
+        device_id: str = "",
     ) -> str:
         """Phase 1: Planning. Returns session_id immediately and starts background research."""
         session_id = f"research_{int(time.time())}"
-        
+
         # 1. Rephrase & Decompose
         system_prompt = (
             "You are the DecomposeAgent for a Deep Research system.\n"
@@ -66,15 +74,18 @@ class DeepResearchService:
             model=model_id,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Research Query: {query}"}
+                {"role": "user", "content": f"Research Query: {query}"},
             ],
-            max_tokens=1000
+            max_tokens=1000,
         )
-        
+
         content = response.get("content", "").strip()
-        if content.startswith("```json"): content = content[7:]
-        if content.startswith("```"): content = content[3:]
-        if content.endswith("```"): content = content[:-3]
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
         content = content.strip()
 
         try:
@@ -85,8 +96,11 @@ class DeepResearchService:
             subtopics = [f"Overview of {query}", f"Key details of {query}"]
 
         # 2. Initialize State
-        queue = [{"id": f"sub_{i}", "query": st, "status": "PENDING", "notes": ""} for i, st in enumerate(subtopics)]
-        
+        queue = [
+            {"id": f"sub_{i}", "query": st, "status": "PENDING", "notes": ""}
+            for i, st in enumerate(subtopics)
+        ]
+
         session_data = {
             "session_id": session_id,
             "query": query,
@@ -96,17 +110,21 @@ class DeepResearchService:
             "mode": mode,
             "queue": queue,
             "status": "RESEARCHING",
-            "final_report": None
+            "final_report": None,
         }
         await asyncio.to_thread(self._save_session, session_id, session_data)
 
         from app import state
+
         if state.memory_service and device_id:
             try:
                 await state.memory_service.store_episode(
-                    device_id=device_id, query=query, answer="",
+                    device_id=device_id,
+                    query=query,
+                    answer="",
                     agents=["decompose", "research", "note", "report"],
-                    model_used=model_id, session_type="research",
+                    model_used=model_id,
+                    session_type="research",
                 )
             except Exception:
                 pass
@@ -117,6 +135,7 @@ class DeepResearchService:
         # Update Prometheus gauge
         try:
             from app.services.metrics import DEEP_RESEARCH_ACTIVE
+
             DEEP_RESEARCH_ACTIVE.set(len(self.active_tasks))
         except Exception:
             pass
@@ -125,6 +144,7 @@ class DeepResearchService:
             self.active_tasks.discard(t)
             try:
                 from app.services.metrics import DEEP_RESEARCH_ACTIVE
+
                 DEEP_RESEARCH_ACTIVE.set(len(self.active_tasks))
             except Exception:
                 pass
@@ -135,6 +155,7 @@ class DeepResearchService:
         # a no-op if state isn't importable (e.g. in unit tests).
         try:
             from app import state as _state
+
             _state.track_background_task(task)
         except Exception:
             pass
@@ -151,16 +172,20 @@ class DeepResearchService:
         would otherwise see the session stuck in RESEARCHING forever.
         """
         from app.services.telemetry import trace_span
+
         try:
             session_data = await asyncio.to_thread(self._load_session, session_id)
             mode = session_data.get("mode", "parallel")
             queue = session_data["queue"]
 
-            with trace_span("deep_research.process_queue", {
-                "session_id": session_id,
-                "mode": mode,
-                "subtopic_count": len(queue),
-            }):
+            with trace_span(
+                "deep_research.process_queue",
+                {
+                    "session_id": session_id,
+                    "mode": mode,
+                    "subtopic_count": len(queue),
+                },
+            ):
                 if mode == "parallel":
                     # Process up to 5 concurrently
                     sem = asyncio.Semaphore(5)
@@ -200,7 +225,8 @@ class DeepResearchService:
 
             # Find the subtopic
             subtopic = next((st for st in session_data["queue"] if st["id"] == subtopic_id), None)
-            if not subtopic: return
+            if not subtopic:
+                return
 
             # Update status
             subtopic["status"] = "RESEARCHING"
@@ -214,19 +240,16 @@ class DeepResearchService:
         # 1. Retrieval
         try:
             req = RetrieveRequest(
-                query=topic_query, 
-                kb_name=kb_name, 
-                retrieval_pipeline=retrieval_pipeline, 
-                top_k=5
+                query=topic_query, kb_name=kb_name, retrieval_pipeline=retrieval_pipeline, top_k=5
             )
             retrieval_resp = await run_retrieval(req)
             rag_results = retrieval_resp.get("results", [])
-            
+
             context_text = ""
             for i, res in enumerate(rag_results):
-                content = res.get('content', '') or res.get('summary', '')
-                doc_id = res.get('doc_id', 'unknown')
-                page = res.get('page', 'unknown')
+                content = res.get("content", "") or res.get("summary", "")
+                doc_id = res.get("doc_id", "unknown")
+                page = res.get("page", "unknown")
                 context_text += f"--- Source {i+1} [Doc: {doc_id}, Page: {page}] ---\n{content}\n\n"
 
             if not context_text.strip():
@@ -237,16 +260,19 @@ class DeepResearchService:
                 "You are the NoteAgent. Review the context below and write concise, well-structured notes "
                 "addressing the specific subtopic query. Include source citations where possible."
             )
-            
+
             response = await self.lm_client.stream_chat_completion(
                 model=model_id,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Subtopic: {topic_query}\n\nContext:\n{context_text}"}
+                    {
+                        "role": "user",
+                        "content": f"Subtopic: {topic_query}\n\nContext:\n{context_text}",
+                    },
                 ],
-                max_tokens=1500
+                max_tokens=1500,
             )
-            
+
             notes = response.get("content", "Failed to generate notes.")
             subtopic["status"] = "COMPLETED"
             subtopic["notes"] = notes
@@ -254,7 +280,7 @@ class DeepResearchService:
         except Exception as e:
             logger.error(f"Error researching subtopic {subtopic_id}: {e}")
             subtopic["status"] = "FAILED"
-            subtopic["notes"] = f"Error: {str(e)}"
+            subtopic["notes"] = f"Error: {e!s}"
 
         # Reload and save to avoid race conditions in parallel mode
         async with self._get_lock(session_id):
@@ -267,17 +293,20 @@ class DeepResearchService:
             await asyncio.to_thread(self._save_session, session_id, current_data)
 
             from app import state
+
             if state.memory_service and device_id:
                 try:
                     quality = 0.8 if subtopic["status"] == "COMPLETED" else 0.2
                     await state.memory_service.record_agent_outcome(
-                        agent_type="research", query_pattern=topic_query[:100],
-                        strategy="retrieval_synthesis", outcome_quality=quality,
-                        model_used=model_id, device_id=device_id,
+                        agent_type="research",
+                        query_pattern=topic_query[:100],
+                        strategy="retrieval_synthesis",
+                        outcome_quality=quality,
+                        model_used=model_id,
+                        device_id=device_id,
                     )
                 except Exception:
                     pass
-
 
     async def _generate_report(self, session_id: str, device_id: str = ""):
         """Phase 3: Reporting. Aggregates notes into a final report."""
@@ -302,13 +331,13 @@ class DeepResearchService:
             model=model_id,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            max_tokens=4000
+            max_tokens=4000,
         )
-        
+
         final_report = response.get("content", "Failed to generate report.")
-        
+
         async with self._get_lock(session_id):
             session_data = await asyncio.to_thread(self._load_session, session_id)
             session_data["final_report"] = final_report
@@ -316,32 +345,42 @@ class DeepResearchService:
             await asyncio.to_thread(self._save_session, session_id, session_data)
 
         from app import state
+
         if state.memory_service and device_id:
             try:
                 await state.memory_service.store_episode(
-                    device_id=device_id, query=main_query, answer=final_report,
+                    device_id=device_id,
+                    query=main_query,
+                    answer=final_report,
                     agents=["decompose", "research", "note", "report"],
-                    model_used=model_id, session_type="research",
+                    model_used=model_id,
+                    session_type="research",
                 )
                 from app.services.fact_extractor import extract_and_store_facts
+
                 async def _run_with_telemetry():
                     try:
                         await extract_and_store_facts(
-                            device_id=device_id, query=main_query, answer=final_report,
-                            source_id=session_id, lm_client=self.lm_client,
+                            device_id=device_id,
+                            query=main_query,
+                            answer=final_report,
+                            source_id=session_id,
+                            lm_client=self.lm_client,
                             memory_service=state.memory_service,
                         )
                     except Exception as e:
                         logger.error(f"fact_extraction_failed: {e}", exc_info=False)
                         try:
                             from app.services.metrics import FACT_EXTRACTION_FAILURES
+
                             FACT_EXTRACTION_FAILURES.inc()
                         except ImportError:
                             pass
+
                 _global_registry.spawn(_run_with_telemetry())
             except Exception:
                 pass
 
-    def get_status(self, session_id: str) -> Dict[str, Any]:
+    def get_status(self, session_id: str) -> dict[str, Any]:
         """Returns the current state of the research session."""
         return self._load_session(session_id)

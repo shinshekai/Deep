@@ -104,9 +104,7 @@ class RAGEvaluator:
     def is_available(self) -> bool:
         return True
 
-    async def compute_faithfulness(
-        self, question: str, answer: str, contexts: list[str]
-    ) -> float:
+    async def compute_faithfulness(self, question: str, answer: str, contexts: list[str]) -> float:
         return faithfulness(answer, contexts)
 
     async def evaluate_sample(

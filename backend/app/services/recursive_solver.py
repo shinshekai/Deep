@@ -11,15 +11,15 @@ Key adaptations from the RecursiveMAS paper (arXiv:2604.25917):
     instead of raw latent vectors (since we use LM Studio API, not PyTorch)
   - Convergence detection via output similarity between rounds
   - Pattern selection driven by complexity scorer
-  
+
 Reference: https://github.com/RecursiveMAS/RecursiveMAS
 """
 
 import asyncio
-import time
 import logging
-from typing import Optional, Literal
+import time
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.services.lm_studio_client import LMStudioClient
 
@@ -94,6 +94,7 @@ AGENT_PERSONAS = {
 @dataclass
 class RecursionRound:
     """Record of a single recursion round."""
+
     round_num: int
     agent: str
     content: str
@@ -104,6 +105,7 @@ class RecursionRound:
 @dataclass
 class RecursiveSolveResult:
     """Result of a recursive solve session."""
+
     answer: str
     pattern: str
     rounds_used: int
@@ -116,7 +118,7 @@ class RecursiveSolveResult:
 
 class RecursiveSolver:
     """Recursive multi-agent collaboration adapted for LM Studio inference.
-    
+
     Instead of RecursiveLink latent-space transfer (requires PyTorch),
     we use LLM-generated compressed summaries (~200 tokens) between agents,
     achieving similar information density reduction.
@@ -138,13 +140,13 @@ class RecursiveSolver:
         context: str = "",
         pattern: Literal["sequential", "mixture", "deliberation", "distillation"] = "sequential",
         model_id: str = "Qwen3-1.7B-Q4_K_M",
-        expert_model_id: Optional[str] = None,
+        expert_model_id: str | None = None,
         max_rounds: int = 3,
         convergence_threshold: float = 0.85,
         ws_send=None,
     ) -> RecursiveSolveResult:
         """Run recursive multi-agent collaboration.
-        
+
         Args:
             query: User query
             context: Retrieved context from RAG pipeline
@@ -156,21 +158,23 @@ class RecursiveSolver:
             ws_send: Optional WebSocket callback for streaming
         """
         from app.services.telemetry import trace_span
+
         start_time = time.time()
-        
-        with trace_span("recursive_solver.solve", {
-            "pattern": pattern,
-            "model_id": model_id,
-            "max_rounds": max_rounds,
-        }):
+
+        with trace_span(
+            "recursive_solver.solve",
+            {
+                "pattern": pattern,
+                "model_id": model_id,
+                "max_rounds": max_rounds,
+            },
+        ):
             if pattern == "sequential":
                 result = await self._run_sequential(
                     query, context, model_id, max_rounds, convergence_threshold, ws_send
                 )
             elif pattern == "mixture":
-                result = await self._run_mixture(
-                    query, context, model_id, ws_send
-                )
+                result = await self._run_mixture(query, context, model_id, ws_send)
             elif pattern == "deliberation":
                 result = await self._run_deliberation(
                     query, context, model_id, max_rounds, convergence_threshold, ws_send
@@ -190,8 +194,13 @@ class RecursiveSolver:
     # ──────────────────────────────────────────
 
     async def _run_sequential(
-        self, query: str, context: str, model_id: str,
-        max_rounds: int, convergence_threshold: float, ws_send,
+        self,
+        query: str,
+        context: str,
+        model_id: str,
+        max_rounds: int,
+        convergence_threshold: float,
+        ws_send,
     ) -> RecursiveSolveResult:
         """Planner → Critic → Solver, iterated until convergence."""
         trace: list[RecursionRound] = []
@@ -221,14 +230,18 @@ class RecursiveSolver:
             trace.append(RecursionRound(round_num, "critic", critique, critique_compressed))
 
             # Solver (gets plan + critique as compressed context)
-            solve_context = f"{round_context}\n\nPlan: {plan_compressed}\n\nCritique: {critique_compressed}"
+            solve_context = (
+                f"{round_context}\n\nPlan: {plan_compressed}\n\nCritique: {critique_compressed}"
+            )
             answer = await self._call_agent(
                 "solver", query, solve_context, model_id, ws_send, round_num
             )
             trace.append(RecursionRound(round_num, "solver", answer, ""))
 
             # Convergence check
-            if previous_answer and self._check_convergence(previous_answer, answer, convergence_threshold):
+            if previous_answer and self._check_convergence(
+                previous_answer, answer, convergence_threshold
+            ):
                 converged = True
                 logger.info(f"Sequential converged at round {round_num}")
                 break
@@ -256,7 +269,11 @@ class RecursiveSolver:
     # ──────────────────────────────────────────
 
     async def _run_mixture(
-        self, query: str, context: str, model_id: str, ws_send,
+        self,
+        query: str,
+        context: str,
+        model_id: str,
+        ws_send,
     ) -> RecursiveSolveResult:
         """Domain experts process in parallel; summarizer aggregates."""
         trace: list[RecursionRound] = []
@@ -264,15 +281,14 @@ class RecursiveSolver:
 
         # Run domain experts in parallel
         tasks = [
-            self._call_agent(expert, query, context, model_id, ws_send, 1)
-            for expert in experts
+            self._call_agent(expert, query, context, model_id, ws_send, 1) for expert in experts
         ]
         expert_outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
         expert_summaries = []
         for expert, output in zip(experts, expert_outputs):
             if isinstance(output, Exception):
-                content = f"[{expert}] Error: {str(output)}"
+                content = f"[{expert}] Error: {output!s}"
             else:
                 content = output or f"[{expert}] No response."
             compressed = await self._compress(content, model_id)
@@ -282,8 +298,12 @@ class RecursiveSolver:
         # Summarizer aggregates
         summary_context = "\n\n".join(expert_summaries)
         answer = await self._call_agent(
-            "summarizer", query, f"{context}\n\nExpert outputs:\n{summary_context}",
-            model_id, ws_send, 1
+            "summarizer",
+            query,
+            f"{context}\n\nExpert outputs:\n{summary_context}",
+            model_id,
+            ws_send,
+            1,
         )
         trace.append(RecursionRound(1, "summarizer", answer, ""))
 
@@ -302,8 +322,13 @@ class RecursiveSolver:
     # ──────────────────────────────────────────
 
     async def _run_deliberation(
-        self, query: str, context: str, model_id: str,
-        max_rounds: int, convergence_threshold: float, ws_send,
+        self,
+        query: str,
+        context: str,
+        model_id: str,
+        max_rounds: int,
+        convergence_threshold: float,
+        ws_send,
     ) -> RecursiveSolveResult:
         """Reflector and Tool-Caller alternate in a recursive loop."""
         trace: list[RecursionRound] = []
@@ -362,16 +387,19 @@ class RecursiveSolver:
     # ──────────────────────────────────────────
 
     async def _run_distillation(
-        self, query: str, context: str, learner_model: str,
-        expert_model: str, max_rounds: int, ws_send,
+        self,
+        query: str,
+        context: str,
+        learner_model: str,
+        expert_model: str,
+        max_rounds: int,
+        ws_send,
     ) -> RecursiveSolveResult:
         """Expert provides detailed reasoning; Learner refines."""
         trace: list[RecursionRound] = []
 
         # Expert generates detailed reasoning with the larger model
-        expert_output = await self._call_agent(
-            "expert", query, context, expert_model, ws_send, 1
-        )
+        expert_output = await self._call_agent("expert", query, context, expert_model, ws_send, 1)
         expert_compressed = await self._compress(expert_output, learner_model)
         trace.append(RecursionRound(1, "expert", expert_output, expert_compressed))
 
@@ -397,8 +425,13 @@ class RecursiveSolver:
     # ──────────────────────────────────────────
 
     async def _call_agent(
-        self, agent: str, query: str, context: str,
-        model_id: str, ws_send, round_num: int,
+        self,
+        agent: str,
+        query: str,
+        context: str,
+        model_id: str,
+        ws_send,
+        round_num: int,
     ) -> str:
         """Call a single agent with the LM Studio API."""
         persona = AGENT_PERSONAS.get(agent, "You are a helpful assistant.")
@@ -409,26 +442,31 @@ class RecursiveSolver:
 
         # Stream progress to WebSocket
         if ws_send:
-            await ws_send({
-                "type": "agent_step",
-                "agent": agent,
-                "delta": f"\n[Round {round_num} — {agent}] Processing...\n",
-                "timestamp": time.time(),
-                "metadata": {"pattern": "recursive", "round": round_num},
-            })
+            await ws_send(
+                {
+                    "type": "agent_step",
+                    "agent": agent,
+                    "delta": f"\n[Round {round_num} — {agent}] Processing...\n",
+                    "timestamp": time.time(),
+                    "metadata": {"pattern": "recursive", "round": round_num},
+                }
+            )
 
         try:
             full_content = ""
+
             async def on_chunk(tok: str):
                 nonlocal full_content
                 full_content += tok
                 if ws_send:
-                    await ws_send({
-                        "type": "agent_step",
-                        "agent": agent,
-                        "delta": tok,
-                        "timestamp": time.time(),
-                    })
+                    await ws_send(
+                        {
+                            "type": "agent_step",
+                            "agent": agent,
+                            "delta": tok,
+                            "timestamp": time.time(),
+                        }
+                    )
 
             result = await self.lm_client.stream_chat_completion(
                 model=model_id,
@@ -443,11 +481,11 @@ class RecursiveSolver:
 
         except Exception as e:
             logger.error(f"Agent {agent} failed: {e}", exc_info=True)
-            return f"[{agent}] Error: {str(e)}"
+            return f"[{agent}] Error: {e!s}"
 
     async def _compress(self, text: str, model_id: str) -> str:
         """Compress text to ~200 tokens using LLM.
-        
+
         This simulates RecursiveLink's latent-space compression:
         instead of transferring raw latent vectors between agents,
         we create dense text summaries that capture the essential information.
@@ -477,20 +515,20 @@ class RecursiveSolver:
 
     def _check_convergence(self, prev: str, curr: str, threshold: float) -> bool:
         """Check if two outputs are similar enough to stop recursion.
-        
+
         Uses Jaccard similarity on word sets as a fast proxy.
         In production, this could use embedding cosine similarity.
         """
         prev_words = set(prev.lower().split())
         curr_words = set(curr.lower().split())
-        
+
         if not prev_words or not curr_words:
             return False
-        
+
         intersection = prev_words & curr_words
         union = prev_words | curr_words
         similarity = len(intersection) / len(union) if union else 0
-        
+
         return similarity >= threshold
 
     @staticmethod
@@ -500,7 +538,7 @@ class RecursiveSolver:
         retrieved_chunks: int = 0,
     ) -> str:
         """Select the optimal collaboration pattern based on query characteristics.
-        
+
         Mapping inspired by RecursiveMAS paper:
         - Simple queries → sequential (fast, 3 agents)
         - Multi-domain queries → mixture (parallel experts)
@@ -508,7 +546,7 @@ class RecursiveSolver:
         - High-complexity with available large model → distillation
         """
         lower = query.lower()
-        
+
         # Multi-domain detection
         domain_keywords = {
             "math": ["calculate", "equation", "formula", "derivative", "integral"],
@@ -516,21 +554,20 @@ class RecursiveSolver:
             "science": ["experiment", "hypothesis", "theory", "research", "study"],
         }
         domains_detected = sum(
-            1 for keywords in domain_keywords.values()
-            if any(kw in lower for kw in keywords)
+            1 for keywords in domain_keywords.values() if any(kw in lower for kw in keywords)
         )
-        
+
         if domains_detected >= 2:
             return "mixture"
-        
+
         # Research-heavy: needs iterative retrieval
         research_signals = ["compare", "analyze", "investigate", "what are all", "comprehensive"]
         if any(sig in lower for sig in research_signals) and retrieved_chunks > 3:
             return "deliberation"
-        
+
         # High complexity → distillation if we have multi-tier models
         if complexity_score > 0.7:
             return "distillation"
-        
+
         # Default: sequential (most efficient)
         return "sequential"

@@ -79,7 +79,5 @@ class HybridRAGSearch:
             min_score=min_score,
         )
         if not results:
-            logger.info(
-                f"NaiveRAGSearch: no vector data for '{kb_name}'"
-            )
+            logger.info(f"NaiveRAGSearch: no vector data for '{kb_name}'")
         return results

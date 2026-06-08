@@ -11,12 +11,7 @@ import os
 import re
 from pathlib import Path
 
-from app.validation.baselines import (
-    CheckCategory,
-    Severity,
-    ValidationReport,
-    ValidationResult,
-)
+from app.validation.baselines import CheckCategory, Severity, ValidationReport, ValidationResult
 
 # Path to the backend app directory (resolve relative to this file)
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,70 +66,85 @@ def _check_env_example_exists(report: ValidationReport) -> None:
 
     has_template = env_example.exists() or (_BACKEND_ROOT / ".env.example").exists()
 
-    report.add(ValidationResult(
-        check_id="CFG-001",
-        category=CheckCategory.CONFIG,
-        severity=Severity.HIGH,
-        passed=has_template,
-        message=".env.example template exists" if has_template
-                else "No .env.example found — new developers cannot onboard",
-        remediation="Create .env.example with all required variables from PRD Appendix A",
-    ))
+    report.add(
+        ValidationResult(
+            check_id="CFG-001",
+            category=CheckCategory.CONFIG,
+            severity=Severity.HIGH,
+            passed=has_template,
+            message=(
+                ".env.example template exists"
+                if has_template
+                else "No .env.example found — new developers cannot onboard"
+            ),
+            remediation="Create .env.example with all required variables from PRD Appendix A",
+        )
+    )
 
     has_env = env_file.exists() or backend_env.exists()
-    report.add(ValidationResult(
-        check_id="CFG-002",
-        category=CheckCategory.CONFIG,
-        severity=Severity.INFO,
-        passed=has_env,
-        message=".env file detected" if has_env
-                else "No .env file found — using hardcoded defaults",
-    ))
+    report.add(
+        ValidationResult(
+            check_id="CFG-002",
+            category=CheckCategory.CONFIG,
+            severity=Severity.INFO,
+            passed=has_env,
+            message=(
+                ".env file detected" if has_env else "No .env file found — using hardcoded defaults"
+            ),
+        )
+    )
 
 
 def _check_config_defaults(report: ValidationReport) -> None:
     """Parse config.py AST to find empty/dangerous defaults."""
     config_path = _APP_DIR / "config.py"
     if not config_path.exists():
-        report.add(ValidationResult(
-            check_id="CFG-010",
-            category=CheckCategory.CONFIG,
-            severity=Severity.CRITICAL,
-            passed=False,
-            message="config.py not found at expected path",
-            module="app.config",
-        ))
+        report.add(
+            ValidationResult(
+                check_id="CFG-010",
+                category=CheckCategory.CONFIG,
+                severity=Severity.CRITICAL,
+                passed=False,
+                message="config.py not found at expected path",
+                module="app.config",
+            )
+        )
         return
 
     source = config_path.read_text(encoding="utf-8")
 
     # Check for empty string defaults on critical fields
-    empty_defaults = re.findall(
-        r'(\w+)\s*:\s*str\s*=\s*["\'][\s]*["\']', source
-    )
+    empty_defaults = re.findall(r'(\w+)\s*:\s*str\s*=\s*["\'][\s]*["\']', source)
     for field_name in empty_defaults:
         is_critical = field_name.lower() in ("llm_host", "llm_model", "embedding_host")
-        report.add(ValidationResult(
-            check_id=f"CFG-011-{field_name}",
-            category=CheckCategory.CONFIG,
-            severity=Severity.CRITICAL if is_critical else Severity.MEDIUM,
-            passed=not is_critical,
-            message=f"config.py: '{field_name}' has empty string default",
-            module="app.config",
-            remediation=f"Set a sensible default for '{field_name}' or require via env var",
-        ))
+        report.add(
+            ValidationResult(
+                check_id=f"CFG-011-{field_name}",
+                category=CheckCategory.CONFIG,
+                severity=Severity.CRITICAL if is_critical else Severity.MEDIUM,
+                passed=not is_critical,
+                message=f"config.py: '{field_name}' has empty string default",
+                module="app.config",
+                remediation=f"Set a sensible default for '{field_name}' or require via env var",
+            )
+        )
 
     # Check that pydantic-settings is used (env var loading)
     uses_settings = "BaseSettings" in source or "pydantic_settings" in source
-    report.add(ValidationResult(
-        check_id="CFG-012",
-        category=CheckCategory.CONFIG,
-        severity=Severity.MEDIUM,
-        passed=uses_settings,
-        message="config.py uses pydantic-settings for env loading"
-                if uses_settings else "config.py does not use pydantic-settings",
-        remediation="Migrate to pydantic_settings.BaseSettings for .env auto-loading",
-    ))
+    report.add(
+        ValidationResult(
+            check_id="CFG-012",
+            category=CheckCategory.CONFIG,
+            severity=Severity.MEDIUM,
+            passed=uses_settings,
+            message=(
+                "config.py uses pydantic-settings for env loading"
+                if uses_settings
+                else "config.py does not use pydantic-settings"
+            ),
+            remediation="Migrate to pydantic_settings.BaseSettings for .env auto-loading",
+        )
+    )
 
 
 def _check_hardcoded_credentials(report: ValidationReport) -> None:
@@ -155,30 +165,36 @@ def _check_hardcoded_credentials(report: ValidationReport) -> None:
                 # Exclude test files
                 if "test" in str(rel_path).lower():
                     continue
-                found_issues.append({
-                    "file": str(rel_path),
-                    "match": match.group()[:60],
-                    **spec,
-                })
+                found_issues.append(
+                    {
+                        "file": str(rel_path),
+                        "match": match.group()[:60],
+                        **spec,
+                    }
+                )
 
     if found_issues:
         for i, issue in enumerate(found_issues[:5]):  # Cap at 5
-            report.add(ValidationResult(
-                check_id=f"CFG-020-{i}",
-                category=CheckCategory.CONFIG,
-                severity=issue["severity"],
-                passed=False,
-                message=f"{issue['message']} in {issue['file']}: {issue['match']}",
-                remediation=issue["remediation"],
-            ))
+            report.add(
+                ValidationResult(
+                    check_id=f"CFG-020-{i}",
+                    category=CheckCategory.CONFIG,
+                    severity=issue["severity"],
+                    passed=False,
+                    message=f"{issue['message']} in {issue['file']}: {issue['match']}",
+                    remediation=issue["remediation"],
+                )
+            )
     else:
-        report.add(ValidationResult(
-            check_id="CFG-020",
-            category=CheckCategory.CONFIG,
-            severity=Severity.INFO,
-            passed=True,
-            message="No hardcoded credentials detected in source files",
-        ))
+        report.add(
+            ValidationResult(
+                check_id="CFG-020",
+                category=CheckCategory.CONFIG,
+                severity=Severity.INFO,
+                passed=True,
+                message="No hardcoded credentials detected in source files",
+            )
+        )
 
 
 def _check_cors_configuration(report: ValidationReport) -> None:
@@ -192,26 +208,38 @@ def _check_cors_configuration(report: ValidationReport) -> None:
     cors_content = cors_path.read_text(encoding="utf-8") if cors_path.exists() else ""
 
     has_cors = "CORSMiddleware" in content or "CORSMiddleware" in cors_content
-    has_wildcard = 'allow_origins=["*"]' in content or "allow_origins=['*']" in content or 'allow_origins=["*"]' in cors_content or "allow_origins=['*']" in cors_content
+    has_wildcard = (
+        'allow_origins=["*"]' in content
+        or "allow_origins=['*']" in content
+        or 'allow_origins=["*"]' in cors_content
+        or "allow_origins=['*']" in cors_content
+    )
 
-    report.add(ValidationResult(
-        check_id="CFG-030",
-        category=CheckCategory.CONFIG,
-        severity=Severity.INFO if has_cors else Severity.MEDIUM,
-        passed=has_cors,
-        message="CORS middleware configured" if has_cors
-                else "No CORS middleware found — frontend will be blocked",
-        remediation="Add CORSMiddleware to main.py" if not has_cors else None,
-    ))
+    report.add(
+        ValidationResult(
+            check_id="CFG-030",
+            category=CheckCategory.CONFIG,
+            severity=Severity.INFO if has_cors else Severity.MEDIUM,
+            passed=has_cors,
+            message=(
+                "CORS middleware configured"
+                if has_cors
+                else "No CORS middleware found — frontend will be blocked"
+            ),
+            remediation="Add CORSMiddleware to main.py" if not has_cors else None,
+        )
+    )
 
     if has_wildcard:
-        report.add(ValidationResult(
-            check_id="CFG-031",
-            category=CheckCategory.CONFIG,
-            severity=Severity.LOW,
-            passed=True,  # Acceptable for local-first
-            message="CORS allows all origins (acceptable for local-first architecture)",
-        ))
+        report.add(
+            ValidationResult(
+                check_id="CFG-031",
+                category=CheckCategory.CONFIG,
+                severity=Severity.LOW,
+                passed=True,  # Acceptable for local-first
+                message="CORS allows all origins (acceptable for local-first architecture)",
+            )
+        )
 
 
 def _check_frontend_api_consistency(report: ValidationReport) -> None:
@@ -220,7 +248,7 @@ def _check_frontend_api_consistency(report: ValidationReport) -> None:
     if not frontend_dir.exists():
         return
 
-    absolute_pattern = re.compile(r'http://localhost:\d+')
+    absolute_pattern = re.compile(r"http://localhost:\d+")
     relative_pattern = re.compile(r'["\']\/api\/v1\/')
 
     absolute_files: list[str] = []
@@ -240,18 +268,28 @@ def _check_frontend_api_consistency(report: ValidationReport) -> None:
 
     has_both = bool(absolute_files) and bool(relative_files)
 
-    report.add(ValidationResult(
-        check_id="CFG-040",
-        category=CheckCategory.CONFIG,
-        severity=Severity.HIGH if has_both else Severity.INFO,
-        passed=not has_both,
-        message=(
-            f"Inconsistent API URLs: {len(absolute_files)} file(s) use absolute "
-            f"URLs, {len(relative_files)} use relative paths"
-        ) if has_both else "Frontend API URLs are consistent",
-        remediation=(
-            "Centralize API base URL in lib/config.ts and import everywhere. "
-            f"Absolute: {', '.join(absolute_files[:3])}. "
-            f"Relative: {', '.join(relative_files[:3])}"
-        ) if has_both else None,
-    ))
+    report.add(
+        ValidationResult(
+            check_id="CFG-040",
+            category=CheckCategory.CONFIG,
+            severity=Severity.HIGH if has_both else Severity.INFO,
+            passed=not has_both,
+            message=(
+                (
+                    f"Inconsistent API URLs: {len(absolute_files)} file(s) use absolute "
+                    f"URLs, {len(relative_files)} use relative paths"
+                )
+                if has_both
+                else "Frontend API URLs are consistent"
+            ),
+            remediation=(
+                (
+                    "Centralize API base URL in lib/config.ts and import everywhere. "
+                    f"Absolute: {', '.join(absolute_files[:3])}. "
+                    f"Relative: {', '.join(relative_files[:3])}"
+                )
+                if has_both
+                else None
+            ),
+        )
+    )

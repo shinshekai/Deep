@@ -216,7 +216,9 @@ class MemoryService:
         citations: list | None = None,
         session_type: str = "chat",
     ) -> str:
-        with trace_span("memory.store_episode", {"device_id": device_id, "session_type": session_type}):
+        with trace_span(
+            "memory.store_episode", {"device_id": device_id, "session_type": session_type}
+        ):
             db = await self._get_db()
             episode_id = uuid.uuid4().hex[:12]
             now = time.time()
@@ -243,9 +245,7 @@ class MemoryService:
             await self.track_usage(device_id, "episodes_stored", 1)
             return episode_id
 
-    async def recall_episodes(
-        self, device_id: str, query: str, top_k: int = 5
-    ) -> list[dict]:
+    async def recall_episodes(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
         with trace_span("memory.recall_episodes", {"device_id": device_id, "top_k": top_k}):
             db = await self._get_db()
             now = time.time()
@@ -334,10 +334,10 @@ class MemoryService:
             await db.commit()
             return cursor.rowcount > 0
 
-    async def list_episodes(
-        self, device_id: str, limit: int = 20, offset: int = 0
-    ) -> list[dict]:
-        with trace_span("memory.list_episodes", {"device_id": device_id, "limit": limit, "offset": offset}):
+    async def list_episodes(self, device_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
+        with trace_span(
+            "memory.list_episodes", {"device_id": device_id, "limit": limit, "offset": offset}
+        ):
             db = await self._get_db()
             rows = await db.execute_fetchall(
                 """SELECT id, device_id, session_type, query, answer, agents,
@@ -392,9 +392,7 @@ class MemoryService:
             await self.track_usage(device_id, "facts_stored", 1)
             return fact_id
 
-    async def recall_facts(
-        self, device_id: str, query: str, top_k: int = 10
-    ) -> list[dict]:
+    async def recall_facts(self, device_id: str, query: str, top_k: int = 10) -> list[dict]:
         with trace_span("memory.recall_facts", {"device_id": device_id, "top_k": top_k}):
             db = await self._get_db()
             now = time.time()
@@ -550,7 +548,9 @@ class MemoryService:
         tier: int = 0,
         device_id: str = "default",
     ) -> None:
-        with trace_span("memory.record_agent_outcome", {"agent_type": agent_type, "device_id": device_id}):
+        with trace_span(
+            "memory.record_agent_outcome", {"agent_type": agent_type, "device_id": device_id}
+        ):
             db = await self._get_db()
             now = time.time()
             async with self._transaction():
@@ -559,7 +559,16 @@ class MemoryService:
                        (agent_type, query_pattern, strategy_used, outcome_quality,
                         model_used, tier, device_id, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (agent_type, query_pattern, strategy, outcome_quality, model_used, tier, device_id, now),
+                    (
+                        agent_type,
+                        query_pattern,
+                        strategy,
+                        outcome_quality,
+                        model_used,
+                        tier,
+                        device_id,
+                        now,
+                    ),
                 )
 
                 rows = await db.execute_fetchall(
@@ -591,9 +600,7 @@ class MemoryService:
                         (agent_type, query_pattern, strategy, outcome_quality, 1, now),
                     )
 
-    async def get_agent_strategies(
-        self, agent_type: str, query_pattern: str = ""
-    ) -> list[dict]:
+    async def get_agent_strategies(self, agent_type: str, query_pattern: str = "") -> list[dict]:
         with trace_span("memory.get_agent_strategies", {"agent_type": agent_type}):
             db = await self._get_db()
             if query_pattern:
@@ -657,7 +664,9 @@ class MemoryService:
             existing = await self.get_project_profile(kb_name)
             doc_count = profile.get("document_count", existing["document_count"] if existing else 0)
             total_pages = profile.get("total_pages", existing["total_pages"] if existing else 0)
-            profile_filtered = {k: v for k, v in profile.items() if k not in ("document_count", "total_pages")}
+            profile_filtered = {
+                k: v for k, v in profile.items() if k not in ("document_count", "total_pages")
+            }
 
             await db.execute(
                 """INSERT INTO project_profiles
@@ -696,9 +705,7 @@ class MemoryService:
                 for fact_id, conf in rows:
                     new_conf = max(0.0, conf - decay_rate)
                     if new_conf <= 0.0:
-                        await db.execute(
-                            "UPDATE facts SET archived = 1 WHERE id = ?", (fact_id,)
-                        )
+                        await db.execute("UPDATE facts SET archived = 1 WHERE id = ?", (fact_id,))
                     else:
                         await db.execute(
                             "UPDATE facts SET confidence = ? WHERE id = ?", (new_conf, fact_id)
@@ -769,9 +776,7 @@ class MemoryService:
                 "SELECT COUNT(*) FROM episodes WHERE archived = 0"
             )
             fact_total = await db.execute_fetchall("SELECT COUNT(*) FROM facts")
-            fact_active = await db.execute_fetchall(
-                "SELECT COUNT(*) FROM facts WHERE archived = 0"
-            )
+            fact_active = await db.execute_fetchall("SELECT COUNT(*) FROM facts WHERE archived = 0")
             profile_count = await db.execute_fetchall("SELECT COUNT(*) FROM user_profiles")
             agent_count = await db.execute_fetchall("SELECT COUNT(*) FROM agent_outcomes")
             strategy_count = await db.execute_fetchall("SELECT COUNT(*) FROM agent_strategies")

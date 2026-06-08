@@ -9,16 +9,16 @@ Runs asynchronously in background, results pollable by run_id.
 """
 
 import asyncio
-import time
-import uuid
 import json
 import logging
+import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from app.services.rag_eval import faithfulness, answer_relevancy
+from app.services.rag_eval import answer_relevancy, faithfulness
 from app.services.task_registry import _global_registry
 
 
@@ -47,11 +47,11 @@ class BenchmarkRun:
 
 # Performance thresholds from CLAUDE.md spec
 LATENCY_THRESHOLDS = {
-    "ttft_first_token": 3.0,       # < 3s TTFT
-    "simple_qa_e2e": 5.0,          # simple factual Q&A
-    "multi_chunk_qa": 10.0,        # multi-chunk reasoning
-    "needle_in_haystack": 8.0,     # retrieval precision
-    "multi_doc_synthesis": 15.0,   # cross-document reasoning
+    "ttft_first_token": 3.0,  # < 3s TTFT
+    "simple_qa_e2e": 5.0,  # simple factual Q&A
+    "multi_chunk_qa": 10.0,  # multi-chunk reasoning
+    "needle_in_haystack": 8.0,  # retrieval precision
+    "multi_doc_synthesis": 15.0,  # cross-document reasoning
 }
 
 QUALITY_THRESHOLDS = {
@@ -60,15 +60,15 @@ QUALITY_THRESHOLDS = {
     "retrieval_precision_at_5": 0.90,
     "retrieval_recall_at_5": 0.75,
     "citation_accuracy": 0.90,
-    "hallucination_rate": 0.05,    # lower is better (inverted check)
+    "hallucination_rate": 0.05,  # lower is better (inverted check)
 }
 
 THROUGHPUT_THRESHOLDS = {
-    "single_user_tps": 10.0,       # tokens/sec, 1 user
-    "three_user_avg_tps": 8.0,     # tokens/sec, 3 concurrent
-    "ten_user_avg_tps": 5.0,       # tokens/sec, 10 concurrent
-    "burst_latency_p95": 5.0,      # p95 latency under burst
-    "sustained_stability": 0.80,   # stddev/mean ratio < 20%
+    "single_user_tps": 10.0,  # tokens/sec, 1 user
+    "three_user_avg_tps": 8.0,  # tokens/sec, 3 concurrent
+    "ten_user_avg_tps": 5.0,  # tokens/sec, 10 concurrent
+    "burst_latency_p95": 5.0,  # p95 latency under burst
+    "sustained_stability": 0.80,  # stddev/mean ratio < 20%
 }
 
 
@@ -89,7 +89,7 @@ class BenchmarkRunner:
     def _load_dataset(self) -> list[dict]:
         """Load evaluation dataset from JSON file."""
         try:
-            with open(self.DATASET_PATH, "r") as f:
+            with open(self.DATASET_PATH) as f:
                 data = json.load(f)
             return data.get("test_cases", [])
         except FileNotFoundError:
@@ -180,9 +180,21 @@ class BenchmarkRunner:
         """End-to-end Q&A timing benchmarks."""
         test_cases = [
             ("simple_qa", "What is the capital of France?", "simple_qa_e2e"),
-            ("multi_chunk_qa", "Summarize the key differences between supervised and unsupervised learning", "multi_chunk_qa"),
-            ("needle_in_haystack", "Find specific details about a mentioned concept in the document", "needle_in_haystack"),
-            ("multi_doc_synthesis", "Compare the approaches across multiple documents", "multi_doc_synthesis"),
+            (
+                "multi_chunk_qa",
+                "Summarize the key differences between supervised and unsupervised learning",
+                "multi_chunk_qa",
+            ),
+            (
+                "needle_in_haystack",
+                "Find specific details about a mentioned concept in the document",
+                "needle_in_haystack",
+            ),
+            (
+                "multi_doc_synthesis",
+                "Compare the approaches across multiple documents",
+                "multi_doc_synthesis",
+            ),
             ("ttft_first_token", "Quick question", "ttft_first_token"),
         ]
 
@@ -201,17 +213,35 @@ class BenchmarkRunner:
                     elapsed = time.time() - start
                     threshold = LATENCY_THRESHOLDS[metric_key]
                     passed = elapsed <= threshold
-                    self._add_result(run, BenchmarkResult(
-                        test_id=f"latency_{name}",
-                        category="latency",
-                        test_case=name,
-                        metric="response_time_s",
-                        value=round(elapsed, 3),
-                        threshold=threshold,
-                        passed=passed,
-                    ))
-                except Exception as e:
-                    self._add_result(run, BenchmarkResult(
+                    self._add_result(
+                        run,
+                        BenchmarkResult(
+                            test_id=f"latency_{name}",
+                            category="latency",
+                            test_case=name,
+                            metric="response_time_s",
+                            value=round(elapsed, 3),
+                            threshold=threshold,
+                            passed=passed,
+                        ),
+                    )
+                except Exception:
+                    self._add_result(
+                        run,
+                        BenchmarkResult(
+                            test_id=f"latency_{name}",
+                            category="latency",
+                            test_case=name,
+                            metric="response_time_s",
+                            value=-1,
+                            threshold=LATENCY_THRESHOLDS[metric_key],
+                            passed=False,
+                        ),
+                    )
+            else:
+                self._add_result(
+                    run,
+                    BenchmarkResult(
                         test_id=f"latency_{name}",
                         category="latency",
                         test_case=name,
@@ -219,17 +249,8 @@ class BenchmarkRunner:
                         value=-1,
                         threshold=LATENCY_THRESHOLDS[metric_key],
                         passed=False,
-                    ))
-            else:
-                self._add_result(run, BenchmarkResult(
-                    test_id=f"latency_{name}",
-                    category="latency",
-                    test_case=name,
-                    metric="response_time_s",
-                    value=-1,
-                    threshold=LATENCY_THRESHOLDS[metric_key],
-                    passed=False,
-                ))
+                    ),
+                )
             run.progress_pct = int((i + 1) / len(test_cases) * 25)  # latency is ~25% of total
 
     # ── Category B: KV Cache Efficiency ──
@@ -272,15 +293,18 @@ class BenchmarkRunner:
             else:
                 cache_mb = 0
 
-            self._add_result(run, BenchmarkResult(
-                test_id=f"kv_{name}",
-                category="kv_cache",
-                test_case=name,
-                metric="cache_size_mb",
-                value=round(cache_mb, 1),
-                threshold=1000.0,  # generic threshold; real values depend on model
-                passed=cache_mb >= 0,  # pass if we can measure it
-            ))
+            self._add_result(
+                run,
+                BenchmarkResult(
+                    test_id=f"kv_{name}",
+                    category="kv_cache",
+                    test_case=name,
+                    metric="cache_size_mb",
+                    value=round(cache_mb, 1),
+                    threshold=1000.0,  # generic threshold; real values depend on model
+                    passed=cache_mb >= 0,  # pass if we can measure it
+                ),
+            )
 
             run.progress_pct = 25 + int((i + 1) / len(test_cases) * 25)
 
@@ -290,15 +314,18 @@ class BenchmarkRunner:
         """Faithfulness/relevancy, retrieval precision/recall."""
         if not self._dataset:
             logger.warning("No evaluation dataset available; skipping quality benchmarks")
-            self._add_result(run, BenchmarkResult(
-                test_id="quality_no_dataset",
-                category="quality",
-                test_case="no_dataset",
-                metric="faithfulness",
-                value=0.0,
-                threshold=QUALITY_THRESHOLDS["faithfulness"],
-                passed=False,
-            ))
+            self._add_result(
+                run,
+                BenchmarkResult(
+                    test_id="quality_no_dataset",
+                    category="quality",
+                    test_case="no_dataset",
+                    metric="faithfulness",
+                    value=0.0,
+                    threshold=QUALITY_THRESHOLDS["faithfulness"],
+                    passed=False,
+                ),
+            )
             run.progress_pct = 75
             return
 
@@ -336,15 +363,18 @@ class BenchmarkRunner:
                 if not result:
                     hallucinated += 1
             hall_rate = hallucinated / hall_count if hall_count > 0 else 0
-            self._add_result(run, BenchmarkResult(
-                test_id="quality_hallucination_rate",
-                category="quality",
-                test_case="hallucination_rate",
-                metric="hallucination_rate",
-                value=round(hall_rate, 3),
-                threshold=QUALITY_THRESHOLDS["hallucination_rate"],
-                passed=hall_rate <= QUALITY_THRESHOLDS["hallucination_rate"],
-            ))
+            self._add_result(
+                run,
+                BenchmarkResult(
+                    test_id="quality_hallucination_rate",
+                    category="quality",
+                    test_case="hallucination_rate",
+                    metric="hallucination_rate",
+                    value=round(hall_rate, 3),
+                    threshold=QUALITY_THRESHOLDS["hallucination_rate"],
+                    passed=hall_rate <= QUALITY_THRESHOLDS["hallucination_rate"],
+                ),
+            )
         run.progress_pct = 75
 
     async def _run_quality_evaluation(self, run: BenchmarkRun, cases: list[dict]):
@@ -371,19 +401,21 @@ class BenchmarkRunner:
 
             if faith_data["question"]:
                 scores = [
-                    faithfulness(a, c)
-                    for a, c in zip(faith_data["answer"], faith_data["contexts"])
+                    faithfulness(a, c) for a, c in zip(faith_data["answer"], faith_data["contexts"])
                 ]
                 faith_score = sum(scores) / len(scores) if scores else 0.0
-                self._add_result(run, BenchmarkResult(
-                    test_id="quality_faithfulness",
-                    category="quality",
-                    test_case="faithfulness",
-                    metric="faithfulness",
-                    value=round(faith_score, 3),
-                    threshold=QUALITY_THRESHOLDS["faithfulness"],
-                    passed=faith_score >= QUALITY_THRESHOLDS["faithfulness"],
-                ))
+                self._add_result(
+                    run,
+                    BenchmarkResult(
+                        test_id="quality_faithfulness",
+                        category="quality",
+                        test_case="faithfulness",
+                        metric="faithfulness",
+                        value=round(faith_score, 3),
+                        threshold=QUALITY_THRESHOLDS["faithfulness"],
+                        passed=faith_score >= QUALITY_THRESHOLDS["faithfulness"],
+                    ),
+                )
 
             if relev_data["question"]:
                 scores = [
@@ -391,15 +423,18 @@ class BenchmarkRunner:
                     for q, a in zip(relev_data["question"], relev_data["answer"])
                 ]
                 relev_score = sum(scores) / len(scores) if scores else 0.0
-                self._add_result(run, BenchmarkResult(
-                    test_id="quality_answer_relevancy",
-                    category="quality",
-                    test_case="relevancy",
-                    metric="answer_relevancy",
-                    value=round(relev_score, 3),
-                    threshold=QUALITY_THRESHOLDS["answer_relevancy"],
-                    passed=relev_score >= QUALITY_THRESHOLDS["answer_relevancy"],
-                ))
+                self._add_result(
+                    run,
+                    BenchmarkResult(
+                        test_id="quality_answer_relevancy",
+                        category="quality",
+                        test_case="relevancy",
+                        metric="answer_relevancy",
+                        value=round(relev_score, 3),
+                        threshold=QUALITY_THRESHOLDS["answer_relevancy"],
+                        passed=relev_score >= QUALITY_THRESHOLDS["answer_relevancy"],
+                    ),
+                )
 
         except Exception as e:
             logger.error(f"Quality evaluation failed: {e}")
@@ -423,19 +458,20 @@ class BenchmarkRunner:
             overlap = len(gt_words & ans_words) / max(len(gt_words), 1)
             score = min(1.0, overlap * 1.5)  # Scale up slightly
 
-            threshold = QUALITY_THRESHOLDS.get(
-                metric_type, QUALITY_THRESHOLDS["faithfulness"]
-            )
+            threshold = QUALITY_THRESHOLDS.get(metric_type, QUALITY_THRESHOLDS["faithfulness"])
 
-            self._add_result(run, BenchmarkResult(
-                test_id=f"quality_{case['id']}",
-                category="quality",
-                test_case=case["id"],
-                metric=f"fallback_{metric_type}",
-                value=round(score, 3),
-                threshold=threshold,
-                passed=score >= threshold,
-            ))
+            self._add_result(
+                run,
+                BenchmarkResult(
+                    test_id=f"quality_{case['id']}",
+                    category="quality",
+                    test_case=case["id"],
+                    metric=f"fallback_{metric_type}",
+                    value=round(score, 3),
+                    threshold=threshold,
+                    passed=score >= threshold,
+                ),
+            )
 
     async def _evaluate_retrieval_precision(self, run: BenchmarkRun, case: dict):
         """Evaluate retrieval precision by checking if expected contexts are retrieved."""
@@ -447,15 +483,18 @@ class BenchmarkRunner:
         # Simple check: did we find contexts containing key phrases?
         precision = 1.0 if expected else 0.0
 
-        self._add_result(run, BenchmarkResult(
-            test_id=f"quality_{case['id']}",
-            category="quality",
-            test_case=case["id"],
-            metric="retrieval_precision_at_5",
-            value=precision,
-            threshold=QUALITY_THRESHOLDS["retrieval_precision_at_5"],
-            passed=precision >= QUALITY_THRESHOLDS["retrieval_precision_at_5"],
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id=f"quality_{case['id']}",
+                category="quality",
+                test_case=case["id"],
+                metric="retrieval_precision_at_5",
+                value=precision,
+                threshold=QUALITY_THRESHOLDS["retrieval_precision_at_5"],
+                passed=precision >= QUALITY_THRESHOLDS["retrieval_precision_at_5"],
+            ),
+        )
 
     async def _evaluate_hallucination(self, run: BenchmarkRun, case: dict) -> bool:
         """Check if answer contains hallucinated information. Returns True if hallucinated."""
@@ -496,7 +535,10 @@ class BenchmarkRunner:
             # Thinking can use 50-100 tokens, so we need plenty of room for the actual answer
             response = await self.lm_client.stream_chat(
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant. Answer the question based only on the provided context."},
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. Answer the question based only on the provided context.",
+                    },
                     {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}"},
                 ],
                 max_tokens=4096,
@@ -527,15 +569,18 @@ class BenchmarkRunner:
         except Exception:
             elapsed = -1
 
-        self._add_result(run, BenchmarkResult(
-            test_id="throughput_single_user",
-            category="throughput",
-            test_case="single_user",
-            metric="response_time_s",
-            value=round(elapsed, 3),
-            threshold=THROUGHPUT_THRESHOLDS["single_user_tps"],
-            passed=elapsed > 0 and elapsed < 30,
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id="throughput_single_user",
+                category="throughput",
+                test_case="single_user",
+                metric="response_time_s",
+                value=round(elapsed, 3),
+                threshold=THROUGHPUT_THRESHOLDS["single_user_tps"],
+                passed=elapsed > 0 and elapsed < 30,
+            ),
+        )
 
         # Test 2: Three concurrent users
         start = time.time()
@@ -554,15 +599,18 @@ class BenchmarkRunner:
         elapsed_3 = time.time() - start
         avg_tps_3 = 3 / elapsed_3 if elapsed_3 > 0 else 0
 
-        self._add_result(run, BenchmarkResult(
-            test_id="throughput_three_user",
-            category="throughput",
-            test_case="three_concurrent",
-            metric="avg_response_time_s",
-            value=round(elapsed_3 / 3, 3),
-            threshold=THROUGHPUT_THRESHOLDS["three_user_avg_tps"],
-            passed=elapsed_3 > 0 and elapsed_3 < 45,
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id="throughput_three_user",
+                category="throughput",
+                test_case="three_concurrent",
+                metric="avg_response_time_s",
+                value=round(elapsed_3 / 3, 3),
+                threshold=THROUGHPUT_THRESHOLDS["three_user_avg_tps"],
+                passed=elapsed_3 > 0 and elapsed_3 < 45,
+            ),
+        )
 
         # Test 3: Ten concurrent users
         start = time.time()
@@ -581,15 +629,18 @@ class BenchmarkRunner:
         elapsed_10 = time.time() - start
         avg_tps_10 = 10 / elapsed_10 if elapsed_10 > 0 else 0
 
-        self._add_result(run, BenchmarkResult(
-            test_id="throughput_ten_user",
-            category="throughput",
-            test_case="ten_concurrent",
-            metric="avg_response_time_s",
-            value=round(elapsed_10 / 10, 3),
-            threshold=THROUGHPUT_THRESHOLDS["ten_user_avg_tps"],
-            passed=elapsed_10 > 0 and elapsed_10 < 120,
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id="throughput_ten_user",
+                category="throughput",
+                test_case="ten_concurrent",
+                metric="avg_response_time_s",
+                value=round(elapsed_10 / 10, 3),
+                threshold=THROUGHPUT_THRESHOLDS["ten_user_avg_tps"],
+                passed=elapsed_10 > 0 and elapsed_10 < 120,
+            ),
+        )
 
         # Test 4: Burst load (rapid sequential requests)
         start = time.time()
@@ -611,15 +662,18 @@ class BenchmarkRunner:
         elapsed_burst = time.time() - start
         p95 = max(latencies) - min(latencies) if latencies else 0
 
-        self._add_result(run, BenchmarkResult(
-            test_id="throughput_burst",
-            category="throughput",
-            test_case="burst_load",
-            metric="burst_p95_latency_s",
-            value=round(p95, 3),
-            threshold=THROUGHPUT_THRESHOLDS["burst_latency_p95"],
-            passed=p95 < THROUGHPUT_THRESHOLDS["burst_latency_p95"],
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id="throughput_burst",
+                category="throughput",
+                test_case="burst_load",
+                metric="burst_p95_latency_s",
+                value=round(p95, 3),
+                threshold=THROUGHPUT_THRESHOLDS["burst_latency_p95"],
+                passed=p95 < THROUGHPUT_THRESHOLDS["burst_latency_p95"],
+            ),
+        )
 
         # Test 5: Sustained load stability
         if self.lm_client:
@@ -639,22 +693,27 @@ class BenchmarkRunner:
                     pass
             if len(latencies_sustained) >= 2:
                 mean = sum(latencies_sustained) / len(latencies_sustained)
-                variance = sum((x - mean) ** 2 for x in latencies_sustained) / len(latencies_sustained)
-                stddev = variance ** 0.5
+                variance = sum((x - mean) ** 2 for x in latencies_sustained) / len(
+                    latencies_sustained
+                )
+                stddev = variance**0.5
                 cv = stddev / mean if mean > 0 else 0
             else:
                 cv = 0
         else:
             cv = 0
 
-        self._add_result(run, BenchmarkResult(
-            test_id="throughput_sustained",
-            category="throughput",
-            test_case="sustained_load",
-            metric="coefficient_of_variation",
-            value=round(cv, 3),
-            threshold=THROUGHPUT_THRESHOLDS["sustained_stability"],
-            passed=cv < THROUGHPUT_THRESHOLDS["sustained_stability"],
-        ))
+        self._add_result(
+            run,
+            BenchmarkResult(
+                test_id="throughput_sustained",
+                category="throughput",
+                test_case="sustained_load",
+                metric="coefficient_of_variation",
+                value=round(cv, 3),
+                threshold=THROUGHPUT_THRESHOLDS["sustained_stability"],
+                passed=cv < THROUGHPUT_THRESHOLDS["sustained_stability"],
+            ),
+        )
 
         run.progress_pct = 75 + 25  # throughput is last category

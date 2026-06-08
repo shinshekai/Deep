@@ -4,22 +4,19 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.config import get_settings
 from app import state
+from app.config import get_settings
 from app.services.model_manager import MODEL_TIERS
+from app.services.secrets import get_secret as secrets_get
+from app.services.secrets import is_keyring_available as secrets_available
+from app.services.secrets import set_secret as secrets_set
+from app.services.secrets import warn_fallback_once as secrets_warn_fallback
 from app.services.security import is_safe_base_url
-from app.services.secrets import (
-    get_secret as secrets_get,
-    set_secret as secrets_set,
-    is_keyring_available as secrets_available,
-    warn_fallback_once as secrets_warn_fallback,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +28,9 @@ METRICS_DIR.mkdir(parents=True, exist_ok=True)
 _metrics_history: list = []
 
 # Simple KV cache state registry — tracks per-model cache info
-_cache_state: dict = {}  # model_id -> {cache_type_k, cache_type_v, context_tokens, estimated_size_mb}
+_cache_state: dict = (
+    {}
+)  # model_id -> {cache_type_k, cache_type_v, context_tokens, estimated_size_mb}
 
 _rotation_history: list = []
 _ROTATION_HISTORY_MAX = 50
@@ -39,19 +38,21 @@ _ROTATION_HISTORY_MAX = 50
 # Fields that are safe to mutate at runtime via the config PUT endpoint.
 # All other fields (e.g. ``ws_auth_token``, ``llm_host``) are locked down
 # to prevent abuse and SSRF.
-CONFIG_ALLOWED_FIELDS: frozenset[str] = frozenset({
-    "llm_model",
-    "embedding_model",
-    "turboquant_enabled",
-    "turboquant_bits",
-    "turboquant_residual_window",
-    "turboquant_tier",
-    "vram_safety_margin_pct",
-    "pageindex_model",
-    "t2_ttl",
-    "t3_ttl",
-    "metrics_interval",
-})
+CONFIG_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "llm_model",
+        "embedding_model",
+        "turboquant_enabled",
+        "turboquant_bits",
+        "turboquant_residual_window",
+        "turboquant_tier",
+        "vram_safety_margin_pct",
+        "pageindex_model",
+        "t2_ttl",
+        "t3_ttl",
+        "metrics_interval",
+    }
+)
 
 # Fields that must point at an HTTP(S) URL — guarded by ``is_safe_base_url``
 # before any process-wide change is made.
@@ -69,6 +70,7 @@ class SystemConfigUpdate(BaseModel):
     configured via environment variables so that they cannot be redirected
     by an authenticated caller.
     """
+
     llm_model: str | None = None
     embedding_model: str | None = None
     turboquant_enabled: bool | None = None
@@ -93,7 +95,7 @@ class ModelSelectionRequest(BaseModel):
     provider_type: str
     provider_id: str
     model_id: str
-    tier: Optional[str] = "T3"
+    tier: str | None = "T3"
     load: bool = False
 
 
@@ -107,7 +109,7 @@ class KeyRotationRequest(BaseModel):
 
 @router.get("/health")
 async def health_check(response: Response):
-    from app.state import vram_monitor, lm_client
+    from app.state import lm_client, vram_monitor
 
     # Check LM Studio
     lm_available = await lm_client.check_health()
@@ -119,6 +121,7 @@ async def health_check(response: Response):
     # Calculate uptime from module-level startup time
     try:
         from app.state import _startup_time
+
         uptime = time.time() - _startup_time
     except Exception:
         uptime = 0
@@ -171,7 +174,10 @@ async def readiness_check(response: Response):
 
     checks = {
         "lm_studio": {"ok": lm_ok, "detail": "connected" if lm_ok else "unreachable"},
-        "models_loaded": {"ok": models_loaded, "detail": f"{len(state.model_manager._loaded_models)} loaded"},
+        "models_loaded": {
+            "ok": models_loaded,
+            "detail": f"{len(state.model_manager._loaded_models)} loaded",
+        },
         "disk_space": {"ok": disk_ok, "detail": f"{disk_free_pct:.1f}% free"},
     }
 
@@ -194,13 +200,16 @@ async def system_health_ready(response: Response):
         lm_ok = await state.lm_client.check_health()
         checks["lm_studio"] = {"ok": lm_ok, "detail": "connected" if lm_ok else "unreachable"}
     except Exception as e:
-        checks["lm_studio"] = {"ok": False, "detail": f"error: {str(e)}"}
+        checks["lm_studio"] = {"ok": False, "detail": f"error: {e!s}"}
 
     try:
         keyring_ok = secrets_available()
-        checks["keyring"] = {"ok": keyring_ok, "detail": "available" if keyring_ok else "unavailable"}
+        checks["keyring"] = {
+            "ok": keyring_ok,
+            "detail": "available" if keyring_ok else "unavailable",
+        }
     except Exception as e:
-        checks["keyring"] = {"ok": False, "detail": f"error: {str(e)}"}
+        checks["keyring"] = {"ok": False, "detail": f"error: {e!s}"}
 
     try:
         disk = shutil.disk_usage("/")
@@ -208,21 +217,21 @@ async def system_health_ready(response: Response):
         disk_ok = disk_free_pct > 10
         checks["disk_space"] = {"ok": disk_ok, "detail": f"{disk_free_pct:.1f}% free"}
     except Exception as e:
-        checks["disk_space"] = {"ok": False, "detail": f"error: {str(e)}"}
+        checks["disk_space"] = {"ok": False, "detail": f"error: {e!s}"}
 
     try:
         data_dir = Path("data")
         data_ok = data_dir.exists() and os.access(str(data_dir), os.W_OK)
         checks["data_volume"] = {"ok": data_ok, "detail": "writable" if data_ok else "not writable"}
     except Exception as e:
-        checks["data_volume"] = {"ok": False, "detail": f"error: {str(e)}"}
+        checks["data_volume"] = {"ok": False, "detail": f"error: {e!s}"}
 
     try:
         db_path = Path("data/user")
         db_ok = db_path.exists()
         checks["database"] = {"ok": db_ok, "detail": "exists" if db_ok else "missing"}
     except Exception as e:
-        checks["database"] = {"ok": False, "detail": f"error: {str(e)}"}
+        checks["database"] = {"ok": False, "detail": f"error: {e!s}"}
 
     all_ok = all(c["ok"] for c in checks.values())
     response.status_code = 200 if all_ok else 503
@@ -305,14 +314,14 @@ async def update_config(request: Request):
         os.environ[env_key] = str(value)
 
     if rejected:
-        logger.warning(
-            "config_update: rejected non-whitelisted fields: %s", rejected
-        )
+        logger.warning("config_update: rejected non-whitelisted fields: %s", rejected)
         from app.services.audit import audit
+
         audit("config.update_rejected", fields=rejected)
 
     if updates:
         from app.services.audit import audit
+
         audit("config.updated", fields=updates)
 
     # Clear the lru cache on get_settings so future calls return updated settings
@@ -369,6 +378,7 @@ async def rotate_key(payload: KeyRotationRequest):
         _rotation_history.pop(0)
 
     from app.services.audit import audit
+
     audit("secret.rotated", key_name=key_name)
 
     logger.info("key_rotation: rotated %s", key_name)
@@ -417,16 +427,18 @@ async def list_models():
         loaded_info = loaded.get(mid, {})
         kv = tier_info.get(mid, {}).get("kv_cache", {})
 
-        result.append({
-            "id": mid,
-            "name": mid,
-            "tier": tier,
-            "status": "loaded" if is_loaded else "available",
-            "vram_used_mb": loaded_info.get("vram_mb", 0),
-            "loaded_at": loaded_info.get("loaded_at"),
-            "last_used": loaded_info.get("last_used"),
-            "turboquant_config": kv,
-        })
+        result.append(
+            {
+                "id": mid,
+                "name": mid,
+                "tier": tier,
+                "status": "loaded" if is_loaded else "available",
+                "vram_used_mb": loaded_info.get("vram_mb", 0),
+                "loaded_at": loaded_info.get("loaded_at"),
+                "last_used": loaded_info.get("last_used"),
+                "turboquant_config": kv,
+            }
+        )
 
     # If no models found, return tier defaults as available
     if not result:
@@ -484,7 +496,8 @@ def _configure_selected_provider(provider_type: str, provider_id: str) -> dict:
     settings = get_settings()
     local_base_urls = {
         "lm_studio": settings.llm_host,
-        "ollama": os.environ.get("OLLAMA_OPENAI_HOST") or os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+        "ollama": os.environ.get("OLLAMA_OPENAI_HOST")
+        or os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
         "llama_cpp": os.environ.get("LLAMA_CPP_HOST", ""),
         "vlm": os.environ.get("VLM_HOST", ""),
     }
@@ -547,6 +560,7 @@ async def load_model(model_id: str):
             "last_used": time.time(),
         }
         from app.services.audit import audit
+
         audit("model.loaded", model_id=model_id, tier=tier)
 
     return {
@@ -565,6 +579,7 @@ async def unload_model(model_id: str):
     if success and model_id in model_manager._loaded_models:
         del model_manager._loaded_models[model_id]
         from app.services.audit import audit
+
         audit("model.unloaded", model_id=model_id)
 
     return {
@@ -660,7 +675,7 @@ async def update_cache_config(payload: CacheConfigUpdate):
 
 
 @router.post("/cache/evict")
-async def evict_cache(payload: Optional[dict] = None):
+async def evict_cache(payload: dict | None = None):
     model_id = payload.get("model_id") if payload else None
 
     if model_id and model_id in _cache_state:
@@ -696,17 +711,21 @@ async def cleanup_sessions():
     is idempotent.
     """
     from app.services.session_cleanup import run_cleanup
+
     return run_cleanup().to_dict()
 
 
 @router.post("/metrics/benchmarks/run")
-async def run_benchmarks(payload: Optional[dict] = None):
+async def run_benchmarks(payload: dict | None = None):
     from app.state import benchmark_runner
+
     category = "all"
     if payload and "category" in payload:
         category = payload["category"]
     if category not in ("all", "latency", "kv_cache", "quality", "throughput"):
-        return {"error": f"Unknown category: {category}. Valid: all, latency, kv_cache, quality, throughput"}
+        return {
+            "error": f"Unknown category: {category}. Valid: all, latency, kv_cache, quality, throughput"
+        }
     run_id = await benchmark_runner.start_run(category)
     return {"run_id": run_id, "category": category, "status": "queued"}
 
@@ -714,6 +733,7 @@ async def run_benchmarks(payload: Optional[dict] = None):
 @router.get("/metrics/benchmarks/{run_id}")
 async def get_benchmark_status(run_id: str):
     from app.state import benchmark_runner
+
     run = benchmark_runner.get_run(run_id)
     if run is None:
         return {"run_id": run_id, "status": "not_found"}
@@ -743,6 +763,7 @@ async def get_benchmark_status(run_id: str):
 @router.get("/metrics/benchmarks/latest")
 async def get_latest_benchmark():
     from app.state import benchmark_runner
+
     run = benchmark_runner.get_latest_run()
     if run is None:
         return {"status": "no_runs"}
@@ -771,19 +792,22 @@ async def get_latest_benchmark():
 
 # ── Provider Marketplace Config & Health ──
 
-from app.services.model_discovery import LOCAL_PROVIDERS, CLOUD_PROVIDERS
+from app.services.model_discovery import CLOUD_PROVIDERS, LOCAL_PROVIDERS
+
 
 class ProviderConfigRequest(BaseModel):
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
+
 
 class ProviderHealthRequest(BaseModel):
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 def _update_env_file(updates: dict[str, str]):
     from pathlib import Path
+
     env_path = Path(".env")
     lines = []
     if env_path.exists():
@@ -791,17 +815,17 @@ def _update_env_file(updates: dict[str, str]):
             lines = env_path.read_text(encoding="utf-8").splitlines()
         except Exception:
             pass
-            
+
     env_vars = {}
     for line in lines:
         if "=" in line and not line.strip().startswith("#"):
             parts = line.split("=", 1)
             if len(parts) == 2:
                 env_vars[parts[0].strip()] = parts[1].strip()
-            
+
     for k, v in updates.items():
         env_vars[k] = v
-        
+
     new_lines = []
     seen = set()
     for line in lines:
@@ -814,15 +838,16 @@ def _update_env_file(updates: dict[str, str]):
                     seen.add(k_strip)
                     continue
         new_lines.append(line)
-        
+
     for k, v in updates.items():
         if k not in seen:
             new_lines.append(f"{k}={v}")
-            
+
     try:
         env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to write to .env file: {e}")
 
@@ -853,7 +878,8 @@ async def configure_provider(provider_id: str, payload: ProviderConfigRequest):
 
     # Sanitize inputs to prevent CRLF injection in .env files
     import re
-    def sanitize(v: Optional[str]) -> Optional[str]:
+
+    def sanitize(v: str | None) -> str | None:
         if v is None:
             return None
         return re.sub(r"[\r\n]", "", v).strip()
@@ -861,8 +887,8 @@ async def configure_provider(provider_id: str, payload: ProviderConfigRequest):
     api_key_clean = sanitize(payload.api_key)
     base_url_clean = sanitize(payload.base_url)
 
-    env_updates: dict[str, str] = {}     # -> .env + os.environ
-    secret_updates: dict[str, str] = {}   # -> keyring only
+    env_updates: dict[str, str] = {}  # -> .env + os.environ
+    secret_updates: dict[str, str] = {}  # -> keyring only
 
     # Special cases
     if provider_id == "lm_studio":
@@ -935,6 +961,7 @@ async def configure_provider(provider_id: str, payload: ProviderConfigRequest):
     # Also update settings fields directly in-memory for current settings singleton
     global settings
     import app.routers.system
+
     app.routers.system.settings = get_settings()
 
     for key, val in env_updates.items():
@@ -944,6 +971,7 @@ async def configure_provider(provider_id: str, payload: ProviderConfigRequest):
 
     # Reconfigure the active provider if the configured provider is selected
     from app import state
+
     active_selection = state.model_manager.get_active_selection()
     if active_selection and active_selection.get("provider_id") == provider_id:
         _configure_selected_provider(active_selection["provider_type"], provider_id)
@@ -957,16 +985,15 @@ async def configure_provider(provider_id: str, payload: ProviderConfigRequest):
 
 
 @router.post("/models/providers/{provider_id}/health")
-async def check_provider_health(provider_id: str, payload: Optional[ProviderHealthRequest] = None):
+async def check_provider_health(provider_id: str, payload: ProviderHealthRequest | None = None):
     """Test on-demand connection health and latency for a given provider, with optional override parameters."""
     api_key = payload.api_key if payload else None
     base_url = payload.base_url if payload else None
-    
+
     from app import state
+
     health_result = await state.model_discovery.test_health(
-        provider_id=provider_id,
-        api_key=api_key,
-        base_url=base_url
+        provider_id=provider_id, api_key=api_key, base_url=base_url
     )
     return health_result
 
@@ -980,8 +1007,8 @@ USER_DATA_DIRS = ["solve", "research", "notebooks", "guide"]
 async def export_user_data():
     """Export all user data as a ZIP archive (GDPR data portability)."""
     import io
-    import zipfile
     import json as _json
+    import zipfile
 
     data_root = Path("data/user")
     buf = io.BytesIO()
@@ -1073,14 +1100,14 @@ async def data_summary():
 
 
 @router.post("/backup")
-async def create_backup(kb_name: Optional[str] = None):
+async def create_backup(kb_name: str | None = None):
     """Create a backup of knowledge bases.
 
     If ``kb_name`` is provided, only that KB is backed up.
     Otherwise, all knowledge bases are backed up.
     """
-    from app.services.backup import create_backup as _create_backup
     from app.services.audit import audit
+    from app.services.backup import create_backup as _create_backup
 
     result = _create_backup(kb_name)
     if result["success"]:
@@ -1093,14 +1120,15 @@ async def create_backup(kb_name: Optional[str] = None):
 async def list_backups():
     """List all available knowledge base backups."""
     from app.services.backup import list_backups as _list_backups
+
     return {"backups": _list_backups()}
 
 
 @router.post("/backup/{backup_name}/restore")
-async def restore_backup(backup_name: str, kb_name: Optional[str] = None):
+async def restore_backup(backup_name: str, kb_name: str | None = None):
     """Restore a knowledge base from backup."""
-    from app.services.backup import restore_backup as _restore_backup
     from app.services.audit import audit
+    from app.services.backup import restore_backup as _restore_backup
     from app.services.security import safe_name
 
     safe_backup = safe_name(backup_name)

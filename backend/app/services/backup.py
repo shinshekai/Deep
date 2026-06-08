@@ -1,11 +1,10 @@
 """Knowledge base backup service — automated backup with rotation."""
 
+import logging
 import os
 import shutil
-import logging
-import time
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +28,11 @@ def create_backup(kb_name: str | None = None) -> dict:
 
     Returns a dict with backup metadata.
     """
-    from app.services.security import safe_name, resolve_within
+    from app.services.security import resolve_within, safe_name
 
     backup_dir = get_backup_dir()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    
+
     # Sanitize kb_name if provided
     safe_kb = None
     if kb_name:
@@ -44,7 +43,7 @@ def create_backup(kb_name: str | None = None) -> dict:
     label = safe_kb or "all"
     backup_name = f"kb_backup_{label}_{timestamp}"
     backup_path = backup_dir / backup_name
-    
+
     try:
         resolve_within(backup_dir, backup_path)
     except ValueError as exc:
@@ -85,10 +84,10 @@ def restore_backup(backup_name: str, kb_name: str | None = None) -> dict:
     If ``kb_name`` is provided, only that KB is restored.
     Otherwise, the entire backup is restored.
     """
-    from app.services.security import safe_name, resolve_within
+    from app.services.security import resolve_within, safe_name
 
     backup_dir = get_backup_dir()
-    
+
     cleaned_backup_name = safe_name(backup_name)
     if not cleaned_backup_name:
         return {"success": False, "error": "Invalid backup name"}
@@ -144,14 +143,16 @@ def list_backups() -> list[dict]:
     for item in sorted(backup_dir.iterdir(), reverse=True):
         if item.is_dir() and item.name.startswith("kb_backup_"):
             size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
-            backups.append({
-                "name": item.name,
-                "path": str(item),
-                "size_bytes": size,
-                "created": datetime.fromtimestamp(
-                    item.stat().st_mtime, tz=timezone.utc
-                ).isoformat(),
-            })
+            backups.append(
+                {
+                    "name": item.name,
+                    "path": str(item),
+                    "size_bytes": size,
+                    "created": datetime.fromtimestamp(
+                        item.stat().st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
     return backups
 
 

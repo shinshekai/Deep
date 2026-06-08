@@ -219,7 +219,9 @@ def classify_model_capabilities(model_id: str) -> dict[str, Any]:
     else:
         if "0.6b" in mid or "1.7b" in mid or "3b" in mid:
             param_size_cat = "small"
-        elif "8b" in mid or "14b" in mid or "32b" in mid or "qwen3-7b" in mid or "qwen3.6-7b" in mid:
+        elif (
+            "8b" in mid or "14b" in mid or "32b" in mid or "qwen3-7b" in mid or "qwen3.6-7b" in mid
+        ):
             param_size_cat = "medium"
         elif "70b" in mid or "35b" in mid or "moe" in mid or "30b" in mid:
             param_size_cat = "large"
@@ -388,8 +390,13 @@ class ModelDiscoveryService:
             async with httpx.AsyncClient(transport=self._transport, timeout=3.0) as client:
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
-            models = [self._normalize_model(spec, model) for model in self._extract_models(spec, response.json())]
-            return self._provider_response(spec, "available", models, configured=configured, base_url=base_url)
+            models = [
+                self._normalize_model(spec, model)
+                for model in self._extract_models(spec, response.json())
+            ]
+            return self._provider_response(
+                spec, "available", models, configured=configured, base_url=base_url
+            )
         except Exception as exc:
             return self._provider_response(
                 spec,
@@ -430,7 +437,9 @@ class ModelDiscoveryService:
 
     def _normalize_model(self, spec: ProviderSpec, model: dict[str, Any]) -> dict[str, Any]:
         model_id = model.get("id") or model.get("model") or model.get("name") or ""
-        display_name = model.get("name") or model.get("display_name") or model.get("displayName") or model_id
+        display_name = (
+            model.get("name") or model.get("display_name") or model.get("displayName") or model_id
+        )
         details = model.get("details") or {}
         capabilities_info = classify_model_capabilities(model_id)
         return {
@@ -444,7 +453,8 @@ class ModelDiscoveryService:
                 "family": details.get("family"),
                 "parameter_size": details.get("parameter_size"),
                 "quantization_level": details.get("quantization_level"),
-                "context_length": model.get("context_length") or capabilities_info.get("context_length_cat"),
+                "context_length": model.get("context_length")
+                or capabilities_info.get("context_length_cat"),
                 "capabilities": capabilities_info["capabilities"],
                 "context_length_cat": capabilities_info["context_length_cat"],
                 "parameter_size_cat": capabilities_info["parameter_size_cat"],
@@ -457,7 +467,9 @@ class ModelDiscoveryService:
         if spec.id == "gemini":
             return payload.get("models", [])
         if spec.id == "vertex":
-            return payload.get("publisherModels") or payload.get("models") or payload.get("data", [])
+            return (
+                payload.get("publisherModels") or payload.get("models") or payload.get("data", [])
+            )
         return payload.get("data", [])
 
     def _get_api_key(self, spec: ProviderSpec) -> str:

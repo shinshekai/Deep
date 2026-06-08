@@ -28,11 +28,12 @@ class VRAMMonitor:
         """Probe pynvml availability. Returns True if GPU monitor active."""
         try:
             import pynvml
+
             pynvml.nvmlInit()
             self._handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             self._pynvml_available = True
             info = pynvml.nvmlDeviceGetMemoryInfo(self._handle)
-            self._total_mb = info.total / (1024 ** 2)
+            self._total_mb = info.total / (1024**2)
             logger.info(f"VRAM monitor active: {self._total_mb:.0f} MB total")
             return True
         except Exception as e:
@@ -60,9 +61,10 @@ class VRAMMonitor:
             }
         try:
             import pynvml
+
             info = pynvml.nvmlDeviceGetMemoryInfo(self._handle)
-            self._total_mb = info.total / (1024 ** 2)
-            self._used_mb = info.used / (1024 ** 2)
+            self._total_mb = info.total / (1024**2)
+            self._used_mb = info.used / (1024**2)
             self._pct = self._used_mb / self._total_mb if self._total_mb > 0 else 0
             self._level = self._compute_level(self._pct)
 

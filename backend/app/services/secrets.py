@@ -12,12 +12,12 @@ itself (``OPENAI_API_KEY``, ``MISTRAL_API_KEY``, etc.). This keeps the
 mapping obvious for operators debugging with their platform's credential
 manager.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from functools import lru_cache
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,7 @@ def set_secret(env_name: str, value: str) -> None:
         )
     try:
         import keyring  # type: ignore
+
         keyring.set_password(KEYRING_SERVICE, env_name, value)
     except Exception as exc:
         raise RuntimeError(f"Failed to write secret to keyring: {exc}") from exc

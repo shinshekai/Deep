@@ -1,7 +1,7 @@
 """Shared application state — avoids circular imports between main.py and routers."""
 
 import logging
-from typing import Callable, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

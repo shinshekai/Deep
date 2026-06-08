@@ -1,6 +1,7 @@
 """Rate limiting middleware — SlowAPI setup with configurable limits."""
 
 import os
+
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware

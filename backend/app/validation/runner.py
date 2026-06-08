@@ -13,10 +13,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.validation.baselines import (
-    Severity,
-    ValidationReport,
-)
+from app.validation.baselines import Severity, ValidationReport
 from app.validation.config_validator import validate_config
 from app.validation.health_checker import validate_health
 from app.validation.remediation_tracker import validate_remediation
@@ -49,12 +46,15 @@ def run_full_validation(
     if not skip_coverage:
         try:
             from app.validation.coverage_tracker import validate_coverage
+
             validate_coverage(report, run_pytest=True)
         except Exception as e:
             from app.validation.baselines import CheckCategory
+
             report.add(
-                __import__("app.validation.baselines", fromlist=["ValidationResult"])
-                .ValidationResult(
+                __import__(
+                    "app.validation.baselines", fromlist=["ValidationResult"]
+                ).ValidationResult(
                     check_id="COV-ERR",
                     category=CheckCategory.COVERAGE,
                     severity=Severity.MEDIUM,
@@ -66,6 +66,7 @@ def run_full_validation(
         # Still check for existing coverage report
         try:
             from app.validation.coverage_tracker import validate_coverage
+
             validate_coverage(report, run_pytest=False)
         except Exception:
             pass
@@ -88,23 +89,27 @@ def run_fast_validation() -> ValidationReport:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="UDIP Production Readiness Validation Pipeline"
-    )
+    parser = argparse.ArgumentParser(description="UDIP Production Readiness Validation Pipeline")
     parser.add_argument(
-        "--fast", action="store_true",
+        "--fast",
+        action="store_true",
         help="Skip coverage collection (static checks only)",
     )
     parser.add_argument(
-        "--json", action="store_true", dest="json_output",
+        "--json",
+        action="store_true",
+        dest="json_output",
         help="Output JSON instead of markdown",
     )
     parser.add_argument(
-        "--ci", action="store_true",
+        "--ci",
+        action="store_true",
         help="CI mode: exit with code 1 if critical failures",
     )
     parser.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Write report to file instead of stdout",
     )
     args = parser.parse_args()
@@ -137,9 +142,11 @@ def main():
 
     # Print summary stats
     print(f"\n{'='*50}")
-    print(f"Total: {report.total_checks} checks | "
-          f"Pass: {report.passed} | Fail: {report.failed} | "
-          f"Critical: {report.critical_failures}")
+    print(
+        f"Total: {report.total_checks} checks | "
+        f"Pass: {report.passed} | Fail: {report.failed} | "
+        f"Critical: {report.critical_failures}"
+    )
     print(f"Pass rate: {report.pass_rate:.0f}%")
     print(f"Status: {'✅ GREEN' if report.is_green else '❌ RED'}")
 
@@ -148,6 +155,7 @@ if __name__ == "__main__":
     # Allow running as: python -m app.validation.runner
     # Add parent to path if needed
     import os
+
     backend_root = Path(__file__).resolve().parent.parent.parent
     if str(backend_root) not in sys.path:
         sys.path.insert(0, str(backend_root))

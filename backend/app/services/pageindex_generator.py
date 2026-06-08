@@ -9,7 +9,6 @@ import asyncio
 import json
 import logging
 import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +19,8 @@ HEADING_EXTRACTION_PROMPT = (
     "should have exactly two fields: 'title' (string) and 'depth' (integer, 1 for top-level, "
     "2 for subsection, etc.). Do not include page numbers or other metadata. "
     "Only output valid JSON, no markdown or explanation.\n\n"
-    "Return format: [{\"title\": \"Introduction\", \"depth\": 1}, "
-    "{\"title\": \"Background\", \"depth\": 2}]"
+    'Return format: [{"title": "Introduction", "depth": 1}, '
+    '{"title": "Background", "depth": 2}]'
 )
 
 SUMMARY_PROMPT = (
@@ -31,15 +30,15 @@ SUMMARY_PROMPT = (
 )
 
 # Tunable constants
-TOC_MAX_PAGES = 20                # First N pages used for heading extraction
+TOC_MAX_PAGES = 20  # First N pages used for heading extraction
 HEADING_EXTRACT_MAX_CHARS = 60000  # Max text sent to LLM for heading extraction
 HEADING_EXTRACT_MAX_TOKENS = 4096  # Max LLM output tokens for headings
-REGEX_HEADING_MAX_LEN = 120       # Skip lines longer than this in regex fallback
-FALLBACK_MAX_HEADINGS = 30        # Cap on regex-detected headings
-HEADING_SEARCH_PREFIX = 30        # Characters for partial heading match
-CHARS_PER_TOKEN = 4               # Rough chars-to-tokens multiplier
-SUMMARY_MAX_TOKENS = 512          # Max LLM output tokens per summary
-SUMMARIZE_CONCURRENCY = 3         # Max concurrent summarization LLM calls
+REGEX_HEADING_MAX_LEN = 120  # Skip lines longer than this in regex fallback
+FALLBACK_MAX_HEADINGS = 30  # Cap on regex-detected headings
+HEADING_SEARCH_PREFIX = 30  # Characters for partial heading match
+CHARS_PER_TOKEN = 4  # Rough chars-to-tokens multiplier
+SUMMARY_MAX_TOKENS = 512  # Max LLM output tokens per summary
+SUMMARIZE_CONCURRENCY = 3  # Max concurrent summarization LLM calls
 
 
 class PageIndexTreeGenerator:
@@ -54,7 +53,7 @@ class PageIndexTreeGenerator:
         doc_content: dict,
         model_id: str,
         doc_id: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Build the full PageIndexTree from parsed document content."""
         pages = doc_content.get("pages", [])
         if not pages:
@@ -132,7 +131,7 @@ class PageIndexTreeGenerator:
         if start == -1 or end == -1:
             logger.warning(f"No JSON array found: {text[:200]}")
             return []
-        json_str = text[start:end + 1]
+        json_str = text[start : end + 1]
         try:
             headings = json.loads(json_str)
             if not isinstance(headings, list):
@@ -140,10 +139,12 @@ class PageIndexTreeGenerator:
             result = []
             for h in headings:
                 if isinstance(h, dict) and "title" in h:
-                    result.append({
-                        "title": str(h["title"]).strip(),
-                        "depth": int(h.get("depth", 1)),
-                    })
+                    result.append(
+                        {
+                            "title": str(h["title"]).strip(),
+                            "depth": int(h.get("depth", 1)),
+                        }
+                    )
             return result
         except json.JSONDecodeError as e:
             logger.warning(f"JSON parse error: {e}")
@@ -156,7 +157,7 @@ class PageIndexTreeGenerator:
             r"^(?:\d+\.\d*\s+|\d+\.\s+|\d+\s*[-\u2013\u2014]\s+)([A-Z].+?)$",
             r"^(?:Chapter\s+\d+\s*)(.*)$",
         ]
-        for line in text.split("\n") :
+        for line in text.split("\n"):
             line = line.strip()
             if not line or len(line) > REGEX_HEADING_MAX_LEN:
                 continue
@@ -184,24 +185,28 @@ class PageIndexTreeGenerator:
         position = 0
         for page_info in pages:
             text = page_info.get("text", "")
-            page_offsets.append({
-                "page_num": page_info.get("page_num", 0),
-                "start": position,
-                "end": position + len(text),
-            })
+            page_offsets.append(
+                {
+                    "page_num": page_info.get("page_num", 0),
+                    "start": position,
+                    "end": position + len(text),
+                }
+            )
             position += len(text) + 1
 
         enriched = []
         for node in toc_nodes:
             start_index = self._find_heading_position(node["title"], full_text)
             page_start = self._char_to_page(start_index, page_offsets)
-            enriched.append({
-                "title": node["title"],
-                "depth": node["depth"],
-                "start_index": start_index,
-                "page_start": page_start,
-                "page_end": page_start,
-            })
+            enriched.append(
+                {
+                    "title": node["title"],
+                    "depth": node["depth"],
+                    "start_index": start_index,
+                    "page_start": page_start,
+                    "page_end": page_start,
+                }
+            )
 
         if not enriched:
             return enriched
@@ -250,22 +255,20 @@ class PageIndexTreeGenerator:
     ) -> str:
         """Summarize a single node's content using LLM, with concurrency control."""
         from app.config import get_settings
+
         settings = get_settings()
         max_tokens = settings.pageindex_max_tokens_per_node
 
         page_start = node.get("page_start", 1)
         page_end = node.get("page_end", 1)
 
-        node_pages = [
-            p for p in pages
-            if page_start <= p.get("page_num", 1) <= page_end
-        ]
+        node_pages = [p for p in pages if page_start <= p.get("page_num", 1) <= page_end]
         if not node_pages:
             return f"Section: {node['title']}"
 
         node_text = "\n".join(p.get("text", "") for p in node_pages)
         if len(node_text) > max_tokens * CHARS_PER_TOKEN:
-            node_text = node_text[:max_tokens * CHARS_PER_TOKEN] + "\n...[truncated]"
+            node_text = node_text[: max_tokens * CHARS_PER_TOKEN] + "\n...[truncated]"
 
         try:
             async with self._summarize_sem:

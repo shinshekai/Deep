@@ -11,12 +11,21 @@ From CLAUDE.md Section 6.6:
 Decision: score < 0.3 → T1 | 0.3-0.6 → T2 | > 0.6 → T3
 """
 
-from typing import Optional
-
 REASONING_KEYWORDS = [
-    "compare", "contrast", "analyze", "synthesize", "explain why",
-    "how does", "what are the implications", "multi-hop", "relationship",
-    "evaluate", "critique", "justify", "derive", "prove",
+    "compare",
+    "contrast",
+    "analyze",
+    "synthesize",
+    "explain why",
+    "how does",
+    "what are the implications",
+    "multi-hop",
+    "relationship",
+    "evaluate",
+    "critique",
+    "justify",
+    "derive",
+    "prove",
 ]
 
 CODE_KEYWORDS = ["implement", "write code", "algorithm", "function", "class"]
@@ -56,12 +65,7 @@ def score_query_complexity(
         vram_signal = 1.0 - min(free_vram_mb / 24576.0, 1.0)  # Low VRAM = high signal
 
     # Weighted sum
-    score = (
-        query_signal * 0.35
-        + doc_signal * 0.25
-        + chunk_signal * 0.15
-        + vram_signal * 0.25
-    )
+    score = query_signal * 0.35 + doc_signal * 0.25 + chunk_signal * 0.15 + vram_signal * 0.25
 
     # Tier decision
     if score < 0.3:
@@ -73,6 +77,7 @@ def score_query_complexity(
 
     # Hardware safety cap: Use VRAM safety margin from config (default 15% = ~3GB on 16GB GPU)
     from app.config import get_settings
+
     if free_vram_mb != float("inf"):
         settings = get_settings()
         # Calculate threshold with safety margin (e.g., 15% of 16GB = ~2.4GB safe floor)

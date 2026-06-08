@@ -4,11 +4,10 @@ Handles: /api/v1/solve (Smart Solve dual-loop), /ws/metrics (broadcast)
 """
 
 import asyncio
-import json
-import time
 import logging
+import time
 import uuid
-from typing import Optional
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app import state
@@ -20,52 +19,70 @@ _metrics_history: list = []
 
 async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> None:
     import time as _t
+
     query = data.get("query", "")
     if not query.strip():
-        await ws.send_json({
-            "type": "error", "error": "empty_query",
-            "message": "Query cannot be empty.",
-        })
+        await ws.send_json(
+            {
+                "type": "error",
+                "error": "empty_query",
+                "message": "Query cannot be empty.",
+            }
+        )
         return
 
     from app.services.security import safe_name as _safe_name
+
     session_id = _safe_name(
         data.get("session_id", f"solve_{int(_t.time())}"),
-        default=f"solve_{int(_t.time())}", max_len=64,
+        default=f"solve_{int(_t.time())}",
+        max_len=64,
     )
     kb_name = _safe_name(data.get("kb_name", ""), default="")
     mode = data.get("mode", "auto")
     retrieval_pipeline = data.get("retrieval_pipeline", "tree")
     device_id = data.get("device_id", "default")
 
-    await ws.send_json({
-        "type": "agent_step", "agent": "investigate",
-        "content": f"Analyzing query: {query[:100]}...", "timestamp": _t.time(),
-    })
+    await ws.send_json(
+        {
+            "type": "agent_step",
+            "agent": "investigate",
+            "content": f"Analyzing query: {query[:100]}...",
+            "timestamp": _t.time(),
+        }
+    )
 
     lm_ok = await state.lm_client.check_health()
     if lm_ok:
-        from app.services.solve_orchestrator import run_solve_pipeline
         from app.services.recursive_solver import RecursiveSolver
+        from app.services.solve_orchestrator import run_solve_pipeline
 
         if mode == "recursive" or (mode == "auto" and "recursive" in query.lower()):
             solver = RecursiveSolver(state.lm_client)
             from app.services.complexity_scorer import score_query_complexity
+
             score, target_tier = score_query_complexity(query)
             pattern = solver.select_pattern(query, score)
 
-            await ws.send_json({
-                "type": "agent_step", "agent": "system",
-                "content": f"[RecursiveMAS Activated: {pattern} pattern]\n",
-                "timestamp": _t.time(),
-            })
+            await ws.send_json(
+                {
+                    "type": "agent_step",
+                    "agent": "system",
+                    "content": f"[RecursiveMAS Activated: {pattern} pattern]\n",
+                    "timestamp": _t.time(),
+                }
+            )
 
             context = ""
             if kb_name:
-                from app.routers.retrieval import retrieve as run_retrieval, RetrieveRequest
+                from app.routers.retrieval import RetrieveRequest
+                from app.routers.retrieval import retrieve as run_retrieval
+
                 req = RetrieveRequest(
-                    query=query, kb_name=kb_name,
-                    retrieval_pipeline=retrieval_pipeline, top_k=3,
+                    query=query,
+                    kb_name=kb_name,
+                    retrieval_pipeline=retrieval_pipeline,
+                    top_k=3,
                 )
                 retrieval_resp = await run_retrieval(req)
                 rag_results = retrieval_resp.get("results", [])
@@ -77,6 +94,7 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
             if state.memory_service:
                 try:
                     from app.services.memory_context import build_memory_context
+
                     recall = await state.memory_service.recall_episodes(device_id, query)
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
@@ -92,29 +110,35 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                 or "Qwen3-1.7B-Q4_K_M"
             )
             result = await solver.solve(
-                query=query, context=context, pattern=pattern,
-                model_id=model_id, ws_send=ws.send_json,
+                query=query,
+                context=context,
+                pattern=pattern,
+                model_id=model_id,
+                ws_send=ws.send_json,
             )
 
-            await ws.send_json({
-                "type": "complete",
-                "answer": result.answer,
-                "citations": [],
-                "session_id": session_id,
-                "solve_dir": f"data/user/solve/{session_id}",
-                "metadata": {
-                    "pattern": result.pattern,
-                    "rounds_used": result.rounds_used,
-                    "converged": result.converged,
-                    "token_savings_pct": result.token_savings_pct,
-                    "elapsed_seconds": result.elapsed_seconds,
-                },
-            })
+            await ws.send_json(
+                {
+                    "type": "complete",
+                    "answer": result.answer,
+                    "citations": [],
+                    "session_id": session_id,
+                    "solve_dir": f"data/user/solve/{session_id}",
+                    "metadata": {
+                        "pattern": result.pattern,
+                        "rounds_used": result.rounds_used,
+                        "converged": result.converged,
+                        "token_savings_pct": result.token_savings_pct,
+                        "elapsed_seconds": result.elapsed_seconds,
+                    },
+                }
+            )
         else:
             memory_context = ""
             if state.memory_service:
                 try:
                     from app.services.memory_context import build_memory_context
+
                     recall = await state.memory_service.recall_episodes(device_id, query)
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
@@ -123,12 +147,16 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                     logger.warning(f"Memory recall failed: {e}")
 
             await run_solve_pipeline(
-                query=query, kb_name=kb_name, mode=mode,
+                query=query,
+                kb_name=kb_name,
+                mode=mode,
                 retrieval_pipeline=retrieval_pipeline,
                 lm_client=state.lm_client,
                 model_manager=state.model_manager,
-                session_id=session_id, ws_send=ws.send_json,
-                device_id=device_id, memory_context=memory_context,
+                session_id=session_id,
+                ws_send=ws.send_json,
+                device_id=device_id,
+                memory_context=memory_context,
             )
         return
 
@@ -141,19 +169,27 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
     ]
     full_answer = ""
     for label, content in steps:
-        await ws.send_json({
-            "type": "agent_step", "agent": label,
-            "content": content, "timestamp": _t.time(),
-        })
+        await ws.send_json(
+            {
+                "type": "agent_step",
+                "agent": label,
+                "content": content,
+                "timestamp": _t.time(),
+            }
+        )
         await asyncio.sleep(0.3)
         full_answer += f"{content}\n\n"
 
-    await ws.send_json({
-        "type": "complete",
-        "answer": full_answer.strip() + "\n\n— *Connect LM Studio at localhost:1234 for real multi-agent reasoning.*",
-        "citations": [], "session_id": session_id,
-        "solve_dir": f"data/user/solve/{session_id}",
-    })
+    await ws.send_json(
+        {
+            "type": "complete",
+            "answer": full_answer.strip()
+            + "\n\n— *Connect LM Studio at localhost:1234 for real multi-agent reasoning.*",
+            "citations": [],
+            "session_id": session_id,
+            "solve_dir": f"data/user/solve/{session_id}",
+        }
+    )
 
 
 async def _watch_ws_disconnect(ws: WebSocket) -> None:
@@ -163,22 +199,23 @@ async def _watch_ws_disconnect(ws: WebSocket) -> None:
 async def ws_solve(ws: WebSocket):
     from app.config import get_settings
     from app.services.security import safe_compare
+
     settings = get_settings()
     token = ws.query_params.get("token")
     if settings.ws_auth_token and not safe_compare(token, settings.ws_auth_token):
         client = ws.client.host if ws.client else "unknown"
-        logger.warning(
-            "ws_auth_failure: endpoint=/api/v1/solve remote=%s", client
-        )
+        logger.warning("ws_auth_failure: endpoint=/api/v1/solve remote=%s", client)
         from app.services.audit import audit
+
         audit("auth.ws_failure", endpoint="/api/v1/solve", remote=client)
         await ws.close(code=1008, reason="Unauthorized")
         return
 
     await ws.accept()
     device_id = str(uuid.uuid4())
-    in_flight: Optional[asyncio.Task] = None
+    in_flight: asyncio.Task | None = None
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
+
     ACTIVE_WS_CONNECTIONS.inc()
     try:
         while True:
@@ -194,9 +231,7 @@ async def ws_solve(ws: WebSocket):
                         pass
                     in_flight = None
 
-                in_flight = asyncio.create_task(
-                    _run_solve_pipeline_for_message(ws, data, state)
-                )
+                in_flight = asyncio.create_task(_run_solve_pipeline_for_message(ws, data, state))
                 try:
                     await in_flight
                 finally:
@@ -206,16 +241,16 @@ async def ws_solve(ws: WebSocket):
             except Exception as e:
                 logger.error(f"Solve pipeline error: {e}", exc_info=True)
                 try:
-                    await ws.send_json({
-                        "type": "error",
-                        "error": "pipeline_failure",
-                        "message": "An internal error occurred while solving. Please try again.",
-                        "timestamp": time.time(),
-                    })
-                except Exception as send_err:
-                    logger.warning(
-                        f"Solve WS error frame send failed: {send_err}"
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "error": "pipeline_failure",
+                            "message": "An internal error occurred while solving. Please try again.",
+                            "timestamp": time.time(),
+                        }
                     )
+                except Exception as send_err:
+                    logger.warning(f"Solve WS error frame send failed: {send_err}")
                     return
                 continue
     except WebSocketDisconnect:
@@ -235,14 +270,14 @@ async def ws_solve(ws: WebSocket):
 async def ws_metrics(ws: WebSocket):
     from app.config import get_settings
     from app.services.security import safe_compare
+
     settings = get_settings()
     token = ws.query_params.get("token")
     if settings.ws_auth_token and not safe_compare(token, settings.ws_auth_token):
         client = ws.client.host if ws.client else "unknown"
-        logger.warning(
-            "ws_auth_failure: endpoint=/ws/metrics remote=%s", client
-        )
+        logger.warning("ws_auth_failure: endpoint=/ws/metrics remote=%s", client)
         from app.services.audit import audit
+
         audit("auth.ws_failure", endpoint="/ws/metrics", remote=client)
         await ws.close(code=1008, reason="Unauthorized")
         return
@@ -257,6 +292,7 @@ async def ws_metrics(ws: WebSocket):
         return
     state.add_ws(ws)
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
+
     ACTIVE_WS_CONNECTIONS.inc()
     try:
         while True:
@@ -286,6 +322,7 @@ async def broadcast_loop():
         if len(_metrics_history) > 30:
             _metrics_history = _metrics_history[-30:]
         from app.routers import system as sm
+
         sm._metrics_history = _metrics_history
 
 
@@ -297,15 +334,15 @@ async def ttl_loop():
             logger.info(f"TTL evictions: {evicted}")
         try:
             from app.services.alerting import check_alerts
+
             await check_alerts()
         except Exception as e:
             logger.debug(f"Alert check failed (non-fatal): {e}")
-        if not ttl_loop._last_cleanup or (
-            time.time() - ttl_loop._last_cleanup > 86400
-        ):
+        if not ttl_loop._last_cleanup or (time.time() - ttl_loop._last_cleanup > 86400):
             ttl_loop._last_cleanup = time.time()
             try:
                 from app.services.session_cleanup import run_cleanup
+
                 result = run_cleanup()
                 if result.deleted_files or result.deleted_dirs:
                     logger.info(

@@ -5,17 +5,18 @@ async context manager passed to FastAPI.
 """
 
 import asyncio
-import time
 import logging
-from pathlib import Path
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from app import state
 from app.dependencies import container
-from app.websocket_handlers import broadcast_loop, ttl_loop
 from app.services.task_registry import TaskRegistry, _global_registry
 from app.services.task_wal import TaskWAL
+from app.websocket_handlers import broadcast_loop, ttl_loop
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +28,15 @@ async def lifespan(app: FastAPI):
     state._startup_time = time.time()
     logger.info("Starting UDIP Backend on :8001")
 
-    from app.services.vram_monitor import VRAMMonitor
-    from app.services.lm_studio_client import LMStudioClient
-    from app.services.model_manager import ModelManager
-    from app.services.model_discovery import ModelDiscoveryService
-    from app.services.pageindex_generator import PageIndexTreeGenerator
     from app.services.benchmark_runner import BenchmarkRunner
     from app.services.embedding_service import EmbeddingService
+    from app.services.lm_studio_client import LMStudioClient
+    from app.services.model_discovery import ModelDiscoveryService
+    from app.services.model_manager import ModelManager
+    from app.services.pageindex_generator import PageIndexTreeGenerator
     from app.services.text_chunker import TextChunker
     from app.services.vector_kb import VectorKBService
+    from app.services.vram_monitor import VRAMMonitor
 
     state.vram_monitor = VRAMMonitor()
     container.register("vram_monitor", lambda: state.vram_monitor, singleton=True)
@@ -47,7 +48,9 @@ async def lifespan(app: FastAPI):
     container.register("model_discovery", lambda: state.model_discovery, singleton=True)
     state.pageindex_generator = PageIndexTreeGenerator(state.lm_client)
     container.register("pageindex_generator", lambda: state.pageindex_generator, singleton=True)
-    state.benchmark_runner = BenchmarkRunner(state.lm_client, state.vram_monitor, state.model_manager)
+    state.benchmark_runner = BenchmarkRunner(
+        state.lm_client, state.vram_monitor, state.model_manager
+    )
     container.register("benchmark_runner", lambda: state.benchmark_runner, singleton=True)
     state.embedding_service = EmbeddingService(state.lm_client, batch_size=32)
     container.register("embedding_service", lambda: state.embedding_service, singleton=True)
@@ -63,10 +66,12 @@ async def lifespan(app: FastAPI):
     container.register("vector_kb_service", lambda: state.vector_kb_service, singleton=True)
 
     from app.config import get_settings
+
     settings = get_settings()
 
     if settings.memory_enabled:
         from app.services.memory_service import MemoryService
+
         state.memory_service = MemoryService(db_path=settings.memory_db_path)
         container.register("memory_service", lambda: state.memory_service, singleton=True)
         await state.memory_service.initialize()
@@ -105,8 +110,7 @@ async def lifespan(app: FastAPI):
 
     async def _replay_handler(entry: dict) -> None:
         logger.info(
-            f"Replaying pending WAL entry: {entry.get('task_name')} "
-            f"({entry.get('task_id')})"
+            f"Replaying pending WAL entry: {entry.get('task_name')} " f"({entry.get('task_id')})"
         )
 
     replayed = await state.task_wal.replay_pending(_replay_handler)
@@ -115,6 +119,7 @@ async def lifespan(app: FastAPI):
 
     if state.memory_service:
         from app.services.memory_maintenance import memory_maintenance_loop
+
         maintenance_task = _lifespan_registry.spawn(
             memory_maintenance_loop(state.memory_service, task_wal=state.task_wal)
         )

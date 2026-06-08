@@ -7,7 +7,6 @@ import re
 import secrets
 import socket
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -20,11 +19,19 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 # A leading dot is still rejected to avoid ``.hidden`` traversal tricks.
 _SAFE_DOC_RE = re.compile(r"[^A-Za-z0-9._-]")
 # Reserved names we never allow (Windows + Unix)
-_RESERVED_NAMES = frozenset({
-    "", ".", "..", "CON", "PRN", "AUX", "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-})
+_RESERVED_NAMES = frozenset(
+    {
+        "",
+        ".",
+        "..",
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
 
 
 def safe_name(value: str, default: str = "default", max_len: int = 128) -> str:
@@ -87,7 +94,8 @@ def resolve_within(base: Path, target: Path) -> Path:
 
 # ── Constant-time token comparison ───────────────────────────────────
 
-def safe_compare(provided: Optional[str], expected: Optional[str]) -> bool:
+
+def safe_compare(provided: str | None, expected: str | None) -> bool:
     """Constant-time string comparison to prevent timing attacks.
 
     Returns ``False`` for missing, empty, or mismatched values without
@@ -102,12 +110,14 @@ def safe_compare(provided: Optional[str], expected: Optional[str]) -> bool:
 
 # ── Token generation ────────────────────────────────────────────────
 
+
 def generate_auth_token(nbytes: int = 32) -> str:
     """Generate a cryptographically random auth token (URL-safe)."""
     return secrets.token_urlsafe(nbytes)
 
 
 # ── SSRF protection on URLs ─────────────────────────────────────────
+
 
 def is_safe_base_url(url: str) -> bool:
     """Validate that a URL is safe to use as an LLM/embedding base URL.
@@ -167,12 +177,17 @@ def is_safe_base_url(url: str) -> bool:
         # check must also be gated on ``allow_local`` to permit IPv6
         # loopback.
         import os
-        allow_local = os.environ.get("UDIP_ALLOW_LOCAL_LLM", "").lower() in (
-            "1", "true", "yes"
-        )
+
+        allow_local = os.environ.get("UDIP_ALLOW_LOCAL_LLM", "").lower() in ("1", "true", "yes")
         if not allow_local:
-            if ip.is_loopback or ip.is_private or ip.is_link_local \
-                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            if (
+                ip.is_loopback
+                or ip.is_private
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
                 return False
         else:
             # Even with local-allow set, block cloud metadata endpoints

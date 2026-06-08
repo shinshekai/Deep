@@ -4,17 +4,15 @@ import asyncio
 import json
 import logging
 import os
-import re
 import shutil
 import time
 import uuid
-from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from app.config import get_settings
 from app import state
+from app.config import get_settings
 from app.services.document_processor import extract_text
 from app.services.security import resolve_within, safe_doc_id, safe_name
 from app.services.task_registry import _global_registry
@@ -38,11 +36,29 @@ MIN_DISK_FREE_RATIO = 0.10  # 10% of total disk must be free
 # Whitelist of accepted file extensions. We keep this small on purpose
 # so the document processor doesn't get handed an arbitrary binary that
 # could trigger parser bugs. Add to this set deliberately.
-ALLOWED_EXTENSIONS: frozenset[str] = frozenset({
-    ".pdf", ".txt", ".md", ".markdown", ".docx", ".pptx", ".xlsx",
-    ".html", ".htm", ".rtf", ".odt", ".epub", ".msg", ".eml",
-    ".csv", ".tsv", ".json", ".xml", ".log",
-})
+ALLOWED_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".pdf",
+        ".txt",
+        ".md",
+        ".markdown",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".html",
+        ".htm",
+        ".rtf",
+        ".odt",
+        ".epub",
+        ".msg",
+        ".eml",
+        ".csv",
+        ".tsv",
+        ".json",
+        ".xml",
+        ".log",
+    }
+)
 
 # MIME types we will accept. Empty Content-Type is allowed because the
 # browser may omit it on simple form uploads.
@@ -86,18 +102,22 @@ def _acquire_registry_lock():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         from filelock import FileLock
+
         # 30s timeout: long enough for legitimate concurrent writers
         # (e.g. upload worker + HTTP request) but short enough that a
         # crashed writer doesn't deadlock the registry forever.
         return FileLock(str(_REGISTRY_LOCK_PATH), timeout=30)
     except ImportError:
         logger.warning("filelock not available — registry writes are not serialized")
+
         # No-op context manager
         class _NullLock:
             def __enter__(self_inner):
                 return self_inner
+
             def __exit__(self_inner, *exc):
                 return False
+
         return _NullLock()
 
 
@@ -126,9 +146,7 @@ def _save_registry():
             _kb_registry.update(current)
 
             tmp_path = REGISTRY_PATH.with_suffix(".json.tmp")
-            tmp_path.write_text(
-                json.dumps(_kb_registry, indent=2), encoding="utf-8"
-            )
+            tmp_path.write_text(json.dumps(_kb_registry, indent=2), encoding="utf-8")
             os.replace(tmp_path, REGISTRY_PATH)
     except Exception as e:
         logger.error(f"Failed to save KB registry: {e}", exc_info=True)
@@ -190,11 +208,14 @@ def _ensure_kb(kb_name: str):
 
     if kb_name not in _kb_registry:
         _kb_registry[kb_name] = {
-            "name": kb_name, "status": "active",
-            "total_pages": 0, "total_docs": 0,
+            "name": kb_name,
+            "status": "active",
+            "total_pages": 0,
+            "total_docs": 0,
             "created_at": time.time(),
         }
         _save_registry()
+
 
 # Ensure default knowledge base exists at startup
 _ensure_kb("default")
@@ -210,7 +231,7 @@ async def _build_vectors(
 ) -> int:
     """Chunk text, embed, and store vectors. Returns chunk count or 0 on failure."""
     try:
-        import numpy as np  # noqa: PLC0415
+        import numpy as np
 
         # Extract string text — extract_text may return dict or str depending on format
         if isinstance(doc_content, dict):
@@ -296,12 +317,14 @@ async def _process_document(
         parallel_tasks = []
         if run_vectors:
             parallel_tasks.append(
-                _build_vectors(doc_content, doc_id, kb_name,
-                               embedding_service, text_chunker, vector_kb_service)
+                _build_vectors(
+                    doc_content, doc_id, kb_name, embedding_service, text_chunker, vector_kb_service
+                )
             )
 
         # Add ARA compilation
         from app.services.ara_compiler import ARACompiler
+
         ara_compiler = ARACompiler(state.lm_client)
         parallel_tasks.append(
             ara_compiler.compile(doc_id=doc_id, text=doc_content, model_id=model_id, title=doc_id)
@@ -397,8 +420,7 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=(
-                f"Declared Content-Type {declared_mime!r} is not in the "
-                "document MIME allowlist."
+                f"Declared Content-Type {declared_mime!r} is not in the " "document MIME allowlist."
             ),
         )
 
@@ -456,19 +478,28 @@ async def upload_document(
             "doc_id": doc_id,
             "kb_name": kb_name,
         }
+
         # Fire and forget -- client polls via /tasks/{task_id}
         async def _with_timeout():
             try:
-                await asyncio.wait_for(_process_document(
-                    task_id, file_bytes, doc_id, kb_name, state.pageindex_generator,
-                    embedding_service=state.embedding_service,
-                    text_chunker=state.text_chunker,
-                    vector_kb_service=state.vector_kb_service,
-                ), timeout=600.0)
+                await asyncio.wait_for(
+                    _process_document(
+                        task_id,
+                        file_bytes,
+                        doc_id,
+                        kb_name,
+                        state.pageindex_generator,
+                        embedding_service=state.embedding_service,
+                        text_chunker=state.text_chunker,
+                        vector_kb_service=state.vector_kb_service,
+                    ),
+                    timeout=600.0,
+                )
             except asyncio.TimeoutError:
                 _tasks[task_id]["status"] = "failed"
                 _tasks[task_id]["progress"] = 0
                 _tasks[task_id]["message"] = "Document processing timed out after 10 minutes"
+
         _global_registry.spawn(_with_timeout())
     else:
         # Fallback: create a minimal stub tree
@@ -512,14 +543,20 @@ async def upload_document(
 # import inside the handler).
 def _audit_upload(kb_name: str, doc_id: str, size_bytes: int) -> None:
     from app.services.audit import audit
+
     audit("kb.uploaded", kb_name=kb_name, doc_id=doc_id, size_bytes=size_bytes)
 
 
 @router.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
-    return _tasks.get(task_id, {
-        "task_id": task_id, "status": "unknown", "progress": 0,
-    })
+    return _tasks.get(
+        task_id,
+        {
+            "task_id": task_id,
+            "status": "unknown",
+            "progress": 0,
+        },
+    )
 
 
 @router.get("/bases")
@@ -535,6 +572,7 @@ async def create_knowledge_base(kb_name: str = Form(...)):
         raise HTTPException(status_code=400, detail="Invalid knowledge base name")
     _ensure_kb(kb_name)
     from app.services.audit import audit
+
     audit("kb.created", kb_name=kb_name)
     return _kb_registry[kb_name]
 
@@ -546,10 +584,15 @@ async def get_knowledge_base(kb_name: str):
     safe = safe_name(kb_name)
     if not safe:
         raise HTTPException(status_code=400, detail="Invalid knowledge base name")
-    return _kb_registry.get(safe, {
-        "name": safe, "status": "inactive",
-        "total_pages": 0, "total_docs": 0,
-    })
+    return _kb_registry.get(
+        safe,
+        {
+            "name": safe,
+            "status": "inactive",
+            "total_pages": 0,
+            "total_docs": 0,
+        },
+    )
 
 
 @router.delete("/bases/{kb_name}")
@@ -574,6 +617,7 @@ async def delete_knowledge_base(kb_name: str):
         _save_registry()
     logger.info(f"Deleted knowledge base: {kb_name}")
     from app.services.audit import audit
+
     audit("kb.deleted", kb_name=kb_name)
     return {"deleted": True, "kb_name": kb_name}
 
@@ -584,24 +628,36 @@ async def get_pageindex_tree(kb_name: str, doc_id: str):
     safe_doc = safe_doc_id(doc_id)
     if not safe_kb or not safe_doc:
         return {
-            "doc_id": doc_id, "title": doc_id, "total_pages": 0,
+            "doc_id": doc_id,
+            "title": doc_id,
+            "total_pages": 0,
             "root": {
-                "node_id": "root", "title": "Not Found",
+                "node_id": "root",
+                "title": "Not Found",
                 "summary": f"Invalid identifiers for {doc_id} in {kb_name}",
-                "start_index": 0, "end_index": 0,
-                "page_start": 1, "page_end": 1, "children": [],
+                "start_index": 0,
+                "end_index": 0,
+                "page_start": 1,
+                "page_end": 1,
+                "children": [],
             },
         }
     tree_path = DATA_DIR / safe_kb / "pageindex" / f"{safe_doc}.json"
     if tree_path.exists():
         return json.loads(tree_path.read_text())
     return {
-        "doc_id": doc_id, "title": doc_id, "total_pages": 0,
+        "doc_id": doc_id,
+        "title": doc_id,
+        "total_pages": 0,
         "root": {
-            "node_id": "root", "title": "Not Found",
+            "node_id": "root",
+            "title": "Not Found",
             "summary": f"No tree for {doc_id} in {kb_name}",
-            "start_index": 0, "end_index": 0,
-            "page_start": 1, "page_end": 1, "children": [],
+            "start_index": 0,
+            "end_index": 0,
+            "page_start": 1,
+            "page_end": 1,
+            "children": [],
         },
     }
 
@@ -692,8 +748,8 @@ async def delete_document(kb_name: str, doc_id: str):
         )
 
     from app.services.audit import audit
-    audit("kb.document_deleted", kb_name=safe_kb, doc_id=safe_doc,
-          page_count=page_count)
+
+    audit("kb.document_deleted", kb_name=safe_kb, doc_id=safe_doc, page_count=page_count)
 
     # Return 204 No Content (status_code=204 set on router)
     return None
