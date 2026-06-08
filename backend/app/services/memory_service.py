@@ -30,8 +30,19 @@ CREATE TABLE IF NOT EXISTS episodes (
     archived INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS episode_chunks (
+    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES episodes(id) ON DELETE CASCADE
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
-    query, answer, content=episodes, content_rowid=rowid,
+    chunk_text,
+    content='',
     tokenize='porter unicode61'
 );
 
@@ -48,8 +59,19 @@ CREATE TABLE IF NOT EXISTS facts (
     archived INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS fact_chunks (
+    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES facts(id) ON DELETE CASCADE
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-    content, content=facts, content_rowid=rowid,
+    chunk_text,
+    content='',
     tokenize='porter unicode61'
 );
 
@@ -103,46 +125,48 @@ CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON memory_usage(timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_episodes_device_created ON episodes(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_episodes_device_archived ON episodes(device_id, archived);
+CREATE INDEX IF NOT EXISTS idx_episode_chunks_source ON episode_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_facts_device_created ON facts(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_device_archived ON facts(device_id, archived);
+CREATE INDEX IF NOT EXISTS idx_fact_chunks_source ON fact_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_device ON agent_outcomes(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_type ON agent_outcomes(agent_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_strategies_pattern ON agent_strategies(agent_type, pattern_signature);
 """
 
 FTS_SYNC_TRIGGERS = """
-CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
-    INSERT INTO episodes_fts(rowid, query, answer)
-    VALUES (new.rowid, new.query, new.answer);
+CREATE TRIGGER IF NOT EXISTS episode_chunks_ai AFTER INSERT ON episode_chunks BEGIN
+    INSERT INTO episodes_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
 END;
 
-CREATE TRIGGER IF NOT EXISTS episodes_ad AFTER DELETE ON episodes BEGIN
-    INSERT INTO episodes_fts(episodes_fts, rowid, query, answer)
-    VALUES ('delete', old.rowid, old.query, old.answer);
+CREATE TRIGGER IF NOT EXISTS episode_chunks_ad AFTER DELETE ON episode_chunks BEGIN
+    INSERT INTO episodes_fts(episodes_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
 END;
 
-CREATE TRIGGER IF NOT EXISTS episodes_au AFTER UPDATE ON episodes BEGIN
-    INSERT INTO episodes_fts(episodes_fts, rowid, query, answer)
-    VALUES ('delete', old.rowid, old.query, old.answer);
-    INSERT INTO episodes_fts(rowid, query, answer)
-    VALUES (new.rowid, new.query, new.answer);
+CREATE TRIGGER IF NOT EXISTS episode_chunks_au AFTER UPDATE ON episode_chunks BEGIN
+    INSERT INTO episodes_fts(episodes_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
+    INSERT INTO episodes_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
 END;
 
-CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-    INSERT INTO facts_fts(rowid, content)
-    VALUES (new.rowid, new.content);
+CREATE TRIGGER IF NOT EXISTS fact_chunks_ai AFTER INSERT ON fact_chunks BEGIN
+    INSERT INTO facts_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
 END;
 
-CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, content)
-    VALUES ('delete', old.rowid, old.content);
+CREATE TRIGGER IF NOT EXISTS fact_chunks_ad AFTER DELETE ON fact_chunks BEGIN
+    INSERT INTO facts_fts(facts_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
 END;
 
-CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, content)
-    VALUES ('delete', old.rowid, old.content);
-    INSERT INTO facts_fts(rowid, content)
-    VALUES (new.rowid, new.content);
+CREATE TRIGGER IF NOT EXISTS fact_chunks_au AFTER UPDATE ON fact_chunks BEGIN
+    INSERT INTO facts_fts(facts_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
+    INSERT INTO facts_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
 END;
 """
 
@@ -212,18 +236,34 @@ class MemoryService:
                     "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
                     (table_name,),
                 )
-                if row and "porter" not in (row[0][0] or ""):
-                    logger.info(f"Migrating {table_name} to porter unicode61 tokenizer")
+                if not row:
+                    continue
+                sql = row[0][0] or ""
+                if "content=" in sql and "content=''" not in sql:
+                    logger.info(f"Migrating {table_name} to contentless FTS5 with chunks")
+                    chunk_table = "episode_chunks" if table_name == "episodes_fts" else "fact_chunks"
+                    source_table = "episodes" if table_name == "episodes_fts" else "facts"
+                    col = "content" if table_name == "facts_fts" else "query || char(10) || char(10) || answer"
                     await db.execute(f"DROP TABLE IF EXISTS {table_name}")
-                    content_table = table_name.replace("_fts", "")
-                    if table_name == "episodes_fts":
-                        cols = "query, answer"
-                    else:
-                        cols = "content"
                     await db.execute(
                         f"CREATE VIRTUAL TABLE {table_name} USING fts5("
-                        f"{cols}, content={content_table}, content_rowid=rowid,"
-                        f"tokenize='porter unicode61')"
+                        f"chunk_text, content='', tokenize='porter unicode61')"
+                    )
+                    rows = await db.execute_fetchall(f"SELECT id, device_id, created_at FROM {source_table}")
+                    for source_row in rows:
+                        sid, did, created = source_row
+                        text_row = await db.execute_fetchall(
+                            f"SELECT {col} FROM {source_table} WHERE id = ?", (sid,)
+                        )
+                        if text_row and text_row[0][0]:
+                            await self._store_chunks(chunk_table, sid, did, text_row[0][0], created)
+                    await db.commit()
+                elif "porter" not in sql:
+                    logger.info(f"Migrating {table_name} to porter unicode61 tokenizer")
+                    await db.execute(f"DROP TABLE IF EXISTS {table_name}")
+                    await db.execute(
+                        f"CREATE VIRTUAL TABLE {table_name} USING fts5("
+                        f"chunk_text, content='', tokenize='porter unicode61')"
                     )
                     await db.commit()
             except Exception as e:
@@ -246,6 +286,19 @@ class MemoryService:
             except Exception:
                 logger.exception("Failed to rollback transaction")
             raise
+
+    async def _store_chunks(self, table: str, source_id: str, device_id: str, text: str, created_at: float) -> None:
+        db = await self._get_db()
+        chunks = self._chunk_text(text)
+        await db.executemany(
+            f"INSERT INTO {table} (source_id, device_id, chunk_index, chunk_text, created_at) "
+            f"VALUES (?, ?, ?, ?, ?)",
+            [(source_id, device_id, i, chunk, created_at) for i, chunk in enumerate(chunks)],
+        )
+
+    async def _delete_chunks(self, table: str, source_id: str) -> None:
+        db = await self._get_db()
+        await db.execute(f"DELETE FROM {table} WHERE source_id = ?", (source_id,))
 
     # ── Episodic ──────────────────────────────────────────────────────────────
 
@@ -285,6 +338,8 @@ class MemoryService:
                     now,
                 ),
             )
+            combined = f"{query}\n\n{answer}"
+            await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
             await db.commit()
             await self.track_usage(device_id, "episodes_stored", 1)
             return episode_id
@@ -308,11 +363,13 @@ class MemoryService:
                     """SELECT e.id, e.device_id, e.session_type, e.query, e.answer,
                               e.agents, e.model_used, e.tier, e.citations,
                               e.outcome_rating, e.created_at,
-                              rank
+                              MIN(fts.rank) as best_rank
                        FROM episodes_fts fts
-                       JOIN episodes e ON e.rowid = fts.rowid
+                       JOIN episode_chunks c ON c.chunk_id = fts.rowid
+                       JOIN episodes e ON e.id = c.source_id
                        WHERE episodes_fts MATCH ? AND e.device_id = ? AND e.archived = 0
-                       ORDER BY rank, e.rowid
+                       GROUP BY e.id
+                       ORDER BY best_rank
                        LIMIT ?""",
                     (query, device_id, top_k),
                 )
@@ -384,6 +441,7 @@ class MemoryService:
     async def delete_episode(self, episode_id: str) -> bool:
         with trace_span("memory.delete_episode", {"episode_id": episode_id}):
             db = await self._get_db()
+            await self._delete_chunks("episode_chunks", episode_id)
             cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
             await db.commit()
             return cursor.rowcount > 0
@@ -460,6 +518,7 @@ class MemoryService:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (fact_id, device_id, content, source_type, source_id, confidence, now, now, 0),
             )
+            await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
             await db.commit()
             await self.track_usage(device_id, "facts_stored", 1)
             return fact_id
@@ -473,11 +532,13 @@ class MemoryService:
                     rows = await db.execute_fetchall(
                         """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
                                   f.confidence, f.created_at, f.last_accessed, f.access_count,
-                                  rank
+                                  MIN(fts.rank) as best_rank
                            FROM facts_fts fts
-                           JOIN facts f ON f.rowid = fts.rowid
+                           JOIN fact_chunks c ON c.chunk_id = fts.rowid
+                           JOIN facts f ON f.id = c.source_id
                            WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
-                           ORDER BY rank, f.rowid
+                           GROUP BY f.id
+                           ORDER BY best_rank
                            LIMIT ?""",
                         (query, device_id, top_k * 2),
                     )
