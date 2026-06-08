@@ -1,6 +1,7 @@
-import pytest
 import json
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.services.memory_context import build_memory_context
 from app.services.memory_service import MemoryService
@@ -26,8 +27,18 @@ class TestMemoryContextBuilder:
 
     def test_build_with_episodes(self):
         episodes = [
-            {"query": "What is FastAPI?", "answer": "A Python web framework.", "session_type": "chat", "score": 0.9},
-            {"query": "How to deploy?", "answer": "Use Docker.", "session_type": "solve", "score": 0.7},
+            {
+                "query": "What is FastAPI?",
+                "answer": "A Python web framework.",
+                "session_type": "chat",
+                "score": 0.9,
+            },
+            {
+                "query": "How to deploy?",
+                "answer": "Use Docker.",
+                "session_type": "solve",
+                "score": 0.7,
+            },
         ]
         ctx = build_memory_context(None, episodes, [])
         assert "FastAPI" in ctx
@@ -70,7 +81,9 @@ class TestMemoryContextBuilder:
         assert "student" in ctx
 
     def test_episodes_limited_to_five(self):
-        episodes = [{"query": f"q{i}", "answer": f"a{i}", "session_type": "chat"} for i in range(10)]
+        episodes = [
+            {"query": f"q{i}", "answer": f"a{i}", "session_type": "chat"} for i in range(10)
+        ]
         ctx = build_memory_context(None, episodes, [], token_budget=50000)
         assert ctx.count("[chat]") <= 5
 
@@ -87,9 +100,13 @@ class TestMemoryContextBuilder:
                 "dynamic": {"recent_topics": ["rust"]},
             },
         }
-        episodes = [{"query": "What is Rust?", "answer": "A systems language.", "session_type": "chat"}]
+        episodes = [
+            {"query": "What is Rust?", "answer": "A systems language.", "session_type": "chat"}
+        ]
         facts = [{"content": "Rust has no GC", "confidence": 0.9}]
-        strategies = [{"agent_type": "solve", "best_strategy": "borrow checker tips", "success_rate": 0.7}]
+        strategies = [
+            {"agent_type": "solve", "best_strategy": "borrow checker tips", "success_rate": 0.7}
+        ]
         ctx = build_memory_context(profile, episodes, facts, agent_strategies=strategies)
         assert "engineer" in ctx
         assert "Rust" in ctx
@@ -121,12 +138,14 @@ class TestFactExtractorParsing:
     @pytest.mark.asyncio
     async def test_extract_no_answer_returns_empty(self):
         from app.services.fact_extractor import extract_and_store_facts
+
         result = await extract_and_store_facts("dev1", "query", "", "src", None, None)
         assert result == []
 
     @pytest.mark.asyncio
     async def test_extract_llm_error_returns_empty(self):
         from app.services.fact_extractor import extract_and_store_facts
+
         mock_lm = AsyncMock()
         mock_lm.stream_chat_completion = AsyncMock(return_value={"error": "fail"})
         result = await extract_and_store_facts("dev1", "query", "answer", "src", mock_lm, None)
@@ -135,6 +154,7 @@ class TestFactExtractorParsing:
     @pytest.mark.asyncio
     async def test_extract_invalid_json_returns_empty(self):
         from app.services.fact_extractor import extract_and_store_facts
+
         mock_lm = AsyncMock()
         mock_lm.stream_chat_completion = AsyncMock(return_value={"content": "not json"})
         result = await extract_and_store_facts("dev1", "query", "answer", "src", mock_lm, None)
@@ -143,10 +163,11 @@ class TestFactExtractorParsing:
     @pytest.mark.asyncio
     async def test_extract_strips_code_fence(self):
         from app.services.fact_extractor import extract_and_store_facts
+
         mock_lm = AsyncMock()
-        mock_lm.stream_chat_completion = AsyncMock(return_value={
-            "content": '```json\n[{"content": "Fact one", "confidence": 0.8}]\n```'
-        })
+        mock_lm.stream_chat_completion = AsyncMock(
+            return_value={"content": '```json\n[{"content": "Fact one", "confidence": 0.8}]\n```'}
+        )
         mock_mem = AsyncMock()
         mock_mem.store_fact = AsyncMock(return_value="f1")
         result = await extract_and_store_facts("dev1", "q", "a", "src", mock_lm, mock_mem)
@@ -156,14 +177,19 @@ class TestFactExtractorParsing:
     @pytest.mark.asyncio
     async def test_extract_stores_multiple_facts(self):
         from app.services.fact_extractor import extract_and_store_facts
+
         mock_lm = AsyncMock()
-        mock_lm.stream_chat_completion = AsyncMock(return_value={
-            "content": json.dumps([
-                {"content": "Fact A", "confidence": 0.9},
-                {"content": "Fact B", "confidence": 0.7},
-                {"content": "", "confidence": 0.5},
-            ])
-        })
+        mock_lm.stream_chat_completion = AsyncMock(
+            return_value={
+                "content": json.dumps(
+                    [
+                        {"content": "Fact A", "confidence": 0.9},
+                        {"content": "Fact B", "confidence": 0.7},
+                        {"content": "", "confidence": 0.5},
+                    ]
+                )
+            }
+        )
         mock_mem = AsyncMock()
         mock_mem.store_fact = AsyncMock(side_effect=["f1", "f2"])
         result = await extract_and_store_facts("dev1", "q", "a", "src", mock_lm, mock_mem)
@@ -246,16 +272,24 @@ class TestMemoryPipeline:
         from app.services.fact_extractor import extract_and_store_facts
 
         mock_lm = AsyncMock()
-        mock_lm.stream_chat_completion = AsyncMock(return_value={
-            "content": json.dumps([
-                {"content": "Python is dynamically typed", "confidence": 0.9},
-                {"content": "Python supports multiple paradigms", "confidence": 0.85},
-            ])
-        })
+        mock_lm.stream_chat_completion = AsyncMock(
+            return_value={
+                "content": json.dumps(
+                    [
+                        {"content": "Python is dynamically typed", "confidence": 0.9},
+                        {"content": "Python supports multiple paradigms", "confidence": 0.85},
+                    ]
+                )
+            }
+        )
 
         result = await extract_and_store_facts(
-            "dev1", "Tell me about Python", "Python is a versatile language.",
-            "session_1", mock_lm, memory_service
+            "dev1",
+            "Tell me about Python",
+            "Python is a versatile language.",
+            "session_1",
+            mock_lm,
+            memory_service,
         )
         assert len(result) == 2
 
@@ -265,9 +299,13 @@ class TestMemoryPipeline:
     @pytest.mark.asyncio
     async def test_agent_strategy_and_context(self, memory_service):
         await memory_service.record_agent_outcome(
-            agent_type="solve", query_pattern="python.*error",
-            strategy="step-by-step debugging", outcome_quality=0.9,
-            model_used="test-model", tier=1, device_id="dev1"
+            agent_type="solve",
+            query_pattern="python.*error",
+            strategy="step-by-step debugging",
+            outcome_quality=0.9,
+            model_used="test-model",
+            tier=1,
+            device_id="dev1",
         )
 
         strategies = await memory_service.get_agent_strategies("solve", "python.*error")
@@ -292,23 +330,32 @@ class TestMemoryPipeline:
         from app.services.fact_extractor import extract_and_store_facts
 
         mock_lm = AsyncMock()
-        mock_lm.stream_chat_completion = AsyncMock(return_value={
-            "content": json.dumps([{"content": "FastAPI uses async/await", "confidence": 0.95}])
-        })
+        mock_lm.stream_chat_completion = AsyncMock(
+            return_value={
+                "content": json.dumps([{"content": "FastAPI uses async/await", "confidence": 0.95}])
+            }
+        )
 
         await memory_service.store_episode(
             "dev1", "What is FastAPI?", "A modern Python web framework.", session_type="chat"
         )
         await extract_and_store_facts(
-            "dev1", "What is FastAPI?", "FastAPI uses async/await for high performance.",
-            "ep_1", mock_lm, memory_service
+            "dev1",
+            "What is FastAPI?",
+            "FastAPI uses async/await for high performance.",
+            "ep_1",
+            mock_lm,
+            memory_service,
         )
         await memory_service.update_profile(
             "dev1", {"type": "learning_started", "topic": "FastAPI"}
         )
         await memory_service.record_agent_outcome(
-            agent_type="solve", query_pattern="fastapi.*question",
-            strategy="provide example code", outcome_quality=0.85, device_id="dev1"
+            agent_type="solve",
+            query_pattern="fastapi.*question",
+            strategy="provide example code",
+            outcome_quality=0.85,
+            device_id="dev1",
         )
 
         episodes = await memory_service.recall_episodes("dev1", "FastAPI")

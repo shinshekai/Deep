@@ -9,9 +9,7 @@ Skip with: pytest -m "not slow"
 """
 
 import asyncio
-import statistics
 import time
-from unittest.mock import patch
 
 import httpx
 import pytest
@@ -23,6 +21,7 @@ BASE_URL = "http://testserver"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _percentile(data: list[float], p: float) -> float:
     """Return the p-th percentile (0-100) of *data*."""
@@ -53,9 +52,7 @@ async def test_health_endpoint_latency():
     iterations = 50
     latencies: list[float] = []
 
-    async with httpx.AsyncClient(
-        transport=transport, base_url=BASE_URL
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
         for _ in range(iterations):
             start = time.perf_counter()
             resp = await client.get("/api/v1/health")
@@ -86,9 +83,7 @@ async def test_concurrent_health_requests():
     """
     concurrency = 20
 
-    async with httpx.AsyncClient(
-        transport=transport, base_url=BASE_URL
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
 
         async def _hit():
             resp = await client.get("/api/v1/health")
@@ -99,7 +94,9 @@ async def test_concurrent_health_requests():
         elapsed = time.perf_counter() - start
 
     success_count = sum(1 for r in results if r == 200)
-    print(f"\n  concurrent health — {concurrency} reqs in {elapsed:.2f}s ({success_count} succeeded)")
+    print(
+        f"\n  concurrent health — {concurrency} reqs in {elapsed:.2f}s ({success_count} succeeded)"
+    )
     assert elapsed < 5, f"{concurrency} concurrent requests took {elapsed:.2f}s (limit 5s)"
 
 
@@ -112,20 +109,17 @@ async def test_query_endpoint_throughput():
     is mocked so responses return instantly.
     """
     from unittest.mock import AsyncMock
+
     from app import state
 
     # Ensure lm_client.stream_chat_completion returns a fast mock
     original = state.lm_client.stream_chat_completion
-    state.lm_client.stream_chat_completion = AsyncMock(
-        return_value={"content": "mock answer"}
-    )
+    state.lm_client.stream_chat_completion = AsyncMock(return_value={"content": "mock answer"})
 
     iterations = 20
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(
-            transport=transport, base_url=BASE_URL
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
             for _ in range(iterations):
                 resp = await client.post(
                     "/api/v1/query",
@@ -155,9 +149,7 @@ async def test_memory_stability():
     first_half: list[float] = []
     second_half: list[float] = []
 
-    async with httpx.AsyncClient(
-        transport=transport, base_url=BASE_URL
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
         for i in range(total):
             start = time.perf_counter()
             resp = await client.get("/api/v1/health")
@@ -198,9 +190,7 @@ async def test_websocket_connection_speed():
     so we test the health endpoint's auth middleware as a proxy — it
     exercises the same fast-path code that WS connections hit.
     """
-    async with httpx.AsyncClient(
-        transport=transport, base_url=BASE_URL
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
         # Warm up (skip rate-limited responses)
         for _ in range(3):
             await client.get("/api/v1/health")

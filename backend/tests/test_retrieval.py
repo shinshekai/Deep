@@ -1,17 +1,17 @@
 """Retrieval route integration tests."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
-import json
-import time
 
 
 def create_test_app():
     """Create a minimal FastAPI test app with retrieval router."""
     from fastapi import FastAPI
-    from app.routers.retrieval import router as retrieval_router
+
     from app.routers.query import router as query_router
+    from app.routers.retrieval import router as retrieval_router
 
     app = FastAPI()
     app.include_router(retrieval_router)
@@ -41,18 +41,23 @@ def test_retrieve_with_tree_pipeline_returns_results(client):
     }
 
     mock_ts = MagicMock()
+
     async def mock_search(*args, **kwargs):
         return [{"doc_id": "test_doc", "node_id": "root", "score": 0.9}]
+
     mock_ts.search = AsyncMock(side_effect=mock_search)
 
     with patch("app.routers.retrieval._load_pageindex_tree", return_value=mock_tree):
         with patch("app.routers.retrieval._get_tree_search", return_value=mock_ts):
-            response = client.post("/api/v1/retrieve", json={
-                "query": "test query",
-                "kb_name": "test_kb",
-                "retrieval_pipeline": "tree",
-                "top_k": 3,
-            })
+            response = client.post(
+                "/api/v1/retrieve",
+                json={
+                    "query": "test query",
+                    "kb_name": "test_kb",
+                    "retrieval_pipeline": "tree",
+                    "top_k": 3,
+                },
+            )
 
     assert response.status_code == 200
     data = response.json()
@@ -63,10 +68,13 @@ def test_retrieve_with_tree_pipeline_returns_results(client):
 
 def test_retrieve_returns_empty_for_missing_kb(client):
     """Returns zero results for nonexistent KB."""
-    response = client.post("/api/v1/retrieve", json={
-        "query": "anything",
-        "kb_name": "nonexistent",
-    })
+    response = client.post(
+        "/api/v1/retrieve",
+        json={
+            "query": "anything",
+            "kb_name": "nonexistent",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["results"] == []
@@ -78,14 +86,16 @@ def test_query_http_returns_answer(client):
     mock_ts = MagicMock()
 
     async def mock_search(*args, **kwargs):
-        return [{
-            "doc_id": "doc1",
-            "page": 0,
-            "section": "Doc1",
-            "summary": "ML basics",
-            "content": "ML is AI.",
-            "node_id": "root",
-        }]
+        return [
+            {
+                "doc_id": "doc1",
+                "page": 0,
+                "section": "Doc1",
+                "summary": "ML basics",
+                "content": "ML is AI.",
+                "node_id": "root",
+            }
+        ]
 
     mock_ts.search = mock_search
 
@@ -102,12 +112,17 @@ def test_query_http_returns_answer(client):
                         mock_mm.get_model_for_tier = AsyncMock(return_value="mock_model")
                         mock_mm.get_best_available_model = AsyncMock(return_value="mock_model")
                         with patch("app.state.vram_monitor") as mock_vm:
-                            mock_vm.poll_once = AsyncMock(return_value={"vram_total_mb": 1000, "vram_used_mb": 500})
-                            response = client.post("/api/v1/query", json={
-                                "query": "What is machine learning?",
-                                "kb_name": "test_kb",
-                                "device_id": "test-device",
-                            })
+                            mock_vm.poll_once = AsyncMock(
+                                return_value={"vram_total_mb": 1000, "vram_used_mb": 500}
+                            )
+                            response = client.post(
+                                "/api/v1/query",
+                                json={
+                                    "query": "What is machine learning?",
+                                    "kb_name": "test_kb",
+                                    "device_id": "test-device",
+                                },
+                            )
 
     assert response.status_code == 200
     data = response.json()

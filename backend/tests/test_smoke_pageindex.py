@@ -85,8 +85,7 @@ def test_pageindex_from_sample_pdf(sample_pdf: Path):
 
         mock_client = AsyncMock()
         mock_client.stream_chat.return_value = (
-            '[{"title": "Introduction", "depth": 1}, '
-            '{"title": "Methods", "depth": 1}]'
+            '[{"title": "Introduction", "depth": 1}, ' '{"title": "Methods", "depth": 1}]'
         )
         gen = PageIndexTreeGenerator(mock_client)
         tree = await gen.build_tree(doc_content, "Qwen3-4B-Q4_K_M", "test.pdf")

@@ -4,11 +4,13 @@ Covers the two WS endpoints defined in app.main:
   /ws/metrics  — metrics broadcast
   /api/v1/solve — Smart Solve dual-loop
 """
-import pytest
+
 import asyncio
 import json
-import websockets
+
+import pytest
 import uvicorn
+import websockets
 
 from app.config import get_settings
 
@@ -20,24 +22,26 @@ async def ws_server():
     The lifespan initialises real services (VRAMMonitor, LMStudioClient,
     etc.) which gracefully degrade when hardware/LLM backends are absent.
     """
+    import os
+
     import app.main as _main
     from app.main import app
 
-    import os
-    from app.config import get_settings
-    
     # Ensure auth is enforced for WS tests — conftest sets token to ""
     old_env = os.environ.get("WS_AUTH_TOKEN")
     os.environ["WS_AUTH_TOKEN"] = "ws-test-token-12345"
     get_settings.cache_clear()
-    
+
     # Re-import / update main settings singleton
     _main.settings = get_settings()
 
     port = 18765
     config = uvicorn.Config(
-        app, host="127.0.0.1", port=port,
-        log_level="error", access_log=False,
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="error",
+        access_log=False,
     )
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
@@ -74,8 +78,6 @@ async def ws_server():
 
 
 def _token():
-    import app.main as _main
-    from app.config import get_settings
     return get_settings().ws_auth_token
 
 
@@ -85,9 +87,7 @@ def _token():
 @pytest.mark.asyncio
 async def test_ws_metrics_connection(ws_server):
     """Connect to /ws/metrics, receive at least one metrics frame, disconnect."""
-    async with websockets.connect(
-        f"{ws_server}/ws/metrics?token={_token()}"
-    ) as ws:
+    async with websockets.connect(f"{ws_server}/ws/metrics?token={_token()}") as ws:
         msg = await asyncio.wait_for(ws.recv(), timeout=15.0)
         data = json.loads(msg)
         assert "vram_used_mb" in data or "latency_ms" in data
@@ -111,9 +111,7 @@ async def test_ws_solve_auth_failure(ws_server):
 @pytest.mark.asyncio
 async def test_ws_solve_invalid_json(ws_server):
     """Send garbage bytes after connecting — expect an error frame."""
-    async with websockets.connect(
-        f"{ws_server}/api/v1/solve?token={_token()}"
-    ) as ws:
+    async with websockets.connect(f"{ws_server}/api/v1/solve?token={_token()}") as ws:
         await ws.send("NOT_JSON{{{")
         msg = await asyncio.wait_for(ws.recv(), timeout=15.0)
         data = json.loads(msg)
@@ -127,9 +125,7 @@ async def test_ws_solve_invalid_json(ws_server):
 @pytest.mark.asyncio
 async def test_ws_solve_missing_action(ws_server):
     """Send valid JSON with no 'query' field — expect empty_query error."""
-    async with websockets.connect(
-        f"{ws_server}/api/v1/solve?token={_token()}"
-    ) as ws:
+    async with websockets.connect(f"{ws_server}/api/v1/solve?token={_token()}") as ws:
         await ws.send(json.dumps({"action": "solve", "mode": "auto"}))
         msg = await asyncio.wait_for(ws.recv(), timeout=15.0)
         data = json.loads(msg)

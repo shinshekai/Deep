@@ -1,24 +1,29 @@
-import pytest
 import asyncio
-import json
-import tempfile
 import os
+import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock
+
+import pytest
 
 
 class TestAgentOutcomes:
     @pytest.mark.asyncio
     async def test_record_and_retrieve_outcome(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
 
             await svc.record_agent_outcome(
-                agent_type="solve", query_pattern="python error",
-                strategy="retry with fallback", outcome_quality=0.85,
-                model_used="test-model", tier=1, device_id="dev1",
+                agent_type="solve",
+                query_pattern="python error",
+                strategy="retry with fallback",
+                outcome_quality=0.85,
+                model_used="test-model",
+                tier=1,
+                device_id="dev1",
             )
 
             strategies = await svc.get_agent_strategies("solve")
@@ -31,17 +36,22 @@ class TestAgentOutcomes:
     @pytest.mark.asyncio
     async def test_strategy_learning_updates_best(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
 
             await svc.record_agent_outcome(
-                agent_type="solve", query_pattern="deploy",
-                strategy="docker", outcome_quality=0.6,
+                agent_type="solve",
+                query_pattern="deploy",
+                strategy="docker",
+                outcome_quality=0.6,
             )
             await svc.record_agent_outcome(
-                agent_type="solve", query_pattern="deploy",
-                strategy="kubernetes", outcome_quality=0.9,
+                agent_type="solve",
+                query_pattern="deploy",
+                strategy="kubernetes",
+                outcome_quality=0.9,
             )
 
             strategies = await svc.get_agent_strategies("solve", "deploy")
@@ -54,17 +64,22 @@ class TestAgentOutcomes:
     @pytest.mark.asyncio
     async def test_agent_outcome_isolation_by_type(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
 
             await svc.record_agent_outcome(
-                agent_type="solve", query_pattern="q1",
-                strategy="s1", outcome_quality=0.8,
+                agent_type="solve",
+                query_pattern="q1",
+                strategy="s1",
+                outcome_quality=0.8,
             )
             await svc.record_agent_outcome(
-                agent_type="research", query_pattern="q1",
-                strategy="s2", outcome_quality=0.7,
+                agent_type="research",
+                query_pattern="q1",
+                strategy="s2",
+                outcome_quality=0.7,
             )
 
             solve_strats = await svc.get_agent_strategies("solve")
@@ -81,6 +96,7 @@ class TestMemoryMaintenance:
     @pytest.mark.asyncio
     async def test_decay_reduces_confidence(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
@@ -104,6 +120,7 @@ class TestMemoryMaintenance:
     @pytest.mark.asyncio
     async def test_compact_archives_old_episodes(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
@@ -126,6 +143,7 @@ class TestMemoryMaintenance:
     @pytest.mark.asyncio
     async def test_stats_after_operations(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
@@ -149,25 +167,32 @@ class TestProjectProfiles:
     @pytest.mark.asyncio
     async def test_project_profile_create_and_update(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
 
-            await svc.update_project_profile("my_kb", {
-                "themes": ["AI", "ML"],
-                "document_count": 5,
-                "total_pages": 100,
-            })
+            await svc.update_project_profile(
+                "my_kb",
+                {
+                    "themes": ["AI", "ML"],
+                    "document_count": 5,
+                    "total_pages": 100,
+                },
+            )
 
             profile = await svc.get_project_profile("my_kb")
             assert profile is not None
             assert profile["kb_name"] == "my_kb"
             assert "AI" in profile.get("themes", [])
 
-            await svc.update_project_profile("my_kb", {
-                "themes": ["AI", "ML", "DL"],
-                "document_count": 8,
-            })
+            await svc.update_project_profile(
+                "my_kb",
+                {
+                    "themes": ["AI", "ML", "DL"],
+                    "document_count": 8,
+                },
+            )
 
             profile2 = await svc.get_project_profile("my_kb")
             assert profile2["document_count"] == 8
@@ -177,6 +202,7 @@ class TestProjectProfiles:
     @pytest.mark.asyncio
     async def test_project_profile_null_for_missing(self):
         from app.services.memory_service import MemoryService
+
         with tempfile.TemporaryDirectory() as tmp:
             svc = MemoryService(db_path=os.path.join(tmp, "test.db"))
             await svc.initialize()
@@ -190,16 +216,20 @@ class TestProjectProfiles:
 class TestMigration:
     def test_scan_solve_sessions_empty(self):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
         from migrate_to_memory import scan_solve_sessions
+
         with tempfile.TemporaryDirectory() as tmp:
             result = scan_solve_sessions(tmp)
             assert result == []
 
     def test_scan_solve_sessions_finds_files(self):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
         from migrate_to_memory import scan_solve_sessions
+
         with tempfile.TemporaryDirectory() as tmp:
             session_dir = Path(tmp) / "user" / "solve" / "test_session"
             session_dir.mkdir(parents=True)
@@ -212,16 +242,20 @@ class TestMigration:
 
     def test_scan_research_sessions_empty(self):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
         from migrate_to_memory import scan_research_sessions
+
         with tempfile.TemporaryDirectory() as tmp:
             result = scan_research_sessions(tmp)
             assert result == []
 
     def test_guide_sessions_empty(self):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
         from migrate_to_memory import scan_guide_sessions
+
         with tempfile.TemporaryDirectory() as tmp:
             result = scan_guide_sessions(tmp)
             assert result == []
@@ -230,11 +264,13 @@ class TestMigration:
 class TestMemoryMaintenanceModule:
     def test_import(self):
         from app.services.memory_maintenance import memory_maintenance_loop
+
         assert callable(memory_maintenance_loop)
 
     @pytest.mark.asyncio
     async def test_loop_runs_once(self):
         from app.services.memory_maintenance import memory_maintenance_loop
+
         mock_svc = AsyncMock()
         mock_svc.decay_old_facts = AsyncMock(return_value=0)
         mock_svc.compact_episodes = AsyncMock(return_value=0)

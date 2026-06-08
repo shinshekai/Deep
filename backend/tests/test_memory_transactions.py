@@ -28,8 +28,19 @@ class TestTransactionRollback:
                        (id, device_id, session_type, query, answer, agents,
                         model_used, tier, citations, outcome_rating, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    ("ep_rollback_1", device_id, "chat", "q1", "a1",
-                     "[]", "", 0, "[]", 0.0, 1000.0),
+                    (
+                        "ep_rollback_1",
+                        device_id,
+                        "chat",
+                        "q1",
+                        "a1",
+                        "[]",
+                        "",
+                        0,
+                        "[]",
+                        0.0,
+                        1000.0,
+                    ),
                 )
                 await db.execute(
                     """INSERT INTO fact_relationships
@@ -39,9 +50,7 @@ class TestTransactionRollback:
                 )
 
         db = await svc._get_db()
-        rows = await db.execute_fetchall(
-            "SELECT id FROM episodes WHERE id = ?", ("ep_rollback_1",)
-        )
+        rows = await db.execute_fetchall("SELECT id FROM episodes WHERE id = ?", ("ep_rollback_1",))
         assert len(rows) == 0
 
     async def test_commit_on_success(self, isolated_service):
@@ -55,14 +64,11 @@ class TestTransactionRollback:
                    (id, device_id, session_type, query, answer, agents,
                     model_used, tier, citations, outcome_rating, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                ("ep_commit_1", device_id, "chat", "q1", "a1",
-                 "[]", "", 0, "[]", 0.0, 1000.0),
+                ("ep_commit_1", device_id, "chat", "q1", "a1", "[]", "", 0, "[]", 0.0, 1000.0),
             )
 
         db = await svc._get_db()
-        rows = await db.execute_fetchall(
-            "SELECT id FROM episodes WHERE id = ?", ("ep_commit_1",)
-        )
+        rows = await db.execute_fetchall("SELECT id FROM episodes WHERE id = ?", ("ep_commit_1",))
         assert len(rows) == 1
 
     async def test_recall_facts_atomic_on_write_failure(self, isolated_service):
@@ -89,7 +95,5 @@ class TestTransactionRollback:
                     ("bad_ref_1", "bad_ref_2", "x", 0.1),
                 )
 
-        rows = await db.execute_fetchall(
-            "SELECT access_count FROM facts WHERE id = ?", (fact_id,)
-        )
+        rows = await db.execute_fetchall("SELECT access_count FROM facts WHERE id = ?", (fact_id,))
         assert rows[0][0] == initial_count

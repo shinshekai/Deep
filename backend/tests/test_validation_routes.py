@@ -1,13 +1,16 @@
 """Tests for the Validation API Routes."""
 
-import pytest
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+
 
 def create_test_app():
     """Create a minimal FastAPI app with validation routes."""
     from fastapi import FastAPI
+
     from app.validation.validation_routes import router
+
     app = FastAPI()
     app.include_router(router)
     return app
@@ -23,11 +26,11 @@ def test_run_validation():
             with patch("app.validation.validation_routes.validate_remediation") as mock_rem:
                 # Test fast mode (default)
                 response = client.get("/api/v1/validation/run?fast=true")
-                
+
                 assert response.status_code == 200
                 data = response.json()
                 assert "timestamp" in data
-                
+
                 mock_cfg.assert_called_once()
                 mock_health.assert_called_once()
                 mock_rem.assert_called_once()
@@ -43,7 +46,7 @@ def test_run_validation_not_fast():
             with patch("app.validation.validation_routes.validate_remediation"):
                 with patch("app.validation.coverage_tracker.validate_coverage") as mock_cov:
                     response = client.get("/api/v1/validation/run?fast=false")
-                    
+
                     assert response.status_code == 200
                     mock_cov.assert_called_once()
 
@@ -74,26 +77,47 @@ def test_get_remediation_progress():
     # Mock the REMEDIATION_ITEMS list inside the router module
     mock_items = [
         {"id": "TEST-1", "sprint": 1, "description": "test"},
-        {"id": "TEST-2", "sprint": 2, "description": "test 2"}
+        {"id": "TEST-2", "sprint": 2, "description": "test 2"},
     ]
 
     # Mock validate_remediation to populate report with some results
     def mock_validate(report):
-        from app.validation.baselines import ValidationResult, CheckCategory, Severity
-        report.add(ValidationResult(
-            check_id="TEST-1", category=CheckCategory.REMEDIATION, severity=Severity.MEDIUM, passed=True, message="Test 1 passed"
-        ))
-        report.add(ValidationResult(
-            check_id="TEST-2", category=CheckCategory.REMEDIATION, severity=Severity.MEDIUM, passed=False, message="Test 2 failed"
-        ))
-        report.add(ValidationResult(
-            check_id="REM-SUMMARY", category=CheckCategory.REMEDIATION, severity=Severity.LOW, passed=True, message="Summary"
-        ))
+        from app.validation.baselines import CheckCategory, Severity, ValidationResult
+
+        report.add(
+            ValidationResult(
+                check_id="TEST-1",
+                category=CheckCategory.REMEDIATION,
+                severity=Severity.MEDIUM,
+                passed=True,
+                message="Test 1 passed",
+            )
+        )
+        report.add(
+            ValidationResult(
+                check_id="TEST-2",
+                category=CheckCategory.REMEDIATION,
+                severity=Severity.MEDIUM,
+                passed=False,
+                message="Test 2 failed",
+            )
+        )
+        report.add(
+            ValidationResult(
+                check_id="REM-SUMMARY",
+                category=CheckCategory.REMEDIATION,
+                severity=Severity.LOW,
+                passed=True,
+                message="Summary",
+            )
+        )
 
     with patch("app.validation.validation_routes.REMEDIATION_ITEMS", mock_items):
-        with patch("app.validation.validation_routes.validate_remediation", side_effect=mock_validate):
+        with patch(
+            "app.validation.validation_routes.validate_remediation", side_effect=mock_validate
+        ):
             response = client.get("/api/v1/validation/remediation")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert "overall_progress" in data
@@ -112,14 +136,21 @@ def test_get_health_status():
     client = TestClient(app)
 
     def mock_validate(report):
-        from app.validation.baselines import ValidationResult, CheckCategory, Severity
-        report.add(ValidationResult(
-            check_id="HEALTH-1", category=CheckCategory.HEALTH, severity=Severity.CRITICAL, passed=True, message="Health OK"
-        ))
+        from app.validation.baselines import CheckCategory, Severity, ValidationResult
+
+        report.add(
+            ValidationResult(
+                check_id="HEALTH-1",
+                category=CheckCategory.HEALTH,
+                severity=Severity.CRITICAL,
+                passed=True,
+                message="Health OK",
+            )
+        )
 
     with patch("app.validation.validation_routes.validate_health", side_effect=mock_validate):
         response = client.get("/api/v1/validation/health")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "results" in data

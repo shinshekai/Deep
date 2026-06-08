@@ -8,12 +8,11 @@ backend (no mocks). Run manually with:
     # or
     pytest tests/manual_smoke_lm_studio.py -v -s
 """
-import asyncio
+
 import sys
 
 import httpx
 import pytest
-
 
 LM_STUDIO_URL = "http://localhost:1234"
 MODEL = "google/gemma-4-e2b"
@@ -33,7 +32,9 @@ def _check_models_listed() -> dict:
 async def test_lm_studio_reachable_and_model_listed():
     """LM Studio must respond on the OpenAI /v1/models endpoint and expose Gemma 4 E2B."""
     result = _check_models_listed()
-    print(f"\n  Models endpoint OK: {result['models_found']} models, target present: {result['target_present']}")
+    print(
+        f"\n  Models endpoint OK: {result['models_found']} models, target present: {result['target_present']}"
+    )
     assert result["target_present"]
 
 
@@ -48,7 +49,10 @@ async def test_lm_studio_chat_completion_roundtrip():
     payload = {
         "model": MODEL,
         "messages": [
-            {"role": "system", "content": "You are a concise assistant. Think briefly, then answer."},
+            {
+                "role": "system",
+                "content": "You are a concise assistant. Think briefly, then answer.",
+            },
             {"role": "user", "content": "What is 2+2? Answer with just the number."},
         ],
         "max_tokens": 500,
@@ -59,7 +63,7 @@ async def test_lm_studio_chat_completion_roundtrip():
         r = await client.post(f"{LM_STUDIO_URL}/v1/chat/completions", json=payload)
     assert r.status_code == 200, f"chat completion failed: {r.status_code} {r.text[:200]}"
     body = r.json()
-    assert "choices" in body and body["choices"], "no choices returned"
+    assert body.get("choices"), "no choices returned"
     message = body["choices"][0]["message"]
     content = message.get("content", "") or ""
     reasoning = message.get("reasoning_content", "") or ""
@@ -103,6 +107,7 @@ async def test_lm_studio_streaming_chat_completion():
                     break
                 try:
                     import json
+
                     obj = json.loads(data)
                     delta = obj["choices"][0]["delta"]
                     c = delta.get("content")

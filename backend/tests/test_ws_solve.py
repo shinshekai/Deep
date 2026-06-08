@@ -10,19 +10,18 @@ Day 11a follow-up: the pipeline is now scheduled as a task and cancelled
 when the client disconnects (saves LLM tokens / time on a dropped call).
 """
 
-import pytest
 import asyncio
-import json
 import threading
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 
 def _token_query():
     """Return the ``?token=...`` query string the WebSocket handler expects."""
     from app.config import get_settings
+
     return f"?token={get_settings().ws_auth_token}"
 
 
@@ -51,9 +50,7 @@ def test_pipeline_failure_sends_error_frame(monkeypatch):
     async def _raise(*args, **kwargs):
         raise RuntimeError("simulated LLM backend failure")
 
-    monkeypatch.setattr(
-        "app.services.solve_orchestrator.run_solve_pipeline", _raise
-    )
+    monkeypatch.setattr("app.services.solve_orchestrator.run_solve_pipeline", _raise)
 
     client = TestClient(app_module.app)
     with client.websocket_connect(f"/api/v1/solve{_token_query()}") as ws:
@@ -88,9 +85,7 @@ def test_pipeline_failure_loop_continues(monkeypatch):
         # second call: succeed silently (no frames), loop returns to read
         return None
 
-    monkeypatch.setattr(
-        "app.services.solve_orchestrator.run_solve_pipeline", _flaky_pipeline
-    )
+    monkeypatch.setattr("app.services.solve_orchestrator.run_solve_pipeline", _flaky_pipeline)
 
     client = TestClient(app_module.app)
     with client.websocket_connect(f"/api/v1/solve{_token_query()}") as ws:
@@ -134,6 +129,7 @@ def test_error_frame_send_failure_exits_loop(monkeypatch):
 
 # ── Day 11a follow-up: in-flight pipeline cancellation on disconnect ──────
 
+
 def test_in_flight_tracked_on_new_query(monkeypatch):
     """The handler tracks the in-flight pipeline as a task so the
     ``finally`` block can cancel it on disconnect (or on a new query,
@@ -153,9 +149,7 @@ def test_in_flight_tracked_on_new_query(monkeypatch):
         # Quick return so the next message can arrive
         return
 
-    monkeypatch.setattr(
-        app_ws_handlers, "_run_solve_pipeline_for_message", _quick_pipeline
-    )
+    monkeypatch.setattr(app_ws_handlers, "_run_solve_pipeline_for_message", _quick_pipeline)
 
     app_module = __import__("app.main", fromlist=["app"])
     client = TestClient(app_module.app)
@@ -168,9 +162,7 @@ def test_in_flight_tracked_on_new_query(monkeypatch):
 
     with state_lock:
         # Both calls should have been made
-        assert state["calls"] >= 1, (
-            f"Pipeline was not invoked. state={state}"
-        )
+        assert state["calls"] >= 1, f"Pipeline was not invoked. state={state}"
 
 
 def test_in_flight_cancelled_on_disconnect_via_send_failure(monkeypatch):
@@ -179,8 +171,9 @@ def test_in_flight_cancelled_on_disconnect_via_send_failure(monkeypatch):
     catches it, attempts to send an error frame (which also fails),
     and the loop exits cleanly. We verify the pipeline coroutine
     returned (it didn't hang) by waiting on a flag it sets on exit."""
-    from app import websocket_handlers as app_ws_handlers
     from fastapi.websockets import WebSocketState
+
+    from app import websocket_handlers as app_ws_handlers
 
     state_lock = threading.Lock()
     state = {"frame_count": 0, "returned": False}
@@ -192,10 +185,14 @@ def test_in_flight_cancelled_on_disconnect_via_send_failure(monkeypatch):
             for i in range(1000):
                 if ws.client_state == WebSocketState.DISCONNECTED:
                     raise RuntimeError("connection closed")
-                await ws.send_json({
-                    "type": "agent_step", "agent": "test",
-                    "content": f"frame {i}", "timestamp": time.time(),
-                })
+                await ws.send_json(
+                    {
+                        "type": "agent_step",
+                        "agent": "test",
+                        "content": f"frame {i}",
+                        "timestamp": time.time(),
+                    }
+                )
                 with state_lock:
                     state["frame_count"] += 1
                 await asyncio.sleep(0.01)
@@ -203,9 +200,7 @@ def test_in_flight_cancelled_on_disconnect_via_send_failure(monkeypatch):
             with state_lock:
                 state["returned"] = True
 
-    monkeypatch.setattr(
-        app_ws_handlers, "_run_solve_pipeline_for_message", _periodic_send
-    )
+    monkeypatch.setattr(app_ws_handlers, "_run_solve_pipeline_for_message", _periodic_send)
 
     app_module = __import__("app.main", fromlist=["app"])
     client = TestClient(app_module.app)
@@ -225,9 +220,7 @@ def test_in_flight_cancelled_on_disconnect_via_send_failure(monkeypatch):
     else:
         with state_lock:
             detail = dict(state)
-        pytest.fail(
-            f"Pipeline did not return after WS disconnect. State: {detail}"
-        )
+        pytest.fail(f"Pipeline did not return after WS disconnect. State: {detail}")
 
 
 def test_solve_pipeline_helper_is_exportable():
@@ -237,9 +230,11 @@ def test_solve_pipeline_helper_is_exportable():
     disconnect-cancellation tests above.
     """
     from app import main as app_main
+
     assert hasattr(app_main, "_run_solve_pipeline_for_message")
     assert callable(app_main._run_solve_pipeline_for_message)
     import inspect
+
     sig = inspect.signature(app_main._run_solve_pipeline_for_message)
     # (ws, data, state) — three positional args
     assert list(sig.parameters) == ["ws", "data", "state"]

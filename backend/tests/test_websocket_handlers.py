@@ -1,17 +1,16 @@
 """Tests for extracted WebSocket handlers (app.websocket_handlers)."""
 
-import pytest
-import asyncio
 import inspect
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from app.websocket_handlers import (
     _run_solve_pipeline_for_message,
-    _watch_ws_disconnect,
-    ws_solve,
-    ws_metrics,
     broadcast_loop,
     ttl_loop,
+    ws_metrics,
+    ws_solve,
 )
 
 
@@ -22,6 +21,7 @@ def test_run_solve_pipeline_for_message_signature():
 
 def test_run_solve_pipeline_for_message_exportable_from_main():
     from app import main as app_main
+
     assert hasattr(app_main, "_run_solve_pipeline_for_message")
     assert callable(app_main._run_solve_pipeline_for_message)
 
@@ -67,6 +67,7 @@ def test_ws_handlers_source_has_auth_check():
 
 def test_ws_handlers_module_has_metrics_history():
     from app.websocket_handlers import _metrics_history
+
     assert isinstance(_metrics_history, list)
 
 
@@ -93,6 +94,7 @@ async def test_whitespace_query_sends_error():
 @pytest.mark.asyncio
 async def test_lm_down_fallback():
     from unittest.mock import patch
+
     ws = AsyncMock()
     ws.send_json = AsyncMock()
     mock_state = MagicMock()

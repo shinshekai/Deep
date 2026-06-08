@@ -1,9 +1,8 @@
 """Tests for the dependency injection container and service registry."""
 
 import pytest
-from unittest.mock import MagicMock
 
-from app.dependencies import Container, Lifetime, container
+from app.dependencies import Container, container
 from app.services.base import ServiceRegistry
 
 
@@ -11,6 +10,7 @@ class TestContainer:
     def test_register_and_get_singleton(self):
         c = Container()
         call_count = 0
+
         def factory():
             nonlocal call_count
             call_count += 1
@@ -26,6 +26,7 @@ class TestContainer:
     def test_register_and_get_transient(self):
         c = Container()
         call_count = 0
+
         def factory():
             nonlocal call_count
             call_count += 1
@@ -95,6 +96,7 @@ class TestContainerModuleSingleton:
     def test_container_is_module_level_singleton(self):
         from app.dependencies import container as c1
         from app.dependencies import container as c2
+
         assert c1 is c2
 
 

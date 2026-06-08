@@ -1,5 +1,7 @@
-import pytest
 import time
+
+import pytest
+
 from app.services.memory_service import MemoryService
 
 
@@ -87,6 +89,7 @@ async def test_concurrent_writes(tmp_path):
 async def test_token_budget_adherence(tmp_path):
     """Memory context should not exceed token budget."""
     from app.services.memory_context import build_memory_context
+
     svc = MemoryService(db_path=str(tmp_path / "test_memory.db"))
     await svc.initialize()
     for i in range(30):
@@ -96,7 +99,10 @@ async def test_token_budget_adherence(tmp_path):
             answer=f"Comprehensive answer discussing multiple aspects of machine learning topic {i} including neural networks, transformers, and applications",
         )
     for i in range(30):
-        await svc.store_fact(device_id="dev1", content=f"Important fact about {i}: this is a detailed fact that contains significant information about the topic")
+        await svc.store_fact(
+            device_id="dev1",
+            content=f"Important fact about {i}: this is a detailed fact that contains significant information about the topic",
+        )
     episodes = await svc.recall_episodes("dev1", "machine learning")
     facts = await svc.recall_facts("dev1", "machine learning")
     context = build_memory_context(None, episodes, facts, token_budget=2000)

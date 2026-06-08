@@ -7,9 +7,9 @@ import pytest
 @pytest.mark.asyncio
 async def test_stream_chat_completion_returns_dict():
     """stream_chat_completion should return a dict with 'content' key on success."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import AsyncMock, patch, MagicMock
-    import json
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -24,7 +24,7 @@ async def test_stream_chat_completion_returns_dict():
         chunks = [
             'data: {"choices": [{"delta": {"content": "Hello"}}]}',
             'data: {"choices": [{"delta": {"content": " world"}}]}',
-            'data: [DONE]',
+            "data: [DONE]",
         ]
         for chunk in chunks:
             yield chunk
@@ -61,9 +61,11 @@ async def test_stream_chat_completion_handles_llm_unavailable():
     exception into ``{"error": "..."}`` so clients can detect the
     failure without crashing on a missing ``content`` key.
     """
-    from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
+
     import httpx
+
+    from app.services.lm_studio_client import LMStudioClient
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -83,37 +85,49 @@ async def test_stream_chat_completion_handles_llm_unavailable():
     # "content" key is absent on error (was the buggy old behavior)
     assert "content" not in result
 
+
 @pytest.mark.asyncio
 async def test_check_health_success():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
-    
+
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    
+
     mock_client_instance = AsyncMock()
     mock_client_instance.get.return_value = mock_resp
-    
+
     with patch("app.services.lm_studio_client.httpx.AsyncClient") as mock_cls:
         mock_cls.return_value.__aenter__.return_value = mock_client_instance
         assert await client.check_health() is True
 
+
 @pytest.mark.asyncio
 async def test_check_health_failure():
-    from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import patch
+
     import httpx
+
+    from app.services.lm_studio_client import LMStudioClient
+
     client = LMStudioClient()
-    
+
     with patch("app.services.lm_studio_client.httpx.AsyncClient") as mock_client_cls:
-        mock_client_cls.return_value.__aenter__.side_effect = httpx.ConnectError("Connection refused")
+        mock_client_cls.return_value.__aenter__.side_effect = httpx.ConnectError(
+            "Connection refused"
+        )
         assert await client.check_health() is False
+
 
 @pytest.mark.asyncio
 async def test_list_models():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
 
     mock_resp = MagicMock()
@@ -133,10 +147,13 @@ async def test_list_models():
         assert len(models) == 1
         assert models[0]["id"] == "model_1"
 
+
 @pytest.mark.asyncio
 async def test_load_model_success():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
     client.list_models = AsyncMock(return_value=[{"id": "test_model"}])
 
@@ -154,10 +171,13 @@ async def test_load_model_success():
         with patch("asyncio.sleep", AsyncMock()):
             assert await client.load_model("test_model") is True
 
+
 @pytest.mark.asyncio
 async def test_unload_model_success():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
 
     # `unload_model` has a post-unload verification loop that calls
@@ -178,15 +198,20 @@ async def test_unload_model_success():
         with patch("asyncio.sleep", AsyncMock()):
             assert await client.unload_model("test_model") is True
 
+
 @pytest.mark.asyncio
 async def test_embed_success():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}, {"embedding": [0.4, 0.5, 0.6]}]}
+    mock_resp.json.return_value = {
+        "data": [{"embedding": [0.1, 0.2, 0.3]}, {"embedding": [0.4, 0.5, 0.6]}]
+    }
     mock_resp.raise_for_status = MagicMock()
 
     mock_client_instance = AsyncMock()
@@ -202,10 +227,13 @@ async def test_embed_success():
         assert embeddings[0] == [0.1, 0.2, 0.3]
         assert embeddings[1] == [0.4, 0.5, 0.6]
 
+
 @pytest.mark.asyncio
 async def test_load_model_cli_fallback():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
 
     mock_resp = MagicMock()
@@ -228,10 +256,13 @@ async def test_load_model_cli_fallback():
             with patch("asyncio.sleep", AsyncMock()):
                 assert await client.load_model("test_model") is True
 
+
 @pytest.mark.asyncio
 async def test_unload_model_cli_fallback():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
+
     client = LMStudioClient()
 
     # REST returns 500 → falls back to CLI. The 5-iteration verification
@@ -256,29 +287,41 @@ async def test_unload_model_cli_fallback():
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             with patch("asyncio.sleep", AsyncMock()):
                 import sys
+
                 class FakePynvml:
-                    def nvmlInit(self): pass
-                    def nvmlDeviceGetCount(self): return 1
-                    def nvmlDeviceGetHandleByIndex(self, i): return "handle"
+                    def nvmlInit(self):
+                        pass
+
+                    def nvmlDeviceGetCount(self):
+                        return 1
+
+                    def nvmlDeviceGetHandleByIndex(self, i):
+                        return "handle"
+
                     def nvmlDeviceGetMemoryInfo(self, h):
-                        class Info: used = 1000
+                        class Info:
+                            used = 1000
+
                         return Info()
-                sys.modules['pynvml'] = FakePynvml()
+
+                sys.modules["pynvml"] = FakePynvml()
                 try:
                     assert await client.unload_model("test_model") is True
                 finally:
-                    del sys.modules['pynvml']
+                    del sys.modules["pynvml"]
 
 
 # ---------------------------------------------------------------------------
 # Day 8a: retry-with-backoff coverage for load_model, unload_model, stream_chat
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_load_model_retries_on_500_then_succeeds(monkeypatch):
     """load_model: two 500s then a 200 — _with_retry should recover on the third try."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -321,8 +364,9 @@ async def test_load_model_retries_on_500_then_succeeds(monkeypatch):
 @pytest.mark.asyncio
 async def test_load_model_falls_back_to_cli_after_all_retries_fail(monkeypatch):
     """load_model: 3 × 500 → falls back to CLI on final failure."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -361,8 +405,9 @@ async def test_load_model_falls_back_to_cli_after_all_retries_fail(monkeypatch):
 @pytest.mark.asyncio
 async def test_unload_model_retries_on_network_error_then_succeeds():
     """unload_model: two ConnectErrors then a 200 — _with_retry should recover."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -378,9 +423,11 @@ async def test_unload_model_retries_on_network_error_then_succeeds():
     # post fails twice with ConnectError, then succeeds with 200
     mock_client_instance = AsyncMock()
     mock_client_instance.post = AsyncMock(
-        side_effect=[httpx.ConnectError("Connection refused"),
-                     httpx.ConnectError("Connection refused"),
-                     ok_resp]
+        side_effect=[
+            httpx.ConnectError("Connection refused"),
+            httpx.ConnectError("Connection refused"),
+            ok_resp,
+        ]
     )
     mock_client_instance.get = AsyncMock(return_value=list_resp)
 
@@ -401,8 +448,9 @@ async def test_unload_model_retries_on_network_error_then_succeeds():
 @pytest.mark.asyncio
 async def test_stream_chat_open_retries_on_connect_error():
     """stream_chat's initial handshake retries on ConnectError before giving up."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -414,8 +462,7 @@ async def test_stream_chat_open_retries_on_connect_error():
     ok_response.raise_for_status = MagicMock()
 
     async def ok_aiter_lines():
-        for line in ['data: {"choices": [{"delta": {"content": "hi"}}]}',
-                     'data: [DONE]']:
+        for line in ['data: {"choices": [{"delta": {"content": "hi"}}]}', "data: [DONE]"]:
             yield line
 
     ok_response.aiter_lines = ok_aiter_lines
@@ -434,8 +481,7 @@ async def test_stream_chat_open_retries_on_connect_error():
             raise httpx.ConnectError("Connection refused")
         return ok_client
 
-    with patch("app.services.lm_studio_client.httpx.AsyncClient",
-               side_effect=factory_side_effect):
+    with patch("app.services.lm_studio_client.httpx.AsyncClient", side_effect=factory_side_effect):
         with patch("app.services.lm_studio_client.asyncio.sleep", AsyncMock()):
             result = await client.stream_chat(
                 messages=[{"role": "user", "content": "Hi"}],
@@ -450,9 +496,11 @@ async def test_stream_chat_open_retries_on_connect_error():
 @pytest.mark.asyncio
 async def test_with_retry_unit():
     """Direct unit test of _with_retry: count attempts and verify last-exc raise."""
-    from app.services.lm_studio_client import _with_retry
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
+
     import httpx
+
+    from app.services.lm_studio_client import _with_retry
 
     calls = {"n": 0}
 
@@ -471,6 +519,7 @@ async def test_with_retry_unit():
 # Day 12b: stream_chat() surfaces error context (raises) instead of None
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_stream_chat_propagates_exception_instead_of_returning_none():
     """stream_chat() must raise on transport failure — callers (and
@@ -478,16 +527,19 @@ async def test_stream_chat_propagates_exception_instead_of_returning_none():
     string) from 'request failed' (raised exception). The old behaviour
     returned None for both, masking transient errors as silent empty
     responses."""
-    from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
+
     import httpx
+
+    from app.services.lm_studio_client import LMStudioClient
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
     client._headers = {"Authorization": "Bearer lm-studio", "Content-Type": "application/json"}
 
-    with patch("app.services.lm_studio_client.httpx.AsyncClient",
-               side_effect=httpx.ConnectError("boom")):
+    with patch(
+        "app.services.lm_studio_client.httpx.AsyncClient", side_effect=httpx.ConnectError("boom")
+    ):
         with patch("app.services.lm_studio_client.asyncio.sleep", AsyncMock()):
             with pytest.raises(httpx.ConnectError):
                 await client.stream_chat(
@@ -502,8 +554,9 @@ async def test_stream_chat_returns_empty_string_for_zero_tokens():
     """When the model returns zero content tokens, stream_chat should
     return '' — not None. Empty string is the canonical 'no answer'
     value; None was ambiguous with 'error'."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock, MagicMock
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
@@ -542,16 +595,20 @@ async def test_stream_chat_completion_wraps_error_in_dict():
     """The convenience wrapper stream_chat_completion() must still
     translate the now-raised exception into a dict with 'error' key,
     so callers that depend on the dict-shaped response don't break."""
-    from app.services.lm_studio_client import LMStudioClient
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
+
     import httpx
+
+    from app.services.lm_studio_client import LMStudioClient
 
     client = LMStudioClient()
     client.base_url = "http://localhost:1234"
     client._headers = {"Authorization": "Bearer lm-studio", "Content-Type": "application/json"}
 
-    with patch("app.services.lm_studio_client.httpx.AsyncClient",
-               side_effect=httpx.ConnectError("server gone")):
+    with patch(
+        "app.services.lm_studio_client.httpx.AsyncClient",
+        side_effect=httpx.ConnectError("server gone"),
+    ):
         with patch("app.services.lm_studio_client.asyncio.sleep", AsyncMock()):
             result = await client.stream_chat_completion(
                 model="Qwen3-4B-Q4_K_M",

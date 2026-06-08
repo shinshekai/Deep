@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 
 from app.services.memory_service import MemoryService
 
@@ -15,23 +14,32 @@ async def memory_service(tmp_path):
 class TestEpisodicMemory:
     async def test_store_and_retrieve_episode(self, memory_service):
         eid = await memory_service.store_episode(
-            device_id="dev1", query="What is Python?",
+            device_id="dev1",
+            query="What is Python?",
             answer="Python is a programming language.",
-            agents=["solve"], model_used="test-model", session_type="solve"
+            agents=["solve"],
+            model_used="test-model",
+            session_type="solve",
         )
         assert eid is not None
         assert len(eid) > 0
 
     async def test_recall_returns_relevant_episodes(self, memory_service):
-        await memory_service.store_episode("dev1", "What is Python?", "A language.", session_type="chat")
-        await memory_service.store_episode("dev1", "How does photosynthesis work?", "Light energy.", session_type="chat")
+        await memory_service.store_episode(
+            "dev1", "What is Python?", "A language.", session_type="chat"
+        )
+        await memory_service.store_episode(
+            "dev1", "How does photosynthesis work?", "Light energy.", session_type="chat"
+        )
         results = await memory_service.recall_episodes("dev1", "Python")
         assert len(results) >= 1
         assert any("Python" in r["query"] for r in results)
 
     async def test_list_episodes(self, memory_service):
         for i in range(5):
-            await memory_service.store_episode("dev1", f"query {i}", f"answer {i}", session_type="chat")
+            await memory_service.store_episode(
+                "dev1", f"query {i}", f"answer {i}", session_type="chat"
+            )
         result = await memory_service.list_episodes("dev1", limit=3)
         assert len(result) == 3
 
@@ -81,14 +89,20 @@ class TestEpisodicMemory:
 
 class TestFactMemory:
     async def test_store_and_recall_facts(self, memory_service):
-        fid = await memory_service.store_fact("dev1", "Python was created by Guido van Rossum", "conversation")
+        fid = await memory_service.store_fact(
+            "dev1", "Python was created by Guido van Rossum", "conversation"
+        )
         assert fid is not None
         facts = await memory_service.recall_facts("dev1", "Who created Python?")
         assert len(facts) >= 1
 
     async def test_detect_contradictions(self, memory_service):
-        await memory_service.store_fact("dev1", "Python is a compiled language", "conversation", confidence=0.8)
-        contradictions = await memory_service.detect_contradictions("Python is an interpreted language", "dev1")
+        await memory_service.store_fact(
+            "dev1", "Python is a compiled language", "conversation", confidence=0.8
+        )
+        contradictions = await memory_service.detect_contradictions(
+            "Python is an interpreted language", "dev1"
+        )
         assert isinstance(contradictions, list)
 
     async def test_store_fact_with_confidence(self, memory_service):
@@ -110,7 +124,9 @@ class TestUserProfile:
         assert profile["device_id"] == "dev1"
 
     async def test_update_profile(self, memory_service):
-        updated = await memory_service.update_profile("dev1", {"type": "learning_started", "topic": "Python"})
+        updated = await memory_service.update_profile(
+            "dev1", {"type": "learning_started", "topic": "Python"}
+        )
         assert updated is not None
         assert updated["type"] == "learning_started"
 
@@ -125,9 +141,13 @@ class TestUserProfile:
 class TestAgentMemory:
     async def test_record_and_retrieve_outcome(self, memory_service):
         await memory_service.record_agent_outcome(
-            agent_type="solve", query_pattern="python.*error",
-            strategy="retry with different model", outcome_quality=0.8,
-            model_used="test", tier=1, device_id="dev1"
+            agent_type="solve",
+            query_pattern="python.*error",
+            strategy="retry with different model",
+            outcome_quality=0.8,
+            model_used="test",
+            tier=1,
+            device_id="dev1",
         )
         strategies = await memory_service.get_agent_strategies("solve", "python.*error")
         assert isinstance(strategies, list)
@@ -135,12 +155,18 @@ class TestAgentMemory:
 
     async def test_agent_strategy_updates(self, memory_service):
         await memory_service.record_agent_outcome(
-            agent_type="chat", query_pattern="greeting",
-            strategy="friendly", outcome_quality=0.9, device_id="dev1"
+            agent_type="chat",
+            query_pattern="greeting",
+            strategy="friendly",
+            outcome_quality=0.9,
+            device_id="dev1",
         )
         await memory_service.record_agent_outcome(
-            agent_type="chat", query_pattern="greeting",
-            strategy="formal", outcome_quality=0.6, device_id="dev1"
+            agent_type="chat",
+            query_pattern="greeting",
+            strategy="formal",
+            outcome_quality=0.6,
+            device_id="dev1",
         )
         strategies = await memory_service.get_agent_strategies("chat", "greeting")
         assert len(strategies) == 1
@@ -148,8 +174,11 @@ class TestAgentMemory:
 
     async def test_get_agent_strategies_by_type(self, memory_service):
         await memory_service.record_agent_outcome(
-            agent_type="solve", query_pattern="p1",
-            strategy="s1", outcome_quality=0.7, device_id="dev1"
+            agent_type="solve",
+            query_pattern="p1",
+            strategy="s1",
+            outcome_quality=0.7,
+            device_id="dev1",
         )
         strategies = await memory_service.get_agent_strategies("solve")
         assert len(strategies) >= 1
@@ -157,7 +186,9 @@ class TestAgentMemory:
 
 class TestProjectMemory:
     async def test_project_profile(self, memory_service):
-        await memory_service.update_project_profile("my_kb", {"themes": ["AI", "ML"], "document_count": 10})
+        await memory_service.update_project_profile(
+            "my_kb", {"themes": ["AI", "ML"], "document_count": 10}
+        )
         profile = await memory_service.get_project_profile("my_kb")
         assert profile is not None
         assert profile["kb_name"] == "my_kb"

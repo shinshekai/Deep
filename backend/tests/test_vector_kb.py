@@ -1,8 +1,9 @@
 """Vector KB service tests — updated for async naive_search/hybrid_search."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 VECTOR_BASE = Path("data/knowledge_bases")
 
@@ -53,8 +54,9 @@ def test_rrf_merge_combines_two_rankings():
 
 def test_keyword_search_over_text_files():
     """Keyword search finds matches in raw text files."""
-    from app.services.vector_kb import VectorKBService
     import tempfile
+
+    from app.services.vector_kb import VectorKBService
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a text file with known content
@@ -69,9 +71,7 @@ def test_keyword_search_over_text_files():
         )
 
         svc = VectorKBService(VECTOR_BASE)
-        results = svc._keyword_search_in_directory(
-            "machine learning", tmp_path, top_k=3
-        )
+        results = svc._keyword_search_in_directory("machine learning", tmp_path, top_k=3)
 
         assert len(results) > 0
         assert all("score" in r for r in results)

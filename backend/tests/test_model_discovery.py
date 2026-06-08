@@ -79,6 +79,7 @@ async def test_unconfigured_cloud_provider_is_not_called(monkeypatch):
 @pytest.mark.asyncio
 async def test_classify_model_capabilities():
     from app.services.model_discovery import classify_model_capabilities
+
     res1 = classify_model_capabilities("deepseek-r1-distill-qwen-8b")
     assert "reasoning" in res1["capabilities"]
     assert res1["parameter_size_cat"] == "medium"
@@ -103,9 +104,10 @@ async def test_health_check_available():
     transport = httpx.MockTransport(handler)
     service = ModelDiscoveryService(lm_client=StubLMClient(), transport=transport)
 
-    health = await service.test_health("openai", api_key="test-key", base_url="https://api.openai.com")
+    health = await service.test_health(
+        "openai", api_key="test-key", base_url="https://api.openai.com"
+    )
     assert health["status"] == "available"
     assert health["latency_ms"] >= 0.0
     assert health["model_count"] == 1
     assert health["error"] is None
-

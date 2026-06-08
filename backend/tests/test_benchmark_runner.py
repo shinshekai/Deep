@@ -2,19 +2,19 @@
 
 import asyncio
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.services.benchmark_runner import (
-    BenchmarkRunner,
-    BenchmarkResult,
-    BenchmarkRun,
     LATENCY_THRESHOLDS,
     QUALITY_THRESHOLDS,
     THROUGHPUT_THRESHOLDS,
+    BenchmarkResult,
+    BenchmarkRun,
+    BenchmarkRunner,
 )
-
 
 # ── Fixtures ──
 
@@ -532,7 +532,9 @@ async def test_quality_fallback_scoring(runner_with_dataset):
     """Test fallback quality scoring when RAGAS is unavailable."""
     runner = runner_with_dataset
     runner.lm_client = AsyncMock()
-    runner.lm_client.stream_chat.return_value = "PageIndex is a tree-based system for document indexing."
+    runner.lm_client.stream_chat.return_value = (
+        "PageIndex is a tree-based system for document indexing."
+    )
 
     run = BenchmarkRun(
         run_id="test_fallback",

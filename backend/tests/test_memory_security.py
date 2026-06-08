@@ -1,4 +1,5 @@
 import pytest
+
 from app.services.memory_service import MemoryService
 
 
@@ -90,7 +91,7 @@ async def test_special_characters_in_query(svc):
     special_queries = [
         "SELECT * FROM episodes",
         "admin'--",
-        "\" OR \"1\"=\"1",
+        '" OR "1"="1',
         "'; INSERT INTO episodes VALUES('hack'); --",
         "日本語テスト",
         "emoji 🧠💻🔒",

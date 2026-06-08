@@ -1,16 +1,12 @@
 """Tests for the Validation Pipeline Runner."""
 
-import pytest
 import sys
-import argparse
-from unittest.mock import patch, MagicMock
-from app.validation.runner import (
-    run_full_validation,
-    run_ci_validation,
-    run_fast_validation,
-    main,
-)
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from app.validation.baselines import ValidationReport
+from app.validation.runner import main, run_ci_validation, run_fast_validation, run_full_validation
 
 
 def test_run_full_validation_success():
@@ -34,7 +30,10 @@ def test_run_full_validation_coverage_failure():
         with patch("app.validation.runner.validate_health"):
             with patch("app.validation.runner.validate_remediation"):
                 # Make coverage tracker raise an error
-                with patch("app.validation.coverage_tracker.validate_coverage", side_effect=Exception("Pytest failed")):
+                with patch(
+                    "app.validation.coverage_tracker.validate_coverage",
+                    side_effect=Exception("Pytest failed"),
+                ):
                     report = run_full_validation(skip_coverage=False)
 
     assert isinstance(report, ValidationReport)
@@ -59,7 +58,10 @@ def test_run_full_validation_skip_coverage_failure():
     with patch("app.validation.runner.validate_config"):
         with patch("app.validation.runner.validate_health"):
             with patch("app.validation.runner.validate_remediation"):
-                with patch("app.validation.coverage_tracker.validate_coverage", side_effect=Exception("Missing XML")):
+                with patch(
+                    "app.validation.coverage_tracker.validate_coverage",
+                    side_effect=Exception("Missing XML"),
+                ):
                     report = run_full_validation(skip_coverage=True)
 
     assert isinstance(report, ValidationReport)
@@ -149,7 +151,7 @@ def test_main_file_output(tmp_path, capsys):
     """Test CLI main() with --output."""
     out_file = tmp_path / "report.md"
     test_args = ["runner.py", "--output", str(out_file)]
-    
+
     with patch.object(sys, "argv", test_args):
         with patch("app.validation.runner.run_ci_validation") as mock_ci:
             mock_report = MagicMock()

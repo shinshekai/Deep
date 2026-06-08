@@ -1,18 +1,18 @@
 """Router integration tests for knowledge.py (KB management endpoints)."""
 
-import pytest
 import json
-import tempfile
-from pathlib import Path
-from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock, MagicMock
 from io import BytesIO
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from fastapi.testclient import TestClient
 
 
 def create_test_app():
     """Create a minimal FastAPI test app with knowledge router."""
     from fastapi import FastAPI
+
     from app.routers.knowledge import router as knowledge_router
+
     app = FastAPI()
     app.include_router(knowledge_router)
     return app
@@ -58,6 +58,7 @@ def test_upload_document():
                 await coro
             except Exception:
                 pass
+
         task = _asyncio.ensure_future(_runner())
         return task
 
@@ -66,14 +67,18 @@ def test_upload_document():
             with patch("app.state.text_chunker", MagicMock()):
                 with patch("app.state.vector_kb_service", MagicMock()):
                     with patch("app.state.lm_client") as mock_lm:
-                        with patch("app.routers.knowledge.asyncio.create_task",
-                                   side_effect=_schedule_and_drain):
+                        with patch(
+                            "app.routers.knowledge.asyncio.create_task",
+                            side_effect=_schedule_and_drain,
+                        ):
                             mock_lm.check_health = AsyncMock(return_value=True)
                             file_content = b"This is test document content for unit testing."
                             response = client.post(
                                 "/api/v1/knowledge/upload",
                                 data={"kb_name": "test_kb"},
-                                files={"file": ("test_doc.txt", BytesIO(file_content), "text/plain")},
+                                files={
+                                    "file": ("test_doc.txt", BytesIO(file_content), "text/plain")
+                                },
                             )
 
     assert response.status_code == 200
@@ -104,9 +109,11 @@ def test_delete_document():
 
 # ── Day 10b: filelock-based registry writes ────────────────────────────────
 
+
 def test_save_registry_uses_filelock(tmp_path, monkeypatch):
     """Verify _save_registry acquires a filelock (not the old no-op Windows lock)."""
     from app.routers import knowledge
+
     # Redirect DATA_DIR and REGISTRY_PATH into tmp_path so we don't
     # touch the real data directory.
     monkeypatch.setattr(knowledge, "DATA_DIR", tmp_path)
@@ -119,17 +126,22 @@ def test_save_registry_uses_filelock(tmp_path, monkeypatch):
     class _FakeFileLock:
         def __init__(self, *args, **kwargs):
             captured["init"] = (args, kwargs)
+
         def __enter__(self):
             captured["entered"] = True
             return self
+
         def __exit__(self, *exc):
             return False
+
         def acquire(self, *a, **kw):  # for direct-acquire style
             captured["acquire"] = True
+
         def release(self, *a, **kw):
             pass
 
     import filelock
+
     monkeypatch.setattr(filelock, "FileLock", _FakeFileLock)
 
     knowledge._save_registry()
@@ -143,6 +155,7 @@ def test_save_registry_atomic_via_tmpfile(tmp_path, monkeypatch):
     """Verify the tmp-file + os.replace pattern is used so a partial
     write never corrupts an existing registry."""
     from app.routers import knowledge
+
     monkeypatch.setattr(knowledge, "DATA_DIR", tmp_path)
     monkeypatch.setattr(knowledge, "REGISTRY_PATH", tmp_path / "registry.json")
     monkeypatch.setattr(knowledge, "_REGISTRY_LOCK_PATH", tmp_path / "registry.lock")
@@ -154,10 +167,14 @@ def test_save_registry_atomic_via_tmpfile(tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge, "_kb_registry", {"new_kb": {"name": "new"}})
 
     class _NoOpLock:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
 
     import filelock
+
     monkeypatch.setattr(filelock, "FileLock", lambda *a, **kw: _NoOpLock())
 
     knowledge._save_registry()

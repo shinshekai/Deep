@@ -1,24 +1,26 @@
-import pytest
 import os
-import tempfile
-from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
+
 from app.main import app
 from app.services import secrets as secrets_mod
 
 client = TestClient(app)
 
+
 def test_health_endpoint():
     with patch("app.state.lm_client") as mock_lm:
         mock_lm.check_health = AsyncMock(return_value=True)
         with patch("app.state.vram_monitor") as mock_vm:
-            mock_vm.poll_once = AsyncMock(return_value={
-                "vram_total_mb": 1000,
-                "vram_used_mb": 500,
-                "vram_used_pct": 50.0,
-                "gpu_available": True,
-            })
+            mock_vm.poll_once = AsyncMock(
+                return_value={
+                    "vram_total_mb": 1000,
+                    "vram_used_mb": 500,
+                    "vram_used_pct": 50.0,
+                    "gpu_available": True,
+                }
+            )
             response = client.get("/api/v1/health")
             assert response.status_code == 200
             assert "status" in response.json()
@@ -30,15 +32,18 @@ def test_health_endpoint_returns_503_when_degraded():
     with patch("app.state.lm_client") as mock_lm:
         mock_lm.check_health = AsyncMock(return_value=False)
         with patch("app.state.vram_monitor") as mock_vm:
-            mock_vm.poll_once = AsyncMock(return_value={
-                "vram_total_mb": 0,
-                "vram_used_mb": 0,
-                "vram_used_pct": 0,
-                "gpu_available": False,
-            })
+            mock_vm.poll_once = AsyncMock(
+                return_value={
+                    "vram_total_mb": 0,
+                    "vram_used_mb": 0,
+                    "vram_used_pct": 0,
+                    "gpu_available": False,
+                }
+            )
             response = client.get("/api/v1/health")
             assert response.status_code == 503
             assert response.json()["status"] == "degraded"
+
 
 def test_config_endpoint():
     response = client.get("/api/v1/config")
@@ -109,12 +114,14 @@ def test_configure_provider_endpoint():
 
 def test_check_provider_health_endpoint():
     with patch("app.state.model_discovery") as mock_md:
-        mock_md.test_health = AsyncMock(return_value={
-            "status": "available",
-            "latency_ms": 42.5,
-            "model_count": 3,
-            "error": None
-        })
+        mock_md.test_health = AsyncMock(
+            return_value={
+                "status": "available",
+                "latency_ms": 42.5,
+                "model_count": 3,
+                "error": None,
+            }
+        )
 
         response = client.post(
             "/api/v1/models/providers/openai/health",
@@ -131,15 +138,20 @@ def test_check_provider_health_endpoint():
 
 # ── Security headers ─────────────────────────────────────────────────────
 
+
 def test_security_headers_on_every_response():
     """Every response must include the defense-in-depth security headers."""
     with patch("app.state.lm_client") as mock_lm:
         mock_lm.check_health = AsyncMock(return_value=True)
         with patch("app.state.vram_monitor") as mock_vm:
-            mock_vm.poll_once = AsyncMock(return_value={
-                "vram_total_mb": 1000, "vram_used_mb": 500,
-                "vram_used_pct": 50.0, "gpu_available": True,
-            })
+            mock_vm.poll_once = AsyncMock(
+                return_value={
+                    "vram_total_mb": 1000,
+                    "vram_used_mb": 500,
+                    "vram_used_pct": 50.0,
+                    "gpu_available": True,
+                }
+            )
             response = client.get("/api/v1/health")
 
     assert response.headers.get("x-content-type-options") == "nosniff"
@@ -153,6 +165,7 @@ def test_security_headers_on_every_response():
 
 
 # ── Config PUT whitelist ─────────────────────────────────────────────────
+
 
 def test_config_put_rejects_sensitive_fields():
     """llm_host, llm_api_key, ws_auth_token must be ignored even if sent."""
@@ -176,6 +189,7 @@ def test_config_put_rejects_sensitive_fields():
 
 # ── Provider config SSRF guard ──────────────────────────────────────────
 
+
 def test_provider_config_rejects_cloud_metadata_url():
     """``169.254.169.254`` (cloud metadata) must be rejected with 400."""
     response = client.post(
@@ -188,15 +202,20 @@ def test_provider_config_rejects_cloud_metadata_url():
 
 # ── Rate limit headers (slowapi) ────────────────────────────────────────
 
+
 def test_rate_limit_headers_present():
     """Slowapi must attach X-RateLimit-* headers when headers_enabled=True."""
     with patch("app.state.lm_client") as mock_lm:
         mock_lm.check_health = AsyncMock(return_value=True)
         with patch("app.state.vram_monitor") as mock_vm:
-            mock_vm.poll_once = AsyncMock(return_value={
-                "vram_total_mb": 1000, "vram_used_mb": 500,
-                "vram_used_pct": 50.0, "gpu_available": True,
-            })
+            mock_vm.poll_once = AsyncMock(
+                return_value={
+                    "vram_total_mb": 1000,
+                    "vram_used_mb": 500,
+                    "vram_used_pct": 50.0,
+                    "gpu_available": True,
+                }
+            )
             response = client.get("/api/v1/health")
     # Slowapi emits lowercase headers via its middleware
     assert "x-ratelimit-limit" in response.headers
@@ -205,6 +224,7 @@ def test_rate_limit_headers_present():
 
 
 # ── Provider config keyring migration ──────────────────────────────────
+
 
 def test_provider_config_stores_api_key_in_keyring_not_env(tmp_path, monkeypatch):
     """An api_key submitted to provider config must NOT land in .env on disk.
@@ -217,6 +237,7 @@ def test_provider_config_stores_api_key_in_keyring_not_env(tmp_path, monkeypatch
     monkeypatch.setattr(secrets_mod, "is_keyring_available", lambda: True)
     # Patch the alias imported in the router module too
     from app.routers import system as system_mod
+
     monkeypatch.setattr(system_mod, "secrets_available", lambda: True)
     # Clean up any leftover test entry
     try:
@@ -251,6 +272,7 @@ def test_provider_config_stores_api_key_in_keyring_not_env(tmp_path, monkeypatch
 def test_provider_config_returns_503_when_keyring_unavailable(monkeypatch):
     """If no keyring backend is available, the endpoint must refuse plaintext."""
     from app.routers import system as system_mod
+
     monkeypatch.setattr(system_mod, "secrets_available", lambda: False)
 
     response = client.post(
@@ -262,4 +284,3 @@ def test_provider_config_returns_503_when_keyring_unavailable(monkeypatch):
     assert body["error"] == "KeyringUnavailable"
     # Critically, the secret must not be in os.environ either
     assert os.environ.get("OPENAI_API_KEY") != "sk-should-not-be-saved"
-

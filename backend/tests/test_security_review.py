@@ -9,12 +9,10 @@ real app instance without starting a server.
 """
 
 import os
-import asyncio
 
-import pytest
 import httpx
+import pytest
 from httpx import ASGITransport
-from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.main import app
 
@@ -34,6 +32,7 @@ def security_client():
 def enforce_auth():
     """Temporarily set a non-empty token so the auth gate activates."""
     import app.main as _main
+
     old_token = _main.settings.ws_auth_token
     _main.settings.ws_auth_token = "test-secret-token-12345"
     old_env = os.environ.get("WS_AUTH_TOKEN")
@@ -48,20 +47,20 @@ def enforce_auth():
 
 # ── 1. Auth required on protected endpoints ──────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_auth_required_on_protected_endpoints(security_client, enforce_auth):
     """Protected endpoints must return 401 when no API key is provided."""
     async with security_client as client:
         resp = await client.get("/api/v1/knowledge/bases")
-        assert resp.status_code == 401, (
-            f"Expected 401 without auth, got {resp.status_code}"
-        )
+        assert resp.status_code == 401, f"Expected 401 without auth, got {resp.status_code}"
         body = resp.json()
         assert body.get("success") is False
         assert "Unauthorized" in body.get("error", "")
 
 
 # ── 2. Path traversal blocked on kb_name ─────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_path_traversal_blocked(security_client):
@@ -90,6 +89,7 @@ async def test_path_traversal_blocked(security_client):
 
 # ── 3. Path traversal blocked on doc_id ──────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_path_traversal_in_doc_id(security_client):
     """Path traversal in doc_id must be sanitized."""
@@ -100,15 +100,14 @@ async def test_path_traversal_in_doc_id(security_client):
     ]
     async with security_client as client:
         for payload in traversal_payloads:
-            resp = await client.get(
-                f"/api/v1/knowledge/bases/default/pageindex/{payload}"
-            )
+            resp = await client.get(f"/api/v1/knowledge/bases/default/pageindex/{payload}")
             # The traversal must not succeed — either 404 (rejected) or
             # 200 with sanitized/not-found content (safe).
             assert resp.status_code in (200, 404), f"Unexpected {resp.status_code} for {payload}"
 
 
 # ── 4. No server version header leaked ───────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_no_server_version_header(security_client):
@@ -117,16 +116,15 @@ async def test_no_server_version_header(security_client):
         resp = await client.get("/api/v1/health")
         # FastAPI's default server header is uvicorn; check it's absent
         server = resp.headers.get("server", "")
-        assert "uvicorn" not in server.lower(), (
-            f"Server version leaked via 'server' header: {server}"
-        )
+        assert (
+            "uvicorn" not in server.lower()
+        ), f"Server version leaked via 'server' header: {server}"
         # Also check no custom version header
-        assert "x-app-version" not in {
-            k.lower() for k in resp.headers.keys()
-        }
+        assert "x-app-version" not in {k.lower() for k in resp.headers.keys()}
 
 
 # ── 5. Security headers present ─────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_security_headers_present(security_client):
@@ -141,17 +139,17 @@ async def test_security_headers_present(security_client):
         resp = await client.get("/api/v1/health")
         for header, expected in required_headers.items():
             actual = resp.headers.get(header)
-            assert actual == expected, (
-                f"Header {header}: expected {expected!r}, got {actual!r}"
-            )
+            assert actual == expected, f"Header {header}: expected {expected!r}, got {actual!r}"
 
 
 # ── 6. Rate limiting works ──────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_rate_limiting_works(security_client):
     """Sending many rapid requests must eventually trigger 429."""
     import os
+
     # Read the configured rate limit to determine how many requests to send
     rate_limit_str = os.environ.get("UDIP_RATE_LIMIT", "100/minute")
     try:
@@ -170,10 +168,13 @@ async def test_rate_limiting_works(security_client):
                 # Verify rate-limit response body
                 assert "rate" in resp.text.lower() or "limit" in resp.text.lower()
                 break
-        assert got_429, f"Rate limiting did not trigger after {requests_to_send} rapid requests (limit: {rate_limit_str})"
+        assert (
+            got_429
+        ), f"Rate limiting did not trigger after {requests_to_send} rapid requests (limit: {rate_limit_str})"
 
 
 # ── 7. File upload size limit ───────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_file_upload_size_limit(security_client):
@@ -189,12 +190,14 @@ async def test_file_upload_size_limit(security_client):
             files={"file": ("huge.bin", oversized, "application/octet-stream")},
         )
         # 413 = Payload Too Large, 415 = Unsupported Media Type (both reject)
-        assert resp.status_code in (413, 415), (
-            f"Expected 413/415 for oversized upload, got {resp.status_code}"
-        )
+        assert resp.status_code in (
+            413,
+            415,
+        ), f"Expected 413/415 for oversized upload, got {resp.status_code}"
 
 
 # ── 8. Invalid JSON body ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_invalid_json_body(security_client):
@@ -205,12 +208,11 @@ async def test_invalid_json_body(security_client):
             content=b"{invalid json!!",
             headers={"Content-Type": "application/json"},
         )
-        assert resp.status_code == 422, (
-            f"Expected 422 for invalid JSON, got {resp.status_code}"
-        )
+        assert resp.status_code == 422, f"Expected 422 for invalid JSON, got {resp.status_code}"
 
 
 # ── 9. SSRF protection on LLM base URL ─────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_ssrf_protection_on_llm_url(security_client):
@@ -230,9 +232,7 @@ async def test_ssrf_protection_on_llm_url(security_client):
             "javascript:alert(1)",
         ]
         for url in blocked_urls:
-            assert not is_safe_base_url(url), (
-                f"is_safe_base_url should reject {url!r}"
-            )
+            assert not is_safe_base_url(url), f"is_safe_base_url should reject {url!r}"
 
         # Safe URLs should pass (public IPs, localhost when allowed)
         safe_urls = [
@@ -240,15 +240,14 @@ async def test_ssrf_protection_on_llm_url(security_client):
             "https://huggingface.co/api",
         ]
         for url in safe_urls:
-            assert is_safe_base_url(url), (
-                f"is_safe_base_url should allow {url!r}"
-            )
+            assert is_safe_base_url(url), f"is_safe_base_url should allow {url!r}"
     finally:
         if old_allow is not None:
             os.environ["UDIP_ALLOW_LOCAL_LLM"] = old_allow
 
 
 # ── 10. CORS headers ───────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_cors_headers(security_client):
@@ -264,6 +263,6 @@ async def test_cors_headers(security_client):
         # CORS middleware should respond with allowed origins
         allow_origin = resp.headers.get("access-control-allow-origin", "")
         assert allow_origin, "CORS Access-Control-Allow-Origin header is missing"
-        assert "localhost" in allow_origin or "*" in allow_origin, (
-            f"Unexpected CORS origin: {allow_origin}"
-        )
+        assert (
+            "localhost" in allow_origin or "*" in allow_origin
+        ), f"Unexpected CORS origin: {allow_origin}"

@@ -1,6 +1,7 @@
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -27,9 +28,7 @@ def _make_pytesseract_mock(conf="95", text="Hello"):
 
 def _make_easyocr_mock(text="Hello", conf=0.98):
     mock_reader = MagicMock()
-    mock_reader.readtext.return_value = [
-        ([[0, 0], [100, 0], [100, 30], [0, 30]], text, conf)
-    ]
+    mock_reader.readtext.return_value = [([[0, 0], [100, 0], [100, 30], [0, 30]], text, conf)]
     mock_module = MagicMock()
     mock_module.Reader.return_value = mock_reader
     return mock_module
@@ -40,7 +39,9 @@ class TestOCREnginePytesseract:
         from app.services.ocr_engine import OCREngine
 
         mock_pt = _make_pytesseract_mock()
-        with patch.dict("sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}
+        ):
             engine = OCREngine(backend="pytesseract")
             results = engine.recognize(Path("test.png"))
         assert len(results) == 1
@@ -60,7 +61,9 @@ class TestOCREnginePytesseract:
             "width": [0, 50, 0],
             "height": [0, 20, 0],
         }
-        with patch.dict("sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}
+        ):
             engine = OCREngine(backend="pytesseract")
             results = engine.recognize(Path("test.png"))
         assert len(results) == 1
@@ -89,7 +92,15 @@ class TestOCRFallback:
         mock_pt.image_to_data.side_effect = RuntimeError("tesseract not found")
         mock_ez = _make_easyocr_mock(text="Fallback")
 
-        with patch.dict("sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock(), "easyocr": mock_ez}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "pytesseract": mock_pt,
+                "PIL": MagicMock(),
+                "PIL.Image": MagicMock(),
+                "easyocr": mock_ez,
+            },
+        ):
             engine = OCREngine(backend="pytesseract")
             results = engine.recognize(Path("test.png"))
         assert len(results) == 1
@@ -102,7 +113,15 @@ class TestOCRFallback:
         mock_ez.Reader.side_effect = RuntimeError("no gpu")
         mock_pt = _make_pytesseract_mock(text="PyFallback")
 
-        with patch.dict("sys.modules", {"easyocr": mock_ez, "pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "easyocr": mock_ez,
+                "pytesseract": mock_pt,
+                "PIL": MagicMock(),
+                "PIL.Image": MagicMock(),
+            },
+        ):
             engine = OCREngine(backend="easyocr")
             results = engine.recognize(Path("test.png"))
         assert len(results) == 1
@@ -116,7 +135,15 @@ class TestOCRFallback:
         mock_ez = MagicMock()
         mock_ez.Reader.side_effect = RuntimeError("fail")
 
-        with patch.dict("sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock(), "easyocr": mock_ez}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "pytesseract": mock_pt,
+                "PIL": MagicMock(),
+                "PIL.Image": MagicMock(),
+                "easyocr": mock_ez,
+            },
+        ):
             engine = OCREngine(backend="pytesseract")
             results = engine.recognize(Path("test.png"))
         assert results == []
@@ -135,6 +162,7 @@ class TestDefaultEngine:
 
         e1 = get_ocr_engine()
         from app.services.ocr_engine import reset_ocr_engine
+
         reset_ocr_engine()
         e2 = get_ocr_engine()
         assert e1 is not e2
@@ -144,6 +172,7 @@ class TestBackendSelection:
     def test_backend_from_env(self):
         with patch.dict("os.environ", {"OCR_BACKEND": "easyocr"}):
             from app.services.ocr_engine import OCREngine
+
             engine = OCREngine()
             assert engine.backend == "easyocr"
 
@@ -151,7 +180,9 @@ class TestBackendSelection:
         from app.services.ocr_engine import OCREngine
 
         mock_pt = _make_pytesseract_mock(text="Fallback")
-        with patch.dict("sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"pytesseract": mock_pt, "PIL": MagicMock(), "PIL.Image": MagicMock()}
+        ):
             engine = OCREngine(backend="unknown")
             results = engine.recognize(Path("test.png"))
         assert len(results) == 1

@@ -1,19 +1,14 @@
 """Tests for alerting service — Day 16."""
 
 import pytest
-from app.services.alerting import (
-    get_alert_state,
-    _check_error_rate,
-    AlertState,
-    VRAM_WARN_PCT,
-    VRAM_CRIT_PCT,
-    ERROR_RATE_WARN,
-)
+
+from app.services.alerting import AlertState, _check_error_rate
 
 
 def _fresh_state():
     """Return a fresh AlertState and patch it into the module global."""
     from app.services import alerting
+
     old = alerting._alert_state
     alerting._alert_state = AlertState()
     return alerting._alert_state, old
@@ -60,6 +55,7 @@ def test_check_error_rate_fires_on_threshold():
         assert state.high_error_rate
     finally:
         from app.services import alerting
+
         alerting._alert_state = old
 
 
@@ -74,6 +70,7 @@ def test_check_error_rate_not_fired_below_minimum_requests():
         assert not state.high_error_rate
     finally:
         from app.services import alerting
+
         alerting._alert_state = old
 
 
@@ -94,12 +91,14 @@ def test_check_error_rate_clears_when_rate_drops():
         assert not state.high_error_rate
     finally:
         from app.services import alerting
+
         alerting._alert_state = old
 
 
 def test_alert_state_thresholds_are_configurable():
     """Thresholds come from environment variables with sane defaults."""
     from app.services import alerting
+
     assert isinstance(alerting.VRAM_WARN_PCT, float)
     assert isinstance(alerting.VRAM_CRIT_PCT, float)
     assert isinstance(alerting.ERROR_RATE_WARN, float)

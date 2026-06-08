@@ -5,6 +5,7 @@ module scope see mock services instead of None.
 """
 
 import os
+
 # Disable auth in tests by setting token to empty — the middleware
 # only enforces auth ``if token:`` (truthy check).
 os.environ["WS_AUTH_TOKEN"] = ""
@@ -12,15 +13,17 @@ os.environ["WS_AUTH_TOKEN"] = ""
 os.environ["UDIP_ALLOW_LOCAL_LLM"] = "1"
 # Clear cached settings so the new env vars take effect
 from app.config import get_settings
+
 get_settings.cache_clear()
 # Also patch the module-level settings object in main.py so the
 # middleware sees the empty token (settings was already created at import time).
 import app.main as _main
+
 _main.settings.ws_auth_token = ""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import sys
-from unittest.mock import MagicMock, AsyncMock
 
 
 def _build_mock_services():
@@ -35,10 +38,15 @@ def _build_mock_services():
     lm.unload_model = AsyncMock(return_value=True)
 
     vm = MagicMock()
-    vm.poll_once = AsyncMock(return_value={
-        "vram_total_mb": 16000, "vram_used_mb": 8000, "vram_used_pct": 50.0,
-        "pressure_level": "green", "gpu_available": True,
-    })
+    vm.poll_once = AsyncMock(
+        return_value={
+            "vram_total_mb": 16000,
+            "vram_used_mb": 8000,
+            "vram_used_pct": 50.0,
+            "pressure_level": "green",
+            "gpu_available": True,
+        }
+    )
     vm.is_active = True
 
     mm = MagicMock()
@@ -51,6 +59,7 @@ def _build_mock_services():
     mm.check_ttl_evictions = MagicMock(return_value=[])
     mm.get_status = MagicMock(return_value=[])
     mm.get_active_selection = MagicMock(return_value=None)
+
     def mock_set_active_selection(*args):
         if len(args) == 4:
             tier, provider_type, provider_id, model_id = args
@@ -63,6 +72,7 @@ def _build_mock_services():
             "model_id": model_id,
             "selected_at": 1.0,
         }
+
     mm.set_active_selection = MagicMock(side_effect=mock_set_active_selection)
     mm.get_active_selections = MagicMock(return_value={"T1": None, "T2": None, "T3": None})
 

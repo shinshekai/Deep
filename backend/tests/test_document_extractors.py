@@ -4,15 +4,15 @@ Covers: PPTX, HTML, ODT, RTF, EPUB, Email (.msg/.eml), Archive (.zip),
 Spreadsheet (.csv/.xlsx), Image OCR, and Code files.
 """
 
-import pytest
 import tempfile
 import zipfile
-import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ── 2.1 PPTX extractor ──────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_pptx_extractor_returns_text():
@@ -30,7 +30,10 @@ async def test_pptx_extractor_returns_text():
     mock_prs = MagicMock()
     mock_prs.slides = [mock_slide]
 
-    with patch("app.services.document_processor.extract_text_from_pptx.__module__", "app.services.document_processor"):
+    with patch(
+        "app.services.document_processor.extract_text_from_pptx.__module__",
+        "app.services.document_processor",
+    ):
         with patch.dict("sys.modules", {"pptx": MagicMock()}):
             with patch("pptx.Presentation", return_value=mock_prs):
                 result = await extract_text_from_pptx(Path("/fake/test.pptx"))
@@ -52,12 +55,15 @@ async def test_pptx_extractor_handles_import_error():
 
 # ── 2.2 HTML extractor ──────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_html_extractor_returns_text():
     """Test HTML extraction with a real temp file."""
     from app.services.document_processor import extract_text_from_html
 
-    html_content = "<html><body><h1>Test Title</h1><p>Hello World</p><script>alert('x')</script></body></html>"
+    html_content = (
+        "<html><body><h1>Test Title</h1><p>Hello World</p><script>alert('x')</script></body></html>"
+    )
 
     with tempfile.NamedTemporaryFile(suffix=".html", mode="w", delete=False, encoding="utf-8") as f:
         f.write(html_content)
@@ -87,12 +93,16 @@ async def test_html_extractor_handles_import_error():
 
 # ── 2.3 ODT extractor ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_odt_extractor_handles_import_error():
     """Test ODT returns None when odfpy not installed."""
     from app.services.document_processor import extract_text_from_odt
 
-    with patch.dict("sys.modules", {"odf": None, "odf.text": None, "odf.teletype": None, "odf.opendocument": None}):
+    with patch.dict(
+        "sys.modules",
+        {"odf": None, "odf.text": None, "odf.teletype": None, "odf.opendocument": None},
+    ):
         with patch("builtins.__import__", side_effect=ImportError("no odf")):
             result = await extract_text_from_odt(Path("/fake/test.odt"))
             assert result is None
@@ -115,6 +125,7 @@ async def test_odt_extractor_handles_bad_file():
 
 
 # ── 2.4 RTF extractor ───────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_rtf_extractor_returns_text():
@@ -150,6 +161,7 @@ async def test_rtf_extractor_handles_import_error():
 
 # ── 2.5 EPUB extractor ──────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_epub_extractor_handles_import_error():
     """Test EPUB returns None when ebooklib not installed."""
@@ -178,6 +190,7 @@ async def test_epub_extractor_handles_bad_file():
 
 
 # ── 2.6 Email extractor ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_eml_extractor_returns_text():
@@ -226,6 +239,7 @@ async def test_email_extractor_handles_bad_file():
 
 
 # ── 2.7 Archive (.zip) extractor with zip-slip check ────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_archive_extractor_extracts_txt_files():
@@ -284,6 +298,7 @@ async def test_archive_extractor_handles_bad_zip():
 
 # ── 2.8 Spreadsheet (.csv/.xlsx) extractor ──────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_csv_extractor_returns_text():
     """Test CSV extraction with a real temp file."""
@@ -319,6 +334,7 @@ async def test_spreadsheet_extractor_handles_import_error():
 
 # ── 2.9 Image OCR extractor ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_image_extractor_handles_import_error():
     """Test image OCR returns None when dependencies missing."""
@@ -333,8 +349,8 @@ async def test_image_extractor_handles_import_error():
 @pytest.mark.asyncio
 async def test_image_extractor_handles_corrupt_image():
     """Test image OCR returns None on non-image file."""
+
     from app.services.document_processor import extract_text_from_image
-    import asyncio
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         f.write(b"not an image at all")
@@ -347,6 +363,7 @@ async def test_image_extractor_handles_corrupt_image():
         assert result is None
     finally:
         import time
+
         time.sleep(0.05)  # Let any file handles release on Windows
         try:
             tmp_path.unlink(missing_ok=True)
@@ -355,6 +372,7 @@ async def test_image_extractor_handles_corrupt_image():
 
 
 # ── 2.10 Code file extractor (.py/.js etc.) ─────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_code_file_extractor():
@@ -410,6 +428,7 @@ async def test_extract_text_unsupported_format():
 
 
 # ── extract_text dispatcher tests ───────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_extract_text_txt_file():

@@ -6,7 +6,6 @@ tests verify the middleware wires up correctly and the /metrics endpoint
 returns valid Prometheus exposition text.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -66,6 +65,7 @@ def test_metrics_middleware_records_404():
 def test_metrics_active_ws_gauge():
     """The ACTIVE_WS_CONNECTIONS gauge is present in the exposition."""
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
+
     # The gauge may be 0 or 1 depending on server state; just verify it exists.
     ACTIVE_WS_CONNECTIONS.set(0)
     client = TestClient(_app())
@@ -76,6 +76,7 @@ def test_metrics_active_ws_gauge():
 def test_metrics_deep_research_gauge():
     """The DEEP_RESEARCH_ACTIVE gauge is present in the exposition."""
     from app.services.metrics import DEEP_RESEARCH_ACTIVE
+
     DEEP_RESEARCH_ACTIVE.set(0)
     client = TestClient(_app())
     resp = client.get("/metrics")
@@ -84,7 +85,6 @@ def test_metrics_deep_research_gauge():
 
 def test_metrics_llm_counter():
     """The LLM_REQUEST_COUNT counter is present in the exposition."""
-    from app.services.metrics import LLM_REQUEST_COUNT
     client = TestClient(_app())
     resp = client.get("/metrics")
     assert "udip_llm_requests_total" in resp.text

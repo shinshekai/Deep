@@ -7,13 +7,12 @@ the autouse ``mock_state`` fixture in conftest.py.
 
 import asyncio
 import io
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
-from unittest.mock import patch, AsyncMock, MagicMock
+import pytest
 
 from app.main import app
-from app import state
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,8 +64,10 @@ async def test_create_knowledge_base():
     assert "created_at" in body
 
     # Cleanup
-    from app.routers.knowledge import DATA_DIR
     import shutil
+
+    from app.routers.knowledge import DATA_DIR
+
     kb_path = DATA_DIR / "e2e_test_kb"
     if kb_path.exists():
         shutil.rmtree(kb_path)
@@ -114,7 +115,7 @@ async def test_query_flow():
         mock_retrieve.return_value = {"results": [], "pipeline_used": "tree"}
 
         async with await _get_client() as client:
-                resp = await client.post(
+            resp = await client.post(
                 "/api/v1/query",
                 json={
                     "query": "What is this document about?",

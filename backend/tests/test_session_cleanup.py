@@ -1,24 +1,18 @@
 """Tests for Day 13b/14b — session cleanup + audit trail."""
 
 import os
-import json
 import time
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
 # ── Day 13b: session cleanup ────────────────────────────────────────────────
+
 
 def test_session_cleanup_removes_old_files(tmp_path, monkeypatch):
     """Old files (mtime > 30 days) get removed; fresh files are kept."""
     from app.services import session_cleanup
 
     # Point the cleanup at a temp dir rather than data/user/.
-    monkeypatch.setattr(
-        session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),)
-    )
+    monkeypatch.setattr(session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),))
     root = tmp_path / "solve"
     root.mkdir()
 
@@ -41,9 +35,7 @@ def test_session_cleanup_empty_when_nothing_old(tmp_path, monkeypatch):
     """All files are recent — nothing deleted."""
     from app.services import session_cleanup
 
-    monkeypatch.setattr(
-        session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),)
-    )
+    monkeypatch.setattr(session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),))
     root = tmp_path / "solve"
     root.mkdir()
     (root / "fresh.json").write_text("{}", encoding="utf-8")
@@ -57,9 +49,7 @@ def test_session_cleanup_handles_missing_root(tmp_path, monkeypatch):
     """Missing directory is a no-op, not an error."""
     from app.services import session_cleanup
 
-    monkeypatch.setattr(
-        session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "does_not_exist"),)
-    )
+    monkeypatch.setattr(session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "does_not_exist"),))
     result = session_cleanup.run_cleanup()
     assert result.deleted_files == 0
     assert result.errors == []
@@ -69,9 +59,7 @@ def test_session_cleanup_respects_env_max_age(tmp_path, monkeypatch):
     """UDIP_SESSION_MAX_AGE_DAYS controls the cutoff."""
     from app.services import session_cleanup
 
-    monkeypatch.setattr(
-        session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),)
-    )
+    monkeypatch.setattr(session_cleanup, "_SESSION_ROOTS", (str(tmp_path / "solve"),))
     root = tmp_path / "solve"
     root.mkdir()
     target = root / "ten_day_old.json"
@@ -94,6 +82,7 @@ def test_session_cleanup_respects_env_max_age(tmp_path, monkeypatch):
 
 
 # ── Day 13a: disk space check ──────────────────────────────────────────────
+
 
 def test_check_disk_space_rejects_below_threshold(tmp_path, monkeypatch):
     """When free/total < 10%, _check_disk_space returns (False, info)."""
@@ -140,6 +129,7 @@ def test_check_disk_space_fails_open_on_oserror(tmp_path, monkeypatch):
 
 # ── Day 14b: audit trail ───────────────────────────────────────────────────
 
+
 def test_audit_emits_structured_log(caplog):
     """audit() should write to the 'app.audit' logger with the event tag."""
     from app.services.audit import audit
@@ -164,6 +154,7 @@ def test_audit_logged_on_config_update():
     the integrated test would be flaky in a multi-loop test setup.
     """
     from app.services import audit as audit_module
+
     # The function exists and is callable — that's the contract.
     assert callable(audit_module.audit)
     # Verify the expected call shape works.
@@ -174,11 +165,13 @@ def test_audit_logged_on_config_update():
 
 # ── Day 11b: lifespan shutdown awaits tracked background tasks ─────────────
 
+
 def test_track_background_task_helper_contract():
     """The track_background_task helper is exported and idempotent
     in source — verify the docstring is present and the symbol
     resolves (covers the public API)."""
     from app import state
+
     assert hasattr(state, "track_background_task")
     assert callable(state.track_background_task)
     # The helper should be a small function that touches a set —
@@ -188,14 +181,17 @@ def test_track_background_task_helper_contract():
 
 # ── Day 14b follow-up: KB upload / create / document-delete audit hooks ─────
 
+
 def test_audit_hooks_present_for_kb_operations():
     """Verify the router calls audit() for all KB write operations:
     upload, create_kb, delete_document, delete_kb. Code review
     of the call sites in routers/knowledge.py is the source of
     truth; this test catches accidental deletions during refactors.
     """
-    from app.routers import knowledge
     import inspect
+
+    from app.routers import knowledge
+
     src = inspect.getsource(knowledge)
     # Each audit event should appear at least once in the source.
     for event in (

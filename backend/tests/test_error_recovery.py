@@ -6,10 +6,10 @@ connection errors, disk-full, etc.) without returning raw 500s.
 
 import asyncio
 import io
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 from httpx import ASGITransport
 
 from app.main import app
@@ -24,15 +24,22 @@ async def test_lm_client_timeout():
             mock_lm.check_health = AsyncMock(return_value=True)
             mock_lm.stream_chat = AsyncMock(side_effect=TimeoutError("LLM timed out"))
             with patch("app.state.vram_monitor") as mock_vm:
-                mock_vm.poll_once = AsyncMock(return_value={
-                    "vram_total_mb": 16000, "vram_used_mb": 8000,
-                    "vram_used_pct": 50.0, "gpu_available": True,
-                })
-                resp = await client.post("/api/v1/query", json={
-                    "query": "What is deep learning?",
-                    "kb_name": "default",
-                    "device_id": "test-device",
-                })
+                mock_vm.poll_once = AsyncMock(
+                    return_value={
+                        "vram_total_mb": 16000,
+                        "vram_used_mb": 8000,
+                        "vram_used_pct": 50.0,
+                        "gpu_available": True,
+                    }
+                )
+                resp = await client.post(
+                    "/api/v1/query",
+                    json={
+                        "query": "What is deep learning?",
+                        "kb_name": "default",
+                        "device_id": "test-device",
+                    },
+                )
 
         assert resp.status_code < 500
         data = resp.json()
@@ -49,15 +56,22 @@ async def test_lm_client_connection_error():
             mock_lm.check_health = AsyncMock(return_value=True)
             mock_lm.stream_chat = AsyncMock(side_effect=ConnectionError("LM Studio unreachable"))
             with patch("app.state.vram_monitor") as mock_vm:
-                mock_vm.poll_once = AsyncMock(return_value={
-                    "vram_total_mb": 16000, "vram_used_mb": 8000,
-                    "vram_used_pct": 50.0, "gpu_available": True,
-                })
-                resp = await client.post("/api/v1/query", json={
-                    "query": "Summarize this document",
-                    "kb_name": "default",
-                    "device_id": "test-device",
-                })
+                mock_vm.poll_once = AsyncMock(
+                    return_value={
+                        "vram_total_mb": 16000,
+                        "vram_used_mb": 8000,
+                        "vram_used_pct": 50.0,
+                        "gpu_available": True,
+                    }
+                )
+                resp = await client.post(
+                    "/api/v1/query",
+                    json={
+                        "query": "Summarize this document",
+                        "kb_name": "default",
+                        "device_id": "test-device",
+                    },
+                )
 
         assert resp.status_code < 500
         data = resp.json()
@@ -70,12 +84,14 @@ async def test_vram_monitor_unavailable():
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         with patch("app.state.vram_monitor") as mock_vm:
-            mock_vm.poll_once = AsyncMock(return_value={
-                "vram_total_mb": 0,
-                "vram_used_mb": 0,
-                "vram_used_pct": 0,
-                "gpu_available": False,
-            })
+            mock_vm.poll_once = AsyncMock(
+                return_value={
+                    "vram_total_mb": 0,
+                    "vram_used_mb": 0,
+                    "vram_used_pct": 0,
+                    "gpu_available": False,
+                }
+            )
             with patch("app.state.lm_client") as mock_lm:
                 mock_lm.check_health = AsyncMock(return_value=True)
                 resp = await client.get("/api/v1/health")
@@ -136,17 +152,24 @@ async def test_concurrent_request_handling():
             mock_lm.check_health = AsyncMock(return_value=True)
             mock_lm.stream_chat = AsyncMock(return_value="Concurrent answer")
             with patch("app.state.vram_monitor") as mock_vm:
-                mock_vm.poll_once = AsyncMock(return_value={
-                    "vram_total_mb": 16000, "vram_used_mb": 8000,
-                    "vram_used_pct": 50.0, "gpu_available": True,
-                })
+                mock_vm.poll_once = AsyncMock(
+                    return_value={
+                        "vram_total_mb": 16000,
+                        "vram_used_mb": 8000,
+                        "vram_used_pct": 50.0,
+                        "gpu_available": True,
+                    }
+                )
 
                 tasks = [
-                    client.post("/api/v1/query", json={
-                        "query": f"Concurrent query {i}",
-                        "kb_name": "default",
-                        "device_id": "test-device",
-                    })
+                    client.post(
+                        "/api/v1/query",
+                        json={
+                            "query": f"Concurrent query {i}",
+                            "kb_name": "default",
+                            "device_id": "test-device",
+                        },
+                    )
                     for i in range(5)
                 ]
                 responses = await asyncio.gather(*tasks, return_exceptions=True)

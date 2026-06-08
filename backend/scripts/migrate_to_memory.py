@@ -25,7 +25,11 @@ def scan_solve_sessions(base_dir: str) -> list[dict]:
         query = ""
         answer = ""
 
-        source = query_response if query_response.exists() else transcript if transcript.exists() else None
+        source = (
+            query_response
+            if query_response.exists()
+            else transcript if transcript.exists() else None
+        )
         if source:
             try:
                 text = source.read_text(encoding="utf-8")
@@ -40,7 +44,11 @@ def scan_solve_sessions(base_dir: str) -> list[dict]:
             except Exception:
                 pass
 
-        answer_file = final_answer if final_answer.exists() else query_response if query_response.exists() else None
+        answer_file = (
+            final_answer
+            if final_answer.exists()
+            else query_response if query_response.exists() else None
+        )
         if answer_file:
             try:
                 text = answer_file.read_text(encoding="utf-8")
@@ -54,13 +62,15 @@ def scan_solve_sessions(base_dir: str) -> list[dict]:
                 pass
 
         if query or answer:
-            sessions.append({
-                "session_id": session_dir.name,
-                "query": query or f"Session {session_dir.name}",
-                "answer": answer,
-                "session_type": "solve",
-                "dir_path": str(session_dir),
-            })
+            sessions.append(
+                {
+                    "session_id": session_dir.name,
+                    "query": query or f"Session {session_dir.name}",
+                    "answer": answer,
+                    "session_type": "solve",
+                    "dir_path": str(session_dir),
+                }
+            )
 
     return sessions
 
@@ -77,13 +87,15 @@ def scan_research_sessions(base_dir: str) -> list[dict]:
             query = data.get("query", "")
             report = data.get("final_report", "")
             if query:
-                sessions.append({
-                    "session_id": data.get("session_id", f.stem),
-                    "query": query,
-                    "answer": report or "",
-                    "session_type": "research",
-                    "dir_path": str(f),
-                })
+                sessions.append(
+                    {
+                        "session_id": data.get("session_id", f.stem),
+                        "query": query,
+                        "answer": report or "",
+                        "session_type": "research",
+                        "dir_path": str(f),
+                    }
+                )
         except Exception:
             continue
 
@@ -111,13 +123,15 @@ def scan_guide_sessions(base_dir: str) -> list[dict]:
                     answer += f"Q: {msg.get('user', '')}\nA: {msg.get('assistant', '')}\n"
 
             if topic:
-                sessions.append({
-                    "session_id": data.get("session_id", f.stem),
-                    "query": query,
-                    "answer": answer[:5000],
-                    "session_type": "learning",
-                    "dir_path": str(f),
-                })
+                sessions.append(
+                    {
+                        "session_id": data.get("session_id", f.stem),
+                        "query": query,
+                        "answer": answer[:5000],
+                        "session_type": "learning",
+                        "dir_path": str(f),
+                    }
+                )
         except Exception:
             continue
 
@@ -129,7 +143,9 @@ async def migrate(dry_run: bool = False, device_id: str | None = None):
 
     if device_id is None:
         print("ERROR: --device-id is required to attribute migrated sessions to a namespace.")
-        print("Legacy session files do not carry device information; refusing to import into a shared namespace.")
+        print(
+            "Legacy session files do not carry device information; refusing to import into a shared namespace."
+        )
         return
 
     base_dir = "data"
@@ -140,8 +156,10 @@ async def migrate(dry_run: bool = False, device_id: str | None = None):
     guide_sessions = scan_guide_sessions(base_dir)
 
     all_sessions = solve_sessions + research_sessions + guide_sessions
-    print(f"Found {len(all_sessions)} sessions ({len(solve_sessions)} solve, "
-          f"{len(research_sessions)} research, {len(guide_sessions)} guide)")
+    print(
+        f"Found {len(all_sessions)} sessions ({len(solve_sessions)} solve, "
+        f"{len(research_sessions)} research, {len(guide_sessions)} guide)"
+    )
 
     if not all_sessions:
         print("No sessions to migrate.")
@@ -192,10 +210,14 @@ async def migrate(dry_run: bool = False, device_id: str | None = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Migrate session files to memory database")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show what would be imported without actually importing")
-    parser.add_argument("--device-id", default=None,
-                        help="Device ID for migrated sessions (required)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be imported without actually importing",
+    )
+    parser.add_argument(
+        "--device-id", default=None, help="Device ID for migrated sessions (required)"
+    )
     args = parser.parse_args()
 
     asyncio.run(migrate(dry_run=args.dry_run, device_id=args.device_id))

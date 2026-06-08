@@ -1,15 +1,11 @@
 """Tests for the OS keyring wrapper used to store provider API keys."""
+
 import os
+
 import pytest
 
 from app.services import secrets as secrets_mod
-from app.services.secrets import (
-    get_secret,
-    set_secret,
-    delete_secret,
-    is_keyring_available,
-    KEYRING_SERVICE,
-)
+from app.services.secrets import delete_secret, get_secret, is_keyring_available, set_secret
 
 
 @pytest.fixture(autouse=True)

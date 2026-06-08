@@ -1,7 +1,8 @@
 """Tree search service tests — LLM reasoning over PageIndex trees."""
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 # Sample PageIndex tree for tests
 SAMPLE_TREE = {
@@ -73,6 +74,7 @@ def mock_lm_client():
 @pytest.fixture
 def tree_search(mock_lm_client):
     from app.services.tree_search import TreeSearch
+
     return TreeSearch(lm_client=mock_lm_client)
 
 
@@ -134,7 +136,7 @@ async def test_parse_llm_results_strips_markdown():
     client = AsyncMock()
     ts = TreeSearch(lm_client=client)
 
-    response = "```json\n[{\"node_id\": \"node_1\", \"score\": 0.8, \"reason\": \"test\"}]\n```"
+    response = '```json\n[{"node_id": "node_1", "score": 0.8, "reason": "test"}]\n```'
     parsed = ts._parse_llm_results(response)
     assert parsed is not None
     assert len(parsed) == 1
@@ -177,8 +179,9 @@ async def test_empty_tree_returns_no_results():
 
 def test_keyword_score_title_weights_higher():
     """Title matches score 3x more than summary matches."""
-    from app.services.tree_search import TreeSearch
     from unittest.mock import AsyncMock
+
+    from app.services.tree_search import TreeSearch
 
     tree = {
         "root": {

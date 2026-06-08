@@ -1,8 +1,5 @@
 """Tests for VectorKBService vector storage and search."""
 
-import json
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,7 +8,6 @@ pytest.importorskip("numpy", reason="numpy required for vector store tests")
 import numpy as np
 
 from app.services.vector_kb import VectorKBService, _rrf_merge
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

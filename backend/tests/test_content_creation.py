@@ -1,72 +1,87 @@
-import pytest
-import os
 import json
 from unittest.mock import AsyncMock, MagicMock
-from app.services.content_creation import NotebookService, CoWriterService, IdeaGenService
+
+import pytest
+
+from app.services.content_creation import CoWriterService, IdeaGenService, NotebookService
 from app.services.lm_studio_client import LMStudioClient
+
 
 @pytest.fixture
 def mock_lm_client():
     client = MagicMock(spec=LMStudioClient)
-    
+
     async def mock_stream(model, messages, max_tokens):
         user_content = messages[1]["content"]
-        if "rewrite" in user_content.lower() or "expand" in user_content.lower() or "concise" in user_content.lower():
+        if (
+            "rewrite" in user_content.lower()
+            or "expand" in user_content.lower()
+            or "concise" in user_content.lower()
+        ):
             return {"content": "Edited text."}
-        elif "Annotation" in messages[0]["content"] or "annotation" in messages[0]["content"].lower():
+        elif (
+            "Annotation" in messages[0]["content"] or "annotation" in messages[0]["content"].lower()
+        ):
             return {"content": "Text [Citation 1]."}
         elif "JSON array of ideas" in user_content:
             res = ["Idea 1", "Idea 2"]
             return {"content": json.dumps(res)}
-            
+
         return {"content": ""}
 
     client.stream_chat_completion = AsyncMock(side_effect=mock_stream)
     return client
 
+
 def test_notebook_service(tmp_path):
     service = NotebookService()
     service.notebooks_dir = str(tmp_path)
-    
+
     # Create
     nb = service.create_notebook("Test NB", "Desc")
     assert nb["title"] == "Test NB"
     nb_id = nb["id"]
-    
+
     # Add note
     service.add_note(nb_id, "This is a note.")
-    
+
     # Get notebook
     nb_refreshed = service.get_notebook(nb_id)
     assert len(nb_refreshed["notes"]) == 1
     assert nb_refreshed["notes"][0]["content"] == "This is a note."
-    
+
     # List notebooks
     nbs = service.list_notebooks()
     assert len(nbs) == 1
 
+
 @pytest.mark.asyncio
 async def test_cowriter_service(mock_lm_client, monkeypatch):
     service = CoWriterService(lm_client=mock_lm_client)
-    
+
     # Edit text
     res = await service.edit_text("hello", "shorten")
     assert res["text"] == "Edited text."
     assert "provenance" in res
     assert res["provenance"]["action"] == "shorten"
-    
+
     # Annotate
-    mock_retrieval = AsyncMock(return_value={
-        "results": [{"content": "Topic info", "doc_id": "doc1", "page": 1, "relevance_score": 0.9}]
-    })
+    mock_retrieval = AsyncMock(
+        return_value={
+            "results": [
+                {"content": "Topic info", "doc_id": "doc1", "page": 1, "relevance_score": 0.9}
+            ]
+        }
+    )
     monkeypatch.setattr("app.services.content_creation.run_retrieval", mock_retrieval)
-    
+
     res = await service.auto_annotate("hello", "kb")
     assert res["text"] == "Text [Citation 1]."
     assert "provenance" in res
     assert res["provenance"]["action"] == "annotate"
     assert len(res["provenance"]["sources"]) == 1
     assert res["provenance"]["sources"][0]["doc_id"] == "doc1"
+
 
 @pytest.mark.asyncio
 async def test_ideagen_service(mock_lm_client, tmp_path):
@@ -83,6 +98,7 @@ async def test_ideagen_service(mock_lm_client, tmp_path):
 
 
 # ── Day 9a: File I/O error handling ────────────────────────────────────────
+
 
 def test_get_notebook_raises_filenotfound(tmp_path):
     """Missing notebook raises FileNotFoundError (router maps to 404)."""
@@ -119,6 +135,7 @@ def test_list_notebooks_handles_missing_directory(tmp_path, monkeypatch):
     service.notebooks_dir = str(tmp_path)
     # Replace listdir with one that raises FileNotFoundError
     import os as _os
+
     monkeypatch.setattr(_os, "listdir", lambda p: (_ for _ in ()).throw(FileNotFoundError()))
     assert service.list_notebooks() == []
 
@@ -142,9 +159,11 @@ def test_create_notebook_propagates_oserror(tmp_path, monkeypatch):
 
 def test_router_add_note_404_for_missing_notebook():
     """The router endpoint maps FileNotFoundError → 404, not 500."""
-    from fastapi.testclient import TestClient
-    from app.routers.agent import router as agent_router
     from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.routers.agent import router as agent_router
+
     app = FastAPI()
     app.include_router(agent_router)
     client = TestClient(app)

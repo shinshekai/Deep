@@ -1,9 +1,6 @@
 """Tests for TextChunker."""
 
-import pytest
-
 from app.services.text_chunker import TextChunk, TextChunker
-
 
 # ── Basic chunking ────────────────────────────────────────────────────────────
 
@@ -48,7 +45,7 @@ def test_chunk_size_roughly_respected():
 def test_chunk_indices_are_sequential():
     """chunk_index values are sequential starting at 0."""
     chunker = TextChunker(chunk_size=30, chunk_overlap=3)
-    text = ("Short paragraph.\n\n" * 20)
+    text = "Short paragraph.\n\n" * 20
     chunks = chunker.chunk_text(text)
 
     for i, c in enumerate(chunks):

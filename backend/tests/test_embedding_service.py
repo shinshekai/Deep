@@ -1,7 +1,8 @@
 """Tests for EmbeddingService."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.services.embedding_service import EmbeddingService
 
