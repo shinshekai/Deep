@@ -955,7 +955,7 @@ class MemoryService:
     async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
         db = await self._get_db()
         await db.execute(
-            "INSERT OR IGNORE INTO memory_usage (device_id, metric_name, metric_value) VALUES (?, ?, ?)",
+            "INSERT INTO memory_usage (device_id, metric_name, metric_value) VALUES (?, ?, ?)",
             (device_id, metric_name, metric_value),
         )
         await db.commit()
