@@ -132,6 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_fact_chunks_source ON fact_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_device ON agent_outcomes(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_type ON agent_outcomes(agent_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_strategies_pattern ON agent_strategies(agent_type, pattern_signature);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_summary_unique ON facts(source_type, source_id) WHERE source_type = 'session_summary' AND source_id IS NOT NULL;
 """
 
 FTS_SYNC_TRIGGERS = """
@@ -226,6 +227,9 @@ class MemoryService:
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
         await self._migrate_fts_tokenizer()
+        recovered = await self.recover_partial_compactions()
+        if recovered:
+            logger.info("Startup recovery: fixed %d orphaned compacted episodes", recovered)
         logger.info(f"MemoryService initialized at {db_path}")
 
     async def _migrate_fts_tokenizer(self):
@@ -947,21 +951,69 @@ class MemoryService:
             if not rows:
                 return 0
             episode_ids = [r[0] for r in rows]
-            placeholders = ",".join("?" * len(episode_ids))
-            await db.execute(
-                f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
-                episode_ids,
-            )
-            await db.commit()
-            for ep_id, device_id, session_type, query in rows:
-                summary = f"Session summary ({session_type}): {query[:200]}"
-                await self.store_fact(
-                    device_id=device_id,
-                    content=summary,
-                    source_type="session_summary",
-                    source_id=ep_id,
+            now = time.time()
+            try:
+                await db.execute("BEGIN IMMEDIATE")
+                placeholders = ",".join("?" * len(episode_ids))
+                await db.execute(
+                    f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
+                    episode_ids,
                 )
+                for ep_id, device_id, session_type, query in rows:
+                    summary = f"Session summary ({session_type}): {query[:200]}"
+                    fact_id = uuid.uuid4().hex[:12]
+                    await db.execute(
+                        """INSERT OR IGNORE INTO facts
+                           (id, device_id, content, source_type, source_id,
+                            confidence, created_at, last_accessed, access_count)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                    )
+                await db.commit()
+            except Exception:
+                try:
+                    await db.execute("ROLLBACK")
+                except Exception:
+                    logger.exception("Failed to rollback compact_episodes")
+                raise
+            await self.track_usage(rows[0][1], "episodes_compacted", len(episode_ids))
             return len(episode_ids)
+
+    async def recover_partial_compactions(self) -> int:
+        db = await self._get_db()
+        orphaned = await db.execute_fetchall(
+            """SELECT e.id, e.device_id, e.session_type, e.query
+               FROM episodes e
+               WHERE e.archived = 1
+                 AND NOT EXISTS (
+                   SELECT 1 FROM facts f
+                   WHERE f.source_type = 'session_summary' AND f.source_id = e.id
+                 )"""
+        )
+        if not orphaned:
+            return 0
+        now = time.time()
+        try:
+            await db.execute("BEGIN IMMEDIATE")
+            for ep_id, device_id, session_type, query in orphaned:
+                summary = f"Session summary ({session_type}): {query[:200]}"
+                fact_id = uuid.uuid4().hex[:12]
+                await db.execute(
+                    """INSERT OR IGNORE INTO facts
+                       (id, device_id, content, source_type, source_id,
+                        confidence, created_at, last_accessed, access_count)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                )
+            await db.commit()
+        except Exception:
+            try:
+                await db.execute("ROLLBACK")
+            except Exception:
+                logger.exception("Failed to rollback recovery")
+            raise
+        logger.info("Recovered %d orphaned compacted episodes", len(orphaned))
+        return len(orphaned)
 
     async def get_stats(self, device_id: str | None = None) -> dict:
         with trace_span("memory.get_stats", {"device_id": device_id}):
