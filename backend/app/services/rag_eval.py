@@ -190,9 +190,9 @@ class RAGEvaluator:
             judge_scores = await self.llm_judge(question, answer, contexts)
             return {
                 "faithfulness": judge_scores.get("faithfulness", faithfulness(answer, contexts)),
-                "answer_relevancy": judge_scores.get("answer_relevancy", answer_relevancy(question, answer)),
-                "context_precision": judge_scores.get("context_precision", context_precision(contexts, gt)),
-                "context_recall": judge_scores.get("context_recall", context_recall(contexts, gt)),
+                "answer_relevancy": judge_scores.get("relevance", answer_relevancy(question, answer)),
+                "context_precision": context_precision(contexts, gt),
+                "context_recall": context_recall(contexts, gt),
                 "method": "llm_judge",
             }
         return {

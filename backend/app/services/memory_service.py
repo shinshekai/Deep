@@ -604,7 +604,6 @@ class MemoryService:
                 )
 
             results = []
-            fact_ids = []
             for row in rows:
                 recency = now - row[6] if row[6] else 0
                 recency_score = 1.0 / (1.0 + recency / 86400.0)
@@ -625,18 +624,18 @@ class MemoryService:
                         "score": round(combined, 4),
                     }
                 )
-                fact_ids.append(row[0])
 
             results.sort(key=lambda r: r["score"], reverse=True)
             selected = results[:top_k]
+            selected_ids = [r["id"] for r in selected]
 
             # Phase 2: Short write transaction (batch UPDATE)
-            if fact_ids:
+            if selected_ids:
                 async with self._transaction():
-                    placeholders = ",".join("?" * len(fact_ids))
+                    placeholders = ",".join("?" * len(selected_ids))
                     await db.execute(
                         f"UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
-                        [now, *fact_ids[:top_k]],
+                        [now, *selected_ids],
                     )
 
             return selected
@@ -763,7 +762,7 @@ class MemoryService:
                         merged_content,
                         json.dumps([]),
                         "",
-                        "background",
+                        0,
                         json.dumps([]),
                         0.0,
                         now,

@@ -229,12 +229,13 @@ export function ChatMessageList({
   onSaveToNotebook,
   onCopyToClipboard,
 }: ChatMessageListProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingAnswer, streamingSteps]);
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+    }
+  }, [messages, streamingAnswer, streamingSteps, virtualizer]);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -391,8 +392,6 @@ export function ChatMessageList({
           </div>
         </div>
       )}
-
-      <div ref={bottomRef} />
     </div>
   );
 }

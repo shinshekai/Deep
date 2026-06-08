@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
@@ -80,7 +80,7 @@ export default function PlatformLayout({
     T3: { model_id: string } | null;
   }>({ T1: null, T2: null, T3: null });
 
-  const vram = wsVram
+  const vram = useMemo(() => wsVram
     ? {
         total_mb: wsVram.vram_total_mb,
         used_mb: wsVram.vram_used_mb,
@@ -96,7 +96,7 @@ export default function PlatformLayout({
         utilization_pct: 33.3,
         pressure_level: "green",
         gpu_available: true,
-      };
+      }, [wsVram]);
 
   async function loadSelections() {
     try {
