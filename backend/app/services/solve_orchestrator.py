@@ -136,6 +136,7 @@ async def run_solve_pipeline(
                 session_id=session_id,
                 ws_send=ws_send,
                 memory_context=memory_context,
+                device_id=device_id,
             )
 
             if full_answer is None:
@@ -230,6 +231,7 @@ async def _run_dual_loop(
     session_id: str,
     ws_send,
     memory_context: str = "",
+    device_id: str | None = None,
 ) -> tuple[str | None, str]:
     """Run Analysis Loop + Solve Loop, streaming frames. Returns (final_answer, transcript)."""
 
@@ -241,6 +243,20 @@ async def _run_dual_loop(
         ("note", "note"),
     ]
     analysis_context = []
+
+    # ── Dead end pre-check (A4) ──
+    dead_end_context = ""
+    if device_id:
+        try:
+            mem = state.memory_service
+            if mem:
+                preventions = await mem.get_dead_end_preventions(device_id, query)
+                if preventions:
+                    dead_end_context = "Known dead ends to avoid:\n"
+                    for de in preventions[:3]:
+                        dead_end_context += f"- {de['title']}: {de['lesson']}\n"
+        except Exception:
+            pass
 
     for agent_key, agent_label in analysis_steps:
         # Step 2: Use RAG tool during investigate
@@ -270,6 +286,8 @@ async def _run_dual_loop(
         user_prompt = query
         if memory_context:
             user_prompt = f"{memory_context}\n\nOriginal query: {query}"
+        if dead_end_context:
+            user_prompt = f"{dead_end_context}\n\n{user_prompt}"
         if tool_context:
             user_prompt += f"\n\n{tool_context}"
 
@@ -291,7 +309,7 @@ async def _run_dual_loop(
             analysis_context.append(step_content)
             transcript += f"### Agent: {agent_label}\n{step_content}\n\n"
 
-    # ── Solve Loop ──
+    # ── Solve Loop (with verification-as-invariant) ──
     solve_steps = [
         ("plan", "plan"),
         ("solve", "solve"),
@@ -299,32 +317,51 @@ async def _run_dual_loop(
         ("format", "format"),
     ]
     final_answer = None
+    MAX_STEP_RETRIES = 2
 
     context_summary = " | ".join(analysis_context[-2:])  # last 2 steps
 
     for agent_key, agent_label in solve_steps:
-        # Build messages with accumulated context
-        user_prompt = query
-        if memory_context:
-            user_prompt = f"{memory_context}\n\nOriginal query: {query}"
-        if agent_key in ("solve", "check", "format") and context_summary:
+        step_content = None
+
+        for attempt in range(1 + MAX_STEP_RETRIES):
+            user_prompt = query
             if memory_context:
-                user_prompt = f"{memory_context}\n\nContext from analysis: {context_summary}\n\nOriginal query: {query}"
+                user_prompt = f"{memory_context}\n\nOriginal query: {query}"
+            if agent_key in ("solve", "check", "format") and context_summary:
+                if memory_context:
+                    user_prompt = f"{memory_context}\n\nContext from analysis: {context_summary}\n\nOriginal query: {query}"
+                else:
+                    user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
+            if attempt > 0:
+                user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"
+
+            messages = [
+                {"role": "system", "content": AGENT_PROMPTS[agent_key]},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            step_content = await _stream_agent_step(
+                agent_label=agent_label,
+                lm_client=lm_client,
+                model_id=model_id,
+                messages=messages,
+                ws_send=ws_send,
+            )
+
+            if agent_key in ("plan", "solve") and step_content:
+                passed, verify_feedback = await _verify_step_output(
+                    agent_key, step_content, query, context_summary,
+                    lm_client, model_id,
+                )
+                if passed or attempt == MAX_STEP_RETRIES:
+                    break
+                logger.info(
+                    "Step %s failed verification (attempt %d/%d): %s",
+                    agent_key, attempt + 1, MAX_STEP_RETRIES, verify_feedback[:100],
+                )
             else:
-                user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
-
-        messages = [
-            {"role": "system", "content": AGENT_PROMPTS[agent_key]},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        step_content = await _stream_agent_step(
-            agent_label=agent_label,
-            lm_client=lm_client,
-            model_id=model_id,
-            messages=messages,
-            ws_send=ws_send,
-        )
+                break
 
         if agent_key == "format":
             final_answer = step_content
@@ -334,7 +371,56 @@ async def _run_dual_loop(
         if step_content:
             transcript += f"### Agent: {agent_label}\n{step_content}\n\n"
 
+    # ── Record dead end if pipeline produced no useful answer (A4) ──
+    if not final_answer and device_id:
+        try:
+            mem = state.memory_service
+            if mem:
+                await mem.store_dead_end(
+                    device_id=device_id,
+                    title=f"Failed to answer: {query[:80]}",
+                    hypothesis=f"Pipeline {agent_key} step failed",
+                    approach=f"Standard {mode} pipeline with {retrieval_pipeline} retrieval",
+                    failure_mode="pipeline_failure",
+                    lesson=f"Pipeline did not produce an answer for query: {query[:200]}",
+                    provenance="ai-executed",
+                    tags=["pipeline_failure", mode],
+                )
+        except Exception:
+            pass
+
     return final_answer, transcript
+
+
+MAX_VERIFY_RETRIES = 2
+
+
+async def _verify_step_output(
+    agent_key: str,
+    step_content: str,
+    query: str,
+    context_summary: str,
+    lm_client: LMStudioClient,
+    model_id: str,
+) -> tuple[bool, str]:
+    verify_prompt = (
+        "You are a verifier. Check this output for: "
+        "(1) internal consistency, (2) addresses the query, (3) no obvious factual errors. "
+        "Reply PASS or FAIL with one-line reason."
+    )
+    user_msg = f"Query: {query}\n\n{agent_key} output:\n{step_content[:2000]}"
+    if context_summary:
+        user_msg = f"Context: {context_summary}\n\n{user_msg}"
+    messages = [
+        {"role": "system", "content": verify_prompt},
+        {"role": "user", "content": user_msg},
+    ]
+    result = await lm_client.stream_chat_completion(
+        model=model_id, messages=messages, max_tokens=256,
+    )
+    verdict = (result.get("content", "") if result else "") or ""
+    passed = "PASS" in verdict.upper()
+    return passed, verdict
 
 
 async def _stream_agent_step(

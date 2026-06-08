@@ -27,12 +27,21 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+PROVENANCE_LABELS = {
+    "user": "[user-confirmed]",
+    "ai-suggested": "[AI-inferred]",
+    "ai-executed": "[AI-generated]",
+    "user-revised": "[user-verified]",
+}
+
+
 def build_memory_context(
     profile: dict | None,
     episodes: list[dict],
     facts: list[dict],
     agent_strategies: list[dict] | None = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
+    l3_context: str = "",
 ) -> str:
     parts = []
     used_tokens = 0
@@ -69,7 +78,12 @@ def build_memory_context(
             confidence = fact.get("confidence", 0)
             if confidence < 0.3:
                 continue
-            line = f"- {content} (confidence: {confidence:.1f})"
+            prov = fact.get("provenance", "")
+            prov_label = PROVENANCE_LABELS.get(prov, "")
+            line = f"- {content} (confidence: {confidence:.1f}"
+            if prov_label:
+                line += f", {prov_label}"
+            line += ")"
             line_tokens = _estimate_tokens(line)
             if used_tokens + line_tokens <= token_budget:
                 fact_lines.append(line)
@@ -91,6 +105,12 @@ def build_memory_context(
                 break
         if strategy_lines:
             parts.append("Proven Strategies:\n" + "\n".join(strategy_lines))
+
+    if l3_context:
+        l3_tokens = _estimate_tokens(l3_context)
+        if used_tokens + l3_tokens <= token_budget:
+            parts.append(f"User Profile (L3):\n{l3_context}")
+            used_tokens += l3_tokens
 
     if not parts:
         return ""

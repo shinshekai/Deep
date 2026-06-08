@@ -99,7 +99,8 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                     recall = await state.memory_service.recall_episodes(device_id, query)
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
-                    memory_context = build_memory_context(profile, recall, facts)
+                    l3_context = await state.memory_service.read_l3_concat(device_id)
+                    memory_context = build_memory_context(profile, recall, facts, l3_context=l3_context)
                 except Exception as e:
                     logger.warning(f"Memory recall failed: {e}")
 
@@ -143,7 +144,8 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                     recall = await state.memory_service.recall_episodes(device_id, query)
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
-                    memory_context = build_memory_context(profile, recall, facts)
+                    l3_context = await state.memory_service.read_l3_concat(device_id)
+                    memory_context = build_memory_context(profile, recall, facts, l3_context=l3_context)
                 except Exception as e:
                     logger.warning(f"Memory recall failed: {e}")
 

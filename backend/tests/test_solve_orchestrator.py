@@ -15,6 +15,9 @@ def mock_lm_client():
     async def mock_stream(model, messages, max_tokens, chunk_callback=None):
         if chunk_callback:
             await chunk_callback("mock token")
+        # Return PASS for verification calls (short max_tokens), content for agent calls
+        if max_tokens <= 256:
+            return {"content": "PASS - output is consistent and addresses the query"}
         return {"content": "mock final content"}
 
     client.stream_chat_completion = AsyncMock(side_effect=mock_stream)
@@ -54,7 +57,8 @@ async def test_run_solve_pipeline(mock_lm_client, mock_model_manager, tmp_path, 
     )
 
     # Assert stream_chat_completion was called multiple times (for all agents)
-    assert mock_lm_client.stream_chat_completion.call_count == 6  # 2 analysis, 4 solve
+    # 2 analysis + 4 solve + 2 verification = 8 calls
+    assert mock_lm_client.stream_chat_completion.call_count == 8
 
     # Assert retrieval was called
     mock_retrieval.assert_called_once()

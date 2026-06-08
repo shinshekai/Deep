@@ -112,6 +112,69 @@ CREATE TABLE IF NOT EXISTS project_profiles (
     last_queried REAL
 );
 
+CREATE TABLE IF NOT EXISTS dead_ends (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    approach TEXT NOT NULL,
+    failure_mode TEXT NOT NULL,
+    failure_evidence TEXT,
+    lesson TEXT NOT NULL,
+    parent_node_id TEXT,
+    parent_node_type TEXT,
+    provenance TEXT NOT NULL DEFAULT 'ai-suggested',
+    tags TEXT,
+    confidence REAL DEFAULT 0.5,
+    created_at REAL NOT NULL,
+    archived INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_dead_ends_device ON dead_ends(device_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dead_ends_failure_mode ON dead_ends(failure_mode);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS dead_ends_fts USING fts5(
+    chunk_text,
+    content='',
+    tokenize='porter unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS dead_end_chunks (
+    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES dead_ends(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dead_end_chunks_source ON dead_end_chunks(source_id);
+
+CREATE TABLE IF NOT EXISTS user_l3 (
+    device_id TEXT NOT NULL,
+    slot TEXT NOT NULL CHECK(slot IN ('profile', 'recent', 'scope', 'preferences')),
+    content TEXT NOT NULL DEFAULT '{}',
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    last_consolidated_at REAL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (device_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_l3_device ON user_l3(device_id);
+
+CREATE TABLE IF NOT EXISTS provenance_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    provenance_type TEXT NOT NULL,
+    parent_provenance_id INTEGER,
+    original_provenance TEXT,
+    reasoning TEXT,
+    source_tool TEXT,
+    session_id TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provenance_entity ON provenance_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_provenance_type ON provenance_log(provenance_type);
+
 CREATE TABLE IF NOT EXISTS memory_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT NOT NULL,
@@ -167,6 +230,23 @@ CREATE TRIGGER IF NOT EXISTS fact_chunks_au AFTER UPDATE ON fact_chunks BEGIN
     INSERT INTO facts_fts(facts_fts, rowid, chunk_text)
     VALUES ('delete', old.chunk_id, old.chunk_text);
     INSERT INTO facts_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS dead_end_chunks_ai AFTER INSERT ON dead_end_chunks BEGIN
+    INSERT INTO dead_ends_fts(rowid, chunk_text)
+    VALUES (new.chunk_id, new.chunk_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS dead_end_chunks_ad AFTER DELETE ON dead_end_chunks BEGIN
+    INSERT INTO dead_ends_fts(dead_ends_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS dead_end_chunks_au AFTER UPDATE ON dead_end_chunks BEGIN
+    INSERT INTO dead_ends_fts(dead_ends_fts, rowid, chunk_text)
+    VALUES ('delete', old.chunk_id, old.chunk_text);
+    INSERT INTO dead_ends_fts(rowid, chunk_text)
     VALUES (new.chunk_id, new.chunk_text);
 END;
 """
@@ -236,6 +316,7 @@ class MemoryService:
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
         await self._migrate_fts_tokenizer()
+        await self._migrate_provenance()
         recovered = await self.recover_partial_compactions()
         if recovered:
             logger.info("Startup recovery: fixed %d orphaned compacted episodes", recovered)
@@ -291,6 +372,24 @@ class MemoryService:
                     await db.commit()
             except Exception as e:
                 logger.warning(f"FTS5 migration for {table_name} failed: {e}")
+
+    async def _migrate_provenance(self):
+        db = self._db
+        for table in ("episodes", "facts", "agent_outcomes"):
+            try:
+                row = await db.execute_fetchall(
+                    "PRAGMA table_info(" + table + ")"
+                )
+                cols = [r[1] for r in row] if row else []
+                if "provenance" not in cols:
+                    default = "ai-executed" if table == "agent_outcomes" else "user"
+                    await db.execute(
+                        f"ALTER TABLE {table} ADD COLUMN provenance TEXT NOT NULL DEFAULT '{default}'"
+                    )
+                    await db.commit()
+                    logger.info("Added provenance column to %s", table)
+            except Exception as e:
+                logger.warning("Provenance migration for %s skipped: %s", table, e)
 
     async def _get_db(self) -> aiosqlite.Connection:
         if self._db is None:
@@ -360,6 +459,7 @@ class MemoryService:
         tier: int = 0,
         citations: list | None = None,
         session_type: str = "chat",
+        provenance: str = "user",
     ) -> str:
         with trace_span(
             "memory.store_episode", {"device_id": device_id, "session_type": session_type}
@@ -370,8 +470,8 @@ class MemoryService:
             await db.execute(
                 """INSERT INTO episodes
                    (id, device_id, session_type, query, answer, agents,
-                    model_used, tier, citations, outcome_rating, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    model_used, tier, citations, outcome_rating, created_at, provenance)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     episode_id,
                     device_id,
@@ -384,6 +484,7 @@ class MemoryService:
                     json.dumps(citations or []),
                     0.0,
                     now,
+                    provenance,
                 ),
             )
             combined = f"{query}\n\n{answer}"
@@ -565,6 +666,7 @@ class MemoryService:
         source_type: str = "conversation",
         source_id: str = "",
         confidence: float = 0.5,
+        provenance: str = "user",
     ) -> str:
         with trace_span("memory.store_fact", {"device_id": device_id, "source_type": source_type}):
             db = await self._get_db()
@@ -573,9 +675,9 @@ class MemoryService:
             await db.execute(
                 """INSERT INTO facts
                    (id, device_id, content, source_type, source_id,
-                    confidence, created_at, last_accessed, access_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (fact_id, device_id, content, source_type, source_id, confidence, now, now, 0),
+                    confidence, created_at, last_accessed, access_count, provenance)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (fact_id, device_id, content, source_type, source_id, confidence, now, now, 0, provenance),
             )
             await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
             await db.commit()
@@ -1127,6 +1229,223 @@ class MemoryService:
             raise
         logger.info("Recovered %d orphaned compacted episodes", len(orphaned))
         return len(orphaned)
+
+    # ── Dead Ends (A4) ────────────────────────────────────────────────────
+
+    async def store_dead_end(
+        self,
+        device_id: str,
+        title: str,
+        hypothesis: str,
+        approach: str,
+        failure_mode: str,
+        lesson: str,
+        provenance: str = "ai-suggested",
+        failure_evidence: str = "",
+        parent_node_id: str = "",
+        parent_node_type: str = "",
+        tags: list[str] | None = None,
+    ) -> str:
+        with trace_span("memory.store_dead_end", {"device_id": device_id}):
+            db = await self._get_db()
+            dead_end_id = uuid.uuid4().hex[:12]
+            now = time.time()
+            await db.execute(
+                """INSERT INTO dead_ends
+                   (id, device_id, title, hypothesis, approach, failure_mode,
+                    failure_evidence, lesson, parent_node_id, parent_node_type,
+                    provenance, tags, confidence, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    dead_end_id, device_id, title, hypothesis, approach,
+                    failure_mode, failure_evidence, lesson,
+                    parent_node_id, parent_node_type,
+                    provenance, json.dumps(tags or []), 0.5, now,
+                ),
+            )
+            searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
+            await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
+            await db.commit()
+            await self.track_usage(device_id, "dead_ends_stored", 1)
+            return dead_end_id
+
+    async def recall_dead_ends(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
+        with trace_span("memory.recall_dead_ends", {"device_id": device_id}):
+            db = await self._get_db()
+            try:
+                rows = await db.execute_fetchall(
+                    """SELECT d.id, d.device_id, d.title, d.hypothesis, d.approach,
+                              d.failure_mode, d.failure_evidence, d.lesson,
+                              d.parent_node_id, d.parent_node_type,
+                              d.provenance, d.tags, d.confidence, d.created_at,
+                              MIN(fts.rank) as best_rank
+                       FROM dead_ends_fts fts
+                       JOIN dead_end_chunks c ON c.chunk_id = fts.rowid
+                       JOIN dead_ends d ON d.id = c.source_id
+                       WHERE dead_ends_fts MATCH ? AND d.device_id = ? AND d.archived = 0
+                       GROUP BY d.id
+                       ORDER BY best_rank
+                       LIMIT ?""",
+                    (query, device_id, top_k),
+                )
+            except Exception:
+                rows = await db.execute_fetchall(
+                    """SELECT id, device_id, title, hypothesis, approach,
+                              failure_mode, failure_evidence, lesson,
+                              parent_node_id, parent_node_type,
+                              provenance, tags, confidence, created_at, 0
+                       FROM dead_ends
+                       WHERE device_id = ? AND archived = 0
+                       ORDER BY created_at DESC
+                       LIMIT ?""",
+                    (device_id, top_k),
+                )
+            return [
+                {
+                    "id": r[0], "device_id": r[1], "title": r[2],
+                    "hypothesis": r[3], "approach": r[4],
+                    "failure_mode": r[5], "failure_evidence": r[6] or "",
+                    "lesson": r[7], "parent_node_id": r[8] or "",
+                    "parent_node_type": r[9] or "",
+                    "provenance": r[10], "tags": json.loads(r[11]) if r[11] else [],
+                    "confidence": r[12] or 0.5, "created_at": r[13],
+                }
+                for r in rows
+            ]
+
+    async def get_dead_end_preventions(
+        self, device_id: str, approach_description: str
+    ) -> list[dict]:
+        with trace_span("memory.get_dead_end_preventions", {"device_id": device_id}):
+            db = await self._get_db()
+            try:
+                rows = await db.execute_fetchall(
+                    """SELECT d.id, d.title, d.approach, d.failure_mode, d.lesson, d.confidence
+                       FROM dead_ends_fts fts
+                       JOIN dead_end_chunks c ON c.chunk_id = fts.rowid
+                       JOIN dead_ends d ON d.id = c.source_id
+                       WHERE dead_ends_fts MATCH ? AND d.device_id = ? AND d.archived = 0
+                       GROUP BY d.id
+                       ORDER BY MIN(fts.rank)
+                       LIMIT 5""",
+                    (approach_description, device_id),
+                )
+            except Exception:
+                return []
+            return [
+                {
+                    "id": r[0], "title": r[1], "approach": r[2],
+                    "failure_mode": r[3], "lesson": r[4],
+                    "confidence": r[5] or 0.5,
+                }
+                for r in rows
+            ]
+
+    # ── L3 Cross-Surface Synthesis (A3) ───────────────────────────────────
+
+    async def get_l3(self, device_id: str, slot: str) -> dict:
+        with trace_span("memory.get_l3", {"device_id": device_id, "slot": slot}):
+            db = await self._get_db()
+            row = await db.execute_fetchall(
+                """SELECT content, entry_count, last_consolidated_at, updated_at
+                   FROM user_l3 WHERE device_id = ? AND slot = ?""",
+                (device_id, slot),
+            )
+            if not row:
+                return {"slot": slot, "content": {}, "entry_count": 0,
+                        "last_consolidated_at": None, "updated_at": None}
+            return {
+                "slot": slot,
+                "content": json.loads(row[0][0]) if row[0][0] else {},
+                "entry_count": row[0][1],
+                "last_consolidated_at": row[0][2],
+                "updated_at": row[0][3],
+            }
+
+    async def get_l3_all(self, device_id: str) -> dict:
+        result = {}
+        for slot in ("profile", "recent", "scope", "preferences"):
+            result[slot] = await self.get_l3(device_id, slot)
+        return result
+
+    async def update_l3_preference(self, device_id: str, updates: dict) -> dict:
+        with trace_span("memory.update_l3_preference", {"device_id": device_id}):
+            db = await self._get_db()
+            now = time.time()
+            current = await self.get_l3(device_id, "preferences")
+            content = {**current["content"], **updates}
+            await db.execute(
+                """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
+                   VALUES (?, 'preferences', ?, 1, ?)
+                   ON CONFLICT(device_id, slot) DO UPDATE SET
+                      content = excluded.content,
+                      entry_count = excluded.entry_count,
+                      updated_at = excluded.updated_at""",
+                (device_id, json.dumps(content), now),
+            )
+            await db.commit()
+            return content
+
+    async def read_l3_concat(self, device_id: str) -> str:
+        all_l3 = await self.get_l3_all(device_id)
+        parts = []
+        for slot in ("profile", "recent", "scope", "preferences"):
+            data = all_l3[slot]["content"]
+            if data:
+                parts.append(f"[{slot}]: {json.dumps(data)}")
+        return "\n".join(parts) if parts else ""
+
+    # ── Provenance (A5) ───────────────────────────────────────────────────
+
+    async def upgrade_provenance(
+        self,
+        entity_type: str,
+        entity_id: str,
+        new_provenance: str,
+        reasoning: str = "",
+    ) -> bool:
+        with trace_span("memory.upgrade_provenance", {"entity_type": entity_type}):
+            db = await self._get_db()
+            now = time.time()
+            table = {"episode": "episodes", "fact": "facts"}.get(entity_type)
+            if not table:
+                return False
+            row = await db.execute_fetchall(
+                f"SELECT provenance FROM {table} WHERE id = ?", (entity_id,)
+            )
+            if not row:
+                return False
+            old = row[0][0]
+            valid = {"user", "ai-suggested", "ai-executed", "user-revised"}
+            if new_provenance not in valid:
+                return False
+            await db.execute(
+                f"UPDATE {table} SET provenance = ? WHERE id = ?",
+                (new_provenance, entity_id),
+            )
+            await db.execute(
+                """INSERT INTO provenance_log
+                   (entity_type, entity_id, provenance_type, original_provenance,
+                    reasoning, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (entity_type, entity_id, new_provenance, old, reasoning, now),
+            )
+            await db.commit()
+            return True
+
+    async def get_provenance_lineage(self, entity_type: str, entity_id: str) -> list[dict]:
+        db = await self._get_db()
+        rows = await db.execute_fetchall(
+            """SELECT provenance_type, original_provenance, reasoning, created_at
+               FROM provenance_log
+               WHERE entity_type = ? AND entity_id = ?
+               ORDER BY created_at""",
+            (entity_type, entity_id),
+        )
+        return [
+            {"provenance": r[0], "was": r[1], "reasoning": r[2] or "", "at": r[3]}
+            for r in rows
+        ]
 
     async def get_stats(self, device_id: str | None = None) -> dict:
         with trace_span("memory.get_stats", {"device_id": device_id}):
