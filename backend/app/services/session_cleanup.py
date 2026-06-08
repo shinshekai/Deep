@@ -6,10 +6,14 @@ disk hits the upload-rejection threshold. This module walks each
 directory, removes files / dirs older than ``DEFAULT_MAX_AGE_DAYS`` and
 returns a small summary of what was deleted.
 
+Also prunes orphaned SQLite rows (episodes, facts, memory_usage) whose
+device_id no longer has any filesystem artifacts.
+
 Tunable via env:
   ``UDIP_SESSION_MAX_AGE_DAYS`` (default 30) — max age in days
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -33,6 +37,7 @@ class CleanupResult:
     scanned_dirs: int
     deleted_files: int
     deleted_dirs: int
+    pruned_rows: int
     errors: list
     max_age_days: int
     elapsed_seconds: float
@@ -96,6 +101,7 @@ def _cleanup_directory(root: Path, cutoff_ts: float) -> tuple[int, int, list]:
 def run_cleanup() -> CleanupResult:
     """Sweep all session roots, removing anything older than the cutoff.
 
+    Also prunes SQLite memory_usage rows older than retention window.
     Safe to call repeatedly: deletes are best-effort and logged.
     """
     started = time.time()
@@ -111,6 +117,7 @@ def run_cleanup() -> CleanupResult:
         total_files += f
         total_dirs += d
         all_errors.extend(errs)
+    pruned = _prune_orphaned_sqlite_rows()
     elapsed = time.time() - started
     if total_files or total_dirs:
         logger.info(
@@ -122,7 +129,25 @@ def run_cleanup() -> CleanupResult:
         scanned_dirs=scanned,
         deleted_files=total_files,
         deleted_dirs=total_dirs,
+        pruned_rows=pruned,
         errors=all_errors,
         max_age_days=int(_max_age_seconds() / 86400),
         elapsed_seconds=round(elapsed, 3),
     )
+
+
+def _prune_orphaned_sqlite_rows() -> int:
+    """Delete memory_usage rows older than retention window."""
+    try:
+        from app.services.memory_service import MemoryService
+
+        svc = MemoryService()
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(svc.initialize())
+        deleted = loop.run_until_complete(svc.prune_usage(retention_days=90))
+        loop.run_until_complete(svc.close())
+        loop.close()
+        return deleted
+    except Exception as e:
+        logger.debug("SQLite prune skipped: %s", e)
+        return 0

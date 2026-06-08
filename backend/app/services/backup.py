@@ -1,5 +1,7 @@
 """Knowledge base backup service — automated backup with rotation."""
 
+import gzip
+import hashlib
 import logging
 import os
 import shutil
@@ -11,6 +13,27 @@ logger = logging.getLogger(__name__)
 BACKUP_DIR = os.environ.get("UDIP_BACKUP_DIR", "data/backups")
 MAX_BACKUPS = int(os.environ.get("UDIP_MAX_BACKUPS", "5"))
 DATA_DIR = os.environ.get("UDIP_DATA_DIR", "data")
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _compress_tree(src: Path, dst_gz: Path) -> int:
+    import tarfile
+    with tarfile.open(dst_gz, "w:gz") as tar:
+        tar.add(src, arcname=src.name)
+    return dst_gz.stat().st_size
+
+
+def _decompress_tree(archive: Path, dest: Path) -> None:
+    import tarfile
+    with tarfile.open(archive, "r:gz") as tar:
+        tar.extractall(dest)
 
 
 def get_backup_dir() -> Path:
@@ -64,14 +87,23 @@ def create_backup(kb_name: str | None = None) -> dict:
 
     try:
         shutil.copytree(src, backup_path)
-        size = sum(f.stat().st_size for f in backup_path.rglob("*") if f.is_file())
-        logger.info("backup_created: name=%s size=%d", backup_name, size)
+        raw_size = sum(f.stat().st_size for f in backup_path.rglob("*") if f.is_file())
+        gz_path = backup_path.parent / f"{backup_path.name}.tar.gz"
+        compressed_size = _compress_tree(backup_path, gz_path)
+        checksum = _sha256_file(gz_path)
+        checksum_path = backup_path.parent / f"{backup_path.name}.sha256"
+        checksum_path.write_text(checksum, encoding="utf-8")
+        shutil.rmtree(backup_path)
+        logger.info("backup_created: name=%s raw=%d compressed=%d sha256=%s",
+                     backup_name, raw_size, compressed_size, checksum[:16])
         _rotate_backups()
         return {
             "success": True,
             "name": backup_name,
-            "path": str(backup_path),
-            "size_bytes": size,
+            "path": str(gz_path),
+            "raw_size_bytes": raw_size,
+            "compressed_size_bytes": compressed_size,
+            "sha256": checksum,
         }
     except Exception as exc:
         logger.error("backup_failed: name=%s error=%s", backup_name, exc)
@@ -99,7 +131,11 @@ def restore_backup(backup_name: str, kb_name: str | None = None) -> dict:
         return {"success": False, "error": f"Invalid backup path: {exc}"}
 
     if not backup_path.exists():
-        return {"success": False, "error": f"Backup '{backup_name}' not found"}
+        gz_path = backup_dir / f"{cleaned_backup_name}.tar.gz"
+        if not gz_path.exists():
+            return {"success": False, "error": f"Backup '{backup_name}' not found"}
+        backup_path = backup_dir / cleaned_backup_name
+        _decompress_tree(gz_path, backup_dir)
 
     dest = Path(DATA_DIR) / "knowledge"
     dest.mkdir(parents=True, exist_ok=True)
@@ -142,12 +178,18 @@ def list_backups() -> list[dict]:
     backups = []
     for item in sorted(backup_dir.iterdir(), reverse=True):
         if item.is_dir() and item.name.startswith("kb_backup_"):
-            size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+            gz = backup_dir / f"{item.name}.tar.gz"
+            sha = backup_dir / f"{item.name}.sha256"
+            size = gz.stat().st_size if gz.exists() else sum(
+                f.stat().st_size for f in item.rglob("*") if f.is_file()
+            )
+            checksum = sha.read_text().strip() if sha.exists() else None
             backups.append(
                 {
                     "name": item.name,
                     "path": str(item),
                     "size_bytes": size,
+                    "sha256": checksum,
                     "created": datetime.fromtimestamp(
                         item.stat().st_mtime, tz=timezone.utc
                     ).isoformat(),
@@ -166,4 +208,10 @@ def _rotate_backups():
     while len(backups) > MAX_BACKUPS:
         oldest = backups.pop(0)
         shutil.rmtree(oldest)
+        gz = backup_dir / f"{oldest.name}.tar.gz"
+        sha = backup_dir / f"{oldest.name}.sha256"
+        if gz.exists():
+            gz.unlink()
+        if sha.exists():
+            sha.unlink()
         logger.info("backup_rotated: removed=%s", oldest.name)

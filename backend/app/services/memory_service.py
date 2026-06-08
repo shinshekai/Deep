@@ -52,16 +52,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
     tokenize='porter unicode61'
 );
 
-CREATE TABLE IF NOT EXISTS fact_relationships (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_fact_id TEXT NOT NULL,
-    target_fact_id TEXT NOT NULL,
-    relation_type TEXT NOT NULL,
-    confidence REAL DEFAULT 0.5,
-    FOREIGN KEY (source_fact_id) REFERENCES facts(id),
-    FOREIGN KEY (target_fact_id) REFERENCES facts(id)
-);
-
 CREATE TABLE IF NOT EXISTS user_profiles (
     device_id TEXT PRIMARY KEY,
     profile_json TEXT NOT NULL,
@@ -113,8 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_episodes_device_created ON episodes(device_id, cr
 CREATE INDEX IF NOT EXISTS idx_episodes_device_archived ON episodes(device_id, archived);
 CREATE INDEX IF NOT EXISTS idx_facts_device_created ON facts(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_facts_device_archived ON facts(device_id, archived);
-CREATE INDEX IF NOT EXISTS idx_fact_relationships_source ON fact_relationships(source_fact_id);
-CREATE INDEX IF NOT EXISTS idx_fact_relationships_target ON fact_relationships(target_fact_id);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_device ON agent_outcomes(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_outcomes_type ON agent_outcomes(agent_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_strategies_pattern ON agent_strategies(agent_type, pattern_signature);
@@ -842,6 +830,18 @@ class MemoryService:
                 (device_id, f"-{hours} hours"),
             )
         return [{"timestamp": r[0], "metric_name": r[1], "metric_value": r[2]} for r in rows]
+
+    async def prune_usage(self, retention_days: int = 90) -> int:
+        db = await self._get_db()
+        cursor = await db.execute(
+            "DELETE FROM memory_usage WHERE timestamp < datetime('now', ?)",
+            (f"-{retention_days} days",),
+        )
+        await db.commit()
+        deleted = cursor.rowcount
+        if deleted:
+            logger.info("pruned %d memory_usage rows older than %d days", deleted, retention_days)
+        return deleted
 
     async def close(self):
         if self._db:
