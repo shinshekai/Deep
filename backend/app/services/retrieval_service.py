@@ -72,17 +72,20 @@ async def retrieve(req: RetrieveRequest):
     ):
 
         from app.services.query_router import RouteContext, route_query
+        from app.services.complexity_scorer import score_query_complexity
 
         tree_docs = _list_pageindex_docs(req.kb_name)
         has_trees = len(tree_docs) > 0
         has_vectors = (DATA_DIR / req.kb_name / "vectors").exists()
+
+        complexity, _ = score_query_complexity(req.query, doc_pages=len(tree_docs))
 
         pipeline = route_query(
             query=req.query,
             kb_name=req.kb_name,
             doc_id=req.doc_id,
             retrieval_pipeline=req.retrieval_pipeline,
-            context=RouteContext(has_trees=has_trees, has_vectors=has_vectors),
+            context=RouteContext(has_trees=has_trees, has_vectors=has_vectors, complexity=complexity),
         )
         add_event(
             "pipeline_selected",

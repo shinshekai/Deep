@@ -7,12 +7,13 @@ cache keyed on the SHA-256 hash of (model, messages, temperature, max_tokens).
 import hashlib
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_CACHE_DIR = Path("data/cache/llm_responses")
+_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "cache" / "llm_responses"
 _DEFAULT_TTL = 3600
 _MAX_ENTRIES = 1000
 
@@ -96,10 +97,13 @@ class ResponseCache:
 
 
 _cache: ResponseCache | None = None
+_cache_lock = threading.Lock()
 
 
 def get_response_cache() -> ResponseCache:
     global _cache
     if _cache is None:
-        _cache = ResponseCache()
+        with _cache_lock:
+            if _cache is None:
+                _cache = ResponseCache()
     return _cache

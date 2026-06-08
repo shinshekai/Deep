@@ -1039,7 +1039,12 @@ class MemoryService:
                         logger.exception("Failed to rollback compact_episodes, invalidating connection")
                         self._db = None
                     raise
-                await self.track_usage(rows[0][1], "episodes_compacted", len(episode_ids))
+                device_counts: dict[str, int] = {}
+                for r in rows:
+                    did = r[1]
+                    device_counts[did] = device_counts.get(did, 0) + 1
+                for did, count in device_counts.items():
+                    await self.track_usage(did, "episodes_compacted", count)
                 return len(episode_ids)
 
     async def recover_partial_compactions(self) -> int:

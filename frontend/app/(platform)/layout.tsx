@@ -66,7 +66,7 @@ export default function PlatformLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { solveStatus, metricsStatus } = useWebSocket();
+  const { solveStatus, metricsStatus, vram: wsVram } = useWebSocket();
 
   // Responsive Layout States
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -80,15 +80,23 @@ export default function PlatformLayout({
     T3: { model_id: string } | null;
   }>({ T1: null, T2: null, T3: null });
 
-  // Telemetry details
-  const [vram, setVram] = useState({
-    total_mb: 24576,
-    used_mb: 8192,
-    free_mb: 16384,
-    utilization_pct: 33.3,
-    pressure_level: "green",
-    gpu_available: true,
-  });
+  const vram = wsVram
+    ? {
+        total_mb: wsVram.vram_total_mb,
+        used_mb: wsVram.vram_used_mb,
+        free_mb: wsVram.vram_total_mb - wsVram.vram_used_mb,
+        utilization_pct: wsVram.vram_used_pct,
+        pressure_level: wsVram.pressure_level,
+        gpu_available: wsVram.vram_total_mb > 0,
+      }
+    : {
+        total_mb: 24576,
+        used_mb: 8192,
+        free_mb: 16384,
+        utilization_pct: 33.3,
+        pressure_level: "green",
+        gpu_available: true,
+      };
 
   async function loadSelections() {
     try {
@@ -106,23 +114,10 @@ export default function PlatformLayout({
     }
   }
 
-  async function loadTelemetry() {
-    try {
-      const response = await secureFetch(`${API_BASE_URL}/vram/status`);
-      if (response.ok) {
-        const data = await response.json();
-        setVram(data);
-      }
-    } catch {}
-  }
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSelections();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadTelemetry();
     
-    const telemetryInterval = setInterval(loadTelemetry, 5000);
     const selectionsInterval = setInterval(loadSelections, 10000);
     
     // Auto-collapse sidebar on tablets/smaller devices
@@ -140,7 +135,6 @@ export default function PlatformLayout({
     handleResize(); // Initial call
     
     return () => {
-      clearInterval(telemetryInterval);
       clearInterval(selectionsInterval);
       window.removeEventListener("resize", handleResize);
     };
