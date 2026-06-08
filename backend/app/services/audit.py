@@ -5,10 +5,12 @@ can grep for ``audit.audit`` and see a chronological list of
 security-relevant actions: auth failures, config changes, KB
 operations, LLM model load/unload, API key access.
 
-Events are written at INFO level on the ``app.audit`` logger; configure
+Events are written at WARNING level on the ``app.audit`` logger; configure
 your log handler to route this logger to a separate file (or send it
-to your SIEM) in production. The default text/json formatter from
-``logging_config`` applies the same format as the rest of the app.
+to your SIEM) in production. WARNING level ensures security events
+are never filtered out by handlers that gate on ``WARNING+``.
+The default text/json formatter from ``logging_config`` applies the
+same format as the rest of the app.
 """
 
 import logging
@@ -38,4 +40,4 @@ def audit(event: str, **fields: Any) -> None:
             parts.append(f"{k}={v!r}")
         else:
             parts.append(f"{k}={v}")
-    logger.info(" ".join(parts))
+    logger.warning(" ".join(parts))

@@ -410,6 +410,7 @@ class LMStudioClient:
         temperature: float = 0.7,
         priority: int = 2,
         chunk_callback=None,
+        enable_thinking: bool = False,
     ) -> str:
         """Stream chat completion and return the full content string.
 
@@ -447,7 +448,7 @@ class LMStudioClient:
                         "stream": True,
                         "max_tokens": max_tokens,
                         "temperature": temperature,
-                        "enable_thinking": True,  # Enable reasoning/thinking mode if supported
+                        "enable_thinking": enable_thinking,
                     }
                     if model:
                         body["model"] = model

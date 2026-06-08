@@ -17,15 +17,16 @@ from __future__ import annotations
 
 import logging
 import os
-from functools import lru_cache
+import time
 
 logger = logging.getLogger(__name__)
 
 KEYRING_SERVICE = "udip"
 _FALLBACK_WARNED = False
+_keyring_cache: dict[str, object] = {"available": None, "ts": 0.0}
+_KEYRING_REPROBE_INTERVAL = 300  # re-probe every 5 minutes
 
 
-@lru_cache(maxsize=1)
 def is_keyring_available() -> bool:
     """Return True if a working keyring backend can be used.
 
@@ -33,8 +34,21 @@ def is_keyring_available() -> bool:
     ``keyring`` library's currently configured backend. If any step
     raises, the backend is considered unavailable and we silently
     fall back to ``os.environ``.
+
+    Result is cached for 5 minutes to avoid repeated probes, but
+    allows the keyring to become available at runtime (e.g. after
+    DBus starts on headless Linux).
     """
+    now = time.monotonic()
+    if (
+        _keyring_cache["available"] is not None
+        and now - _keyring_cache["ts"] < _KEYRING_REPROBE_INTERVAL
+    ):
+        return bool(_keyring_cache["available"])
+
     if os.environ.get("CI") or os.environ.get("HEADLESS"):
+        _keyring_cache["available"] = False
+        _keyring_cache["ts"] = now
         return False
     try:
         import keyring  # type: ignore
@@ -56,10 +70,17 @@ def is_keyring_available() -> bool:
                 keyring.delete_password(probe_service, probe_user)
             except KeyringError:
                 pass
-            return got == "ok"
+            result = got == "ok"
+            _keyring_cache["available"] = result
+            _keyring_cache["ts"] = now
+            return result
         except (KeyringError, Exception):
+            _keyring_cache["available"] = False
+            _keyring_cache["ts"] = now
             return False
     except Exception:
+        _keyring_cache["available"] = False
+        _keyring_cache["ts"] = now
         return False
 
 

@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS episodes (
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
-    query, answer, content=episodes, content_rowid=rowid
+    query, answer, content=episodes, content_rowid=rowid,
+    tokenize='porter unicode61'
 );
 
 CREATE TABLE IF NOT EXISTS facts (
@@ -47,7 +48,8 @@ CREATE TABLE IF NOT EXISTS facts (
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-    content, content=facts, content_rowid=rowid
+    content, content=facts, content_rowid=rowid,
+    tokenize='porter unicode61'
 );
 
 CREATE TABLE IF NOT EXISTS fact_relationships (
@@ -258,7 +260,7 @@ class MemoryService:
                        FROM episodes_fts fts
                        JOIN episodes e ON e.rowid = fts.rowid
                        WHERE episodes_fts MATCH ? AND e.device_id = ? AND e.archived = 0
-                       ORDER BY rank
+                       ORDER BY rank, e.rowid
                        LIMIT ?""",
                     (query, device_id, top_k),
                 )
@@ -268,7 +270,7 @@ class MemoryService:
                               model_used, tier, citations, outcome_rating, created_at, 0
                        FROM episodes
                        WHERE device_id = ? AND archived = 0
-                       ORDER BY created_at DESC
+                       ORDER BY created_at DESC, id
                        LIMIT ?""",
                     (device_id, top_k),
                 )
@@ -405,7 +407,7 @@ class MemoryService:
                            FROM facts_fts fts
                            JOIN facts f ON f.rowid = fts.rowid
                            WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
-                           ORDER BY rank
+                           ORDER BY rank, f.rowid
                            LIMIT ?""",
                         (query, device_id, top_k * 2),
                     )
@@ -415,7 +417,7 @@ class MemoryService:
                                   confidence, created_at, last_accessed, access_count, 0
                            FROM facts
                            WHERE device_id = ? AND archived = 0
-                           ORDER BY created_at DESC
+                           ORDER BY created_at DESC, id
                            LIMIT ?""",
                         (device_id, top_k * 2),
                     )
