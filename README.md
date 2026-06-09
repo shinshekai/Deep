@@ -59,30 +59,9 @@ graph TB
     end
 
     subgraph Backend["Backend — FastAPI 0.136 :8001"]
-        subgraph Middleware["Middleware (6 layers)"]
-            MW1[Rate Limit — 100/min]
-            MW2[CORS — localhost pinning]
-            MW3[Metrics — Prometheus]
-            MW4[Correlation — X-Request-ID]
-            MW5[Headers — CSP/HSTS/COOP]
-            MW6[Auth — 3 methods]
-        end
-        subgraph Routers["7 Routers"]
-            R1[Knowledge]
-            R2[System]
-            R3[Agent]
-            R4[Retrieval]
-            R5[Query]
-            R6[Memory]
-            R7[Validation]
-        end
-        subgraph Services["38+ Services"]
-            SVC1[Inference — LM Studio, Model Manager, VRAM]
-            SVC2[Retrieval — Tree, Vector, Hybrid, KG]
-            SVC3[Agents — Solver, Research, Learning]
-            SVC4[Memory — SQLite+FTS5, Facts, Crystallization]
-            SVC5[Security — SSRF, Secrets, Audit]
-        end
+        MW[Middleware Stack — 6 layers]
+        R[7 Routers]
+        SVC[38+ Services]
         WS1["/api/v1/solve (WS)"]
         WS2["/ws/metrics (WS)"]
     end
@@ -95,23 +74,22 @@ graph TB
     end
 
     subgraph Storage["Storage — Local"]
-        DB[(SQLite + FTS5<br/>14 tables)]
-        FS[File System<br/>Knowledge Bases]
-        KG[Knowledge Graph<br/>Entities + Relations]
-        IDX[PageIndex Trees<br/>3-pass indexing]
+        DB[(SQLite + FTS5 — 14 tables)]
+        FS[File System — Knowledge Bases]
+        KG[Knowledge Graph]
+        IDX[PageIndex Trees]
     end
 
     UI --> WS
     UI --> MP
     WS --> Backend
     MP --> Backend
-    MW1 --> MW2 --> MW3 --> MW4 --> MW5 --> MW6
-    MW6 --> R1 & R2 & R3 & R4 & R5 & R6 & R7
-    R1 & R2 & R3 & R4 & R5 & R6 & R7 --> SVC1 & SVC2 & SVC3 & SVC4 & SVC5
-    SVC1 --> Inference
-    SVC2 --> Storage
-    SVC4 --> DB
-    T1 & T2 & T3 --> TQ
+    MW --> R --> SVC
+    SVC --> Inference
+    SVC --> Storage
+    T1 --> TQ
+    T2 --> TQ
+    T3 --> TQ
 ```
 
 ### Request Flow
