@@ -7,7 +7,7 @@
 <p align="center"><em>Unified Document Intelligence Pipeline</em></p>
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)
-![License](https://img.shields.io/badge/License-MIT-green)
+![License](https://img.shields.io/badge/License-MIT%20(Apache%202.0%20attributions)-green)
 ![Version](https://img.shields.io/badge/Version-1.2.0-blue)
 ![Tests](https://img.shields.io/badge/Tests-556%20backend-brightgreen)
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-orange)
@@ -1448,37 +1448,22 @@ A: OCR support enables image text extraction. For full multimodal support, confi
 **Q: How do I debug issues?**
 A: Set `UDIP_LOG_LEVEL=DEBUG` and `UDIP_LOG_FORMAT=json` in `.env`. Check structured logs with correlation IDs. The `/api/v1/health` endpoint reports system status.
 
-## Inspirations & Acknowledgements
+## Acknowledgements
 
-### Research Papers
+DEEP builds upon the work of open-source projects and academic research. See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for full attribution, license compliance, and details on what was adopted from each foundation.
 
-1. **TurboQuant** (arXiv:2504.19874, ICLR 2026) — KV cache quantization. Authors: Amir Zandieh, Majid Daliri, Majid Hadian, Vahab Mirrokni (Google Research). DEEP implements PolarQuant + QJL algorithms for 3-4 bit KV cache compression.
+### Research Foundations
 
-2. **RecursiveMAS** (arXiv:2604.25917) — Multi-agent collaboration patterns. DEEP adapts 4 patterns (Sequential, Mixture, Deliberation, Distillation) for API-based inference with compressed context transfer.
-
-3. **Reciprocal Rank Fusion** (Cormack et al., 2009) — Rank fusion algorithm. DEEP uses k=60 RRF merge for hybrid vector + keyword retrieval.
-
-4. **ARA (Agent-Native Research Artifact)** (Orchestra Research) — 4-layer knowledge structure. DEEP's ARA Compiler converts documents into Logic, Solution, Trace, and Evidence layers.
-
-5. **PolarQuant** (arXiv:2502.02617, AISTATS 2026) — Random rotation + Beta-distributed coordinates + Lloyd-Max scalar quantization.
-
-6. **QJL** (arXiv:2406.03482) — Quantized Johnson-Lindenstrauss. DEEP found QJL increases variance and dropped it in favor of more PolarQuant centroids.
-
-### Projects
-
-1. **VectifyAI/PageIndex** — DEEP's PageIndex system is a fork of this vectorless hierarchical document indexing project.
-
-2. **DeepTutor** ([github.com/HKUDS/DeepTutor](https://github.com/HKUDS/DeepTutor)) — DEEP's agent system evolved from this multi-agent Q&A platform.
-
-3. **llama.cpp** — DEEP builds on llama.cpp via LM Studio. TurboQuant+ has active PR preparation for llama.cpp upstream.
-
-4. **LM Studio** — Primary local inference backend.
-
-### Community
-
-- 30+ TurboQuant testers across diverse hardware (M1–M5 Mac, RTX 3080Ti–5090, AMD 6800XT/9070XT)
-- Active collaboration with llama.cpp upstream for TurboQuant contribution
-- MLX/Swift community collaboration for Apple Silicon optimization
+| Project | License | What DEEP Adopted |
+|---------|---------|-------------------|
+| [DeepTutor](https://github.com/HKUDS/DeepTutor) (HKUDS) | Apache 2.0 | 4-agent guided learning pipeline, agent architecture |
+| [PageIndex](https://github.com/VectifyAI/PageIndex) (VectifyAI) | MIT | Hierarchical document indexing, 3-pass tree generation |
+| [RecursiveMAS](https://arxiv.org/abs/2604.25917) | Apache 2.0 | 4 multi-agent collaboration patterns |
+| [ARA](https://github.com/AmberLJC/Agent-Native-Research-Artifacts) | MIT | 4-layer knowledge structure (Logic/Solution/Trace/Evidence) |
+| [AI-Research-SKILLs](https://github.com/Orchestra-Research/AI-Research-SKILLs) | MIT | Modular research pipeline design |
+| [TurboQuant](https://arxiv.org/abs/2504.19874) (Google Research) | CC-BY-4.0 | 3-4 bit KV cache quantization |
+| [PolarQuant](https://arxiv.org/abs/2502.02617) (Google Research) | CC-BY-4.0 | Random rotation + Lloyd-Max scalar quantization |
+| [RRF](https://dl.acm.org/doi/10.1145/1571941.1572114) (Cormack et al.) | ACM | k=60 reciprocal rank fusion for hybrid retrieval |
 
 ## How DEEP Is Different
 
@@ -1531,7 +1516,20 @@ A: Set `UDIP_LOG_LEVEL=DEBUG` and `UDIP_LOG_FORMAT=json` in `.env`. Check struct
 
 ## License
 
-MIT
+MIT License — see [LICENSE](LICENSE) for full text.
+
+### License Compliance
+
+DEEP incorporates code and algorithms from projects under the following licenses. All requirements are satisfied:
+
+| License | Projects | Compliance |
+|---------|----------|------------|
+| **Apache 2.0** | DeepTutor, RecursiveMAS | Copyright notice retained, state changes documented, license included |
+| **MIT** | PageIndex, ARA, AI-Research-SKILLs, DeepTutor Claude Skill, llama.cpp | Copyright notice retained, license included |
+| **CC-BY-4.0** | TurboQuant, PolarQuant | Original papers cited, attribution provided |
+| **ACM** | Reciprocal Rank Fusion | Academic citation provided |
+
+DEEP's use of research foundations is for **attribution and acknowledgment purposes**. No proprietary code from these projects is redistributed. DEEP's original code is licensed under MIT.
 
 ---
 

@@ -52,7 +52,6 @@ early-warning signal, not a gate.
 - **Style:** Pydantic v2 discipline, type hints everywhere, no comments unless asked
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, etc.)
 - **Branches:** `master` is the protected main branch
-- **Releases:** Tagged `vX.Y.Z`, see `docs/RELEASE_PROGRESS.md` (local)
 
 ## Architecture
 

@@ -2,65 +2,65 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.2.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+|Version|Supported|
+|-|-|
+|1.2.x|:white\_check\_mark:|
+|1.1.x|:white\_check\_mark:|
+|1.0.x|:white\_check\_mark:|
+|< 1.0|:x:|
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within DEEP, please send an email to the maintainers. All security vulnerabilities will be promptly addressed.
+If you discover a security vulnerability within DEEP, please send an email to shinshekaiholdings@gmail.com. All security vulnerabilities will be promptly addressed.
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
 ### What to include
 
-- Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
-- Full paths of source file(s) related to the manifestation of the issue
-- The location of the affected source code (tag/branch/commit or direct URL)
-- Any special configuration required to reproduce the issue
-- Step-by-step instructions to reproduce the issue
-- Proof-of-concept or exploit code (if possible)
-- Impact of the issue, including how an attacker might exploit the issue
+* Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
+* Full paths of source file(s) related to the manifestation of the issue
+* The location of the affected source code (tag/branch/commit or direct URL)
+* Any special configuration required to reproduce the issue
+* Step-by-step instructions to reproduce the issue
+* Proof-of-concept or exploit code (if possible)
+* Impact of the issue, including how an attacker might exploit the issue
 
 ### Response timeline
 
-- **Acknowledgment**: Within 48 hours of receiving the report
-- **Initial assessment**: Within 1 week
-- **Fix or mitigation**: Within 2 weeks for critical vulnerabilities, 1 month for others
-- **Disclosure**: Coordinated with the reporter
+* **Acknowledgment**: Within 48 hours of receiving the report
+* **Initial assessment**: Within 1 week
+* **Fix or mitigation**: Within 2 weeks for critical vulnerabilities, 1 month for others
+* **Disclosure**: Coordinated with the reporter
 
 ## Security Design Principles
 
 ### Local-First Architecture
 
-- All data stays on the user's machine
-- No external API calls for core functionality
-- SQLite database with WAL mode for concurrent access
-- Device-scoped privacy with UUID v4 identifiers
+* All data stays on the user's machine
+* No external API calls for core functionality
+* SQLite database with WAL mode for concurrent access
+* Device-scoped privacy with UUID v4 identifiers
 
-### Authentication & Authorization
+### Authentication \& Authorization
 
-- WebSocket authentication via first-message (not URL query parameters)
-- Token endpoint requires Bearer authorization header
-- OS keyring integration for API key storage
-- Rate limiting on all endpoints (SlowAPI)
+* WebSocket authentication via first-message (not URL query parameters)
+* Token endpoint requires Bearer authorization header
+* OS keyring integration for API key storage
+* Rate limiting on all endpoints (SlowAPI)
 
 ### Data Protection
 
-- No secrets or keys committed to the repository
-- SQL injection prevention via parameterized queries
-- Input validation on all user-provided data
-- Content sanitization for HTML output
+* No secrets or keys committed to the repository
+* SQL injection prevention via parameterized queries
+* Input validation on all user-provided data
+* Content sanitization for HTML output
 
 ### Infrastructure
 
-- Docker containers run with read-only filesystems
-- Capability dropping (no root, no network unless needed)
-- Resource limits (CPU, memory, file descriptors)
-- Health checks for all services
+* Docker containers run with read-only filesystems
+* Capability dropping (no root, no network unless needed)
+* Resource limits (CPU, memory, file descriptors)
+* Health checks for all services
 
 ## Known Security Considerations
 
@@ -68,25 +68,37 @@ If you discover a security vulnerability within DEEP, please send an email to th
 
 DEEP is designed for local-first operation. This means:
 
-- **No cloud dependency**: All inference happens locally via LM Studio, Ollama, or llama.cpp
-- **No data leakage**: Your documents and queries never leave your machine
-- **Device isolation**: Each device gets its own memory store, no cross-device data access
+* **No cloud dependency**: All inference happens locally via LM Studio, Ollama, or llama.cpp
+* **No data leakage**: Your documents and queries never leave your machine
+* **Device isolation**: Each device gets its own memory store, no cross-device data access
 
 ### Vulnerability Management
 
-- Dependabot alerts are monitored for dependency vulnerabilities
-- Security patches are applied within 2 weeks of release
-- Regular security audits of codebase and dependencies
+* Dependabot alerts are monitored for dependency vulnerabilities
+* Security patches are applied within 2 weeks of release
+* Regular security audits of codebase and dependencies
+
+### Dependency Vulnerability Status
+
+| Package | CVE | Severity | Status | Notes |
+|---------|-----|----------|--------|-------|
+| lxml | CVE-2026-41066 (XXE) | High | **Fixed** | Upgraded 5.4.0 → 6.1.0 |
+| diskcache | CVE-2025-69872 (pickle) | Moderate | **Accepted** | Design-level issue, no patch available. Mitigated: local-only cache directory, not exposed to network |
+| ragas | CVE-2026-6587 (SSRF) | Low | **Accepted** | Affects multimodal collections module only. Mitigated: DEEP does not use multimodal faithfulness metrics. Local-only deployment |
+| pytest | Dependabot PR | Low | **Accepted** | tmpdir fixture vulnerability. Mitigated: tests run in isolated venv, not exposed to untrusted input |
 
 ## Security Features
 
-| Feature | Status |
-|---------|--------|
-| Parameterized SQL queries | :white_check_mark: |
-| Input validation | :white_check_mark: |
-| Rate limiting | :white_check_mark: |
-| WebSocket auth (first-message) | :white_check_mark: |
-| OS keyring integration | :white_check_mark: |
-| Device-scoped privacy | :white_check_mark: |
-| Read-only Docker containers | :white_check_mark: |
-| Capability dropping | :white_check_mark: |
+|Feature|Status|
+|-|-|
+|Parameterized SQL queries|:white\_check\_mark:|
+|Input validation|:white\_check\_mark:|
+|Rate limiting|:white\_check\_mark:|
+|WebSocket auth (first-message)|:white\_check\_mark:|
+|OS keyring integration|:white\_check\_mark:|
+|Device-scoped privacy|:white\_check\_mark:|
+|Read-only Docker containers|:white\_check\_mark:|
+|Capability dropping|:white\_check\_mark:|
+
+
+
