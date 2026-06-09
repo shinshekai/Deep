@@ -8,7 +8,8 @@
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Tests](https://img.shields.io/badge/Tests-61%20files-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.2.0-blue)
+![Tests](https://img.shields.io/badge/Tests-556%20backend-brightgreen)
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-orange)
 
 DEEP is a local-first AI platform that merges document intelligence, multi-agent reasoning, and persistent memory into a single system. It runs entirely on your hardware — no cloud, no data leakage. Upload documents, build hierarchical indexes, and interact with specialized agents that research, tutor, generate, and solve problems using your local LLM.
@@ -30,14 +31,18 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Recursive Multi-Agent Solver** | 4 collaboration patterns: Sequential, Mixture, Deliberation, Distillation from RecursiveMAS research. |
 | **Deep Research Pipeline** | 3-phase: Decompose → Parallel Research → Report with source attribution. |
 | **Guided Learning System** | 4-agent pipeline: Locate → Interactive → Chat → Summary for adaptive tutoring. |
-| **Persistent Memory** | 8-table SQLite with episodic recall, semantic facts, contradiction detection, and background maintenance. |
+| **Persistent Memory** | 10-table SQLite with episodic recall, semantic facts, contradiction detection, staged observations, and background maintenance. |
+| **Knowledge Graph** | Entity-relation graph for dual-index RAG (KG + Dense Embeddings), enabling graph-based retrieval. |
+| **Progressive Crystallization** | Observations staged before permanent storage, crystallized on closure signals. |
 | **TurboQuant KV Cache** | 3-4 bit KV cache quantization reducing VRAM usage 40-50% with minimal quality loss. |
 | **Real-Time Observability** | Prometheus metrics, OpenTelemetry tracing, WebSocket telemetry, VRAM pressure monitoring. |
 | **ARA Knowledge Compiler** | Converts documents into Logic, Solution, Trace, and Evidence layers. |
-| **Self-Validating Pipeline** | Built-in validation framework with 61 backend tests and 8 frontend tests. |
+| **Self-Validating Pipeline** | Built-in validation framework with 556 backend tests and 8 frontend tests. |
 | **Hardened Docker Deployment** | Read-only containers, capability dropping, resource limits, healthchecks, blue-green zero-downtime. |
 | **11 Inference Providers** | Local: LM Studio, Ollama, llama.cpp. Cloud: OpenAI, Anthropic, Gemini, Mistral, OpenRouter, and more. |
 | **Device-Scoped Privacy** | UUID v4 per device, no cross-device data leakage, OS keyring integration. |
+| **Property-Based Testing** | Hypothesis-powered tests for data transformations, security invariants, and prompt registry. |
+| **Contract Testing** | Frontend/backend API schema validation ensuring type safety across the stack. |
 
 ## Architecture
 
