@@ -20,7 +20,7 @@ DEEP builds upon the work of open-source projects and academic research. We are 
 
 ### RecursiveMAS
 
-- **Repository**: [arXiv:2604.25917](https://arxiv.org/abs/2604.25917)
+- **Research Paper**: [arXiv:2604.25917](https://arxiv.org/abs/2604.25917)
 - **License**: Apache License 2.0 (paper-based, no explicit repository LICENSE file)
 - **Paper**: Recursive Multi-Agent System for Complex Problem Solving
 - **What we adopted**: DEEP's recursive solver implements 4 collaboration patterns from the RecursiveMAS framework: Sequential, Mixture, Deliberation, and Distillation. These patterns enable multi-agent collaboration for complex tasks where a single agent pass is insufficient.
