@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     memory_fact_confidence_threshold: float = 0.2
     memory_decay_rate: float = 0.1
     memory_extraction_model_tier: int = 1
+    enable_thinking: bool = False
     otel_exporter_otlp_endpoint: str | None = None  # e.g. "http://localhost:4317"
     otel_console_export: bool = False
 

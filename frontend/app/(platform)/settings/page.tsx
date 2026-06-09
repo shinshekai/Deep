@@ -183,6 +183,9 @@ type Config = {
   backend_port: string;
   frontend_port: string;
   search_provider: string;
+
+  // LLM Behavior
+  enable_thinking: boolean;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -210,6 +213,7 @@ const DEFAULT_CONFIG: Config = {
   backend_port: "8001",
   frontend_port: "3782",
   search_provider: "none",
+  enable_thinking: false,
 };
 
 export default function SettingsPage() {
@@ -350,6 +354,12 @@ export default function SettingsPage() {
                 onChange={(v) => set("llm_model", v)}
                 placeholder="Qwen3-8B-Q4_K_M"
                 hint="Primary resident LLM model ID loaded in VRAM"
+              />
+              <ToggleField
+                label="Enable Thinking"
+                value={config.enable_thinking}
+                onChange={(v) => set("enable_thinking", v)}
+                hint="Allow models to use chain-of-thought reasoning (increases latency + cost)"
               />
             </Section>
 

@@ -1,8 +1,8 @@
 """Model Manager — three-tier lifecycle with TTL-based unloading and fallback cascade.
 
-Tier 1 (Always Resident): liquid/lfm2.5-1.2b, jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf — VRAM 1-3.5 GB
-Tier 2 (Semi-Resident):   nvidia/nemotron-3-nano-4b, deepseek/deepseek-r1-0528-qwen3-8b   — VRAM 4-9.5 GB, TTL 600s
-Tier 3 (On-Demand):       google/gemma-4-26b-a4b, qwen/qwen3.6-35b-a3b    — VRAM 25-40 GB, TTL 300s
+Tier 1 (Always Resident): google/gemma-4-e2b, google/gemma-4-e4b — VRAM 1-4 GB
+Tier 2 (Semi-Resident):   qwen/qwen3.5-9b, zai-org/glm-4.7-flash — VRAM 4-12 GB, TTL 600s
+Tier 3 (On-Demand):       google/gemma-4-26b-a4b, google/gemma-4-12b — VRAM 12-25 GB, TTL 300s
 """
 
 import logging
@@ -12,42 +12,39 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Historical capability-first cascade. Do not use for implicit selection.
 FALLBACK_CASCADE = [
-    "qwen/qwen3.6-35b-a3b",
     "google/gemma-4-26b-a4b",
-    "deepseek/deepseek-r1-0528-qwen3-8b",
-    "nvidia/nemotron-3-nano-4b",
-    "jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf",
-    "liquid/lfm2.5-1.2b",
+    "google/gemma-4-12b",
+    "zai-org/glm-4.7-flash",
+    "qwen/qwen3.5-9b",
+    "google/gemma-4-e4b",
+    "google/gemma-4-e2b",
 ]
 
-# Safety-first fallback for laptop/consumer hardware.
 SAFE_FALLBACK_CASCADE = list(reversed(FALLBACK_CASCADE))
 
 TTL_DEFAULTS = {
-    1: float("inf"),  # Always resident
+    1: float("inf"),
     2: 600,
     3: 300,
 }
 
 MODEL_TIERS = {
-    # tier -> (models, vram_range_mb, kv_config, max_concurrent)
     1: {
-        "models": ["liquid/lfm2.5-1.2b", "jinaai.readerlm-v2/jinaai.ReaderLM-v2.f16.gguf"],
-        "vram_range": (1000, 3500),
-        "kv_cache": {"cache_type_k": "q4_0", "cache_type_v": "q4_0"},
+        "models": ["google/gemma-4-e2b", "google/gemma-4-e4b"],
+        "vram_range": (1000, 4000),
+        "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q8_0"},
         "max_concurrent": 4,
     },
     2: {
-        "models": ["nvidia/nemotron-3-nano-4b", "deepseek/deepseek-r1-0528-qwen3-8b"],
-        "vram_range": (4000, 9500),
-        "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q4_0"},
+        "models": ["qwen/qwen3.5-9b", "zai-org/glm-4.7-flash"],
+        "vram_range": (4000, 12000),
+        "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q8_0"},
         "max_concurrent": 2,
     },
     3: {
-        "models": ["google/gemma-4-26b-a4b", "qwen/qwen3.6-35b-a3b"],
-        "vram_range": (25000, 40000),
+        "models": ["google/gemma-4-26b-a4b", "google/gemma-4-12b"],
+        "vram_range": (12000, 25000),
         "kv_cache": {"cache_type_k": "q8_0", "cache_type_v": "q8_0"},
         "max_concurrent": 1,
     },

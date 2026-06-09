@@ -334,7 +334,7 @@ async def _run_dual_loop(
                 else:
                     user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
             if attempt > 0:
-                user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"
+                user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"  # noqa: F821
 
             messages = [
                 {"role": "system", "content": AGENT_PROMPTS[agent_key]},

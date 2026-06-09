@@ -518,7 +518,7 @@ class MemoryService:
                        JOIN episodes e ON e.id = c.source_id
                        WHERE episodes_fts MATCH ? AND e.device_id = ? AND e.archived = 0
                        GROUP BY e.id
-                       ORDER BY best_rank
+                       ORDER BY best_rank, e.created_at DESC, e.id
                        LIMIT ?""",
                     (query, device_id, top_k),
                 )

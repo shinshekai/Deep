@@ -38,9 +38,9 @@ def test_audit_warning_level():
 
 
 def test_enable_thinking_default():
-    """AI-8-002: enable_thinking defaults to False."""
+    """AI-8-002: enable_thinking defaults to None (resolves from settings)."""
     import inspect
     from app.services.lm_studio_client import LMStudioClient
     sig = inspect.signature(LMStudioClient.stream_chat)
     param = sig.parameters["enable_thinking"]
-    assert param.default is False
+    assert param.default is None

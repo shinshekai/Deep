@@ -183,10 +183,6 @@ class LMStudioClient:
         logger.info(f"Loading model: {model_id}")
 
         payload = {"model": model_id}
-        if cache_type_k:
-            payload["cache_type_k"] = cache_type_k
-        if cache_type_v:
-            payload["cache_type_v"] = cache_type_v
 
         load_success = False
 
@@ -194,7 +190,7 @@ class LMStudioClient:
         async def _do_load_request():
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
-                    f"{self.base_url}/api/v0/models/load",
+                    f"{self.base_url}/api/v1/models/load",
                     json=payload,
                     headers=self._headers,
                 )
@@ -257,6 +253,17 @@ class LMStudioClient:
         except ValueError as e:
             logger.error(f"unload_model rejected: {e}")
             return False
+
+        # Bail early if model isn't actually loaded — avoids triggering
+        # the 5-poll verification loop for models that were never loaded.
+        try:
+            loaded = await self.list_models()
+            if not any(m.get("id") == model_id for m in loaded):
+                logger.debug(f"Model {model_id} not loaded, skip unload")
+                return True
+        except Exception:
+            pass
+
         logger.info(f"Unloading model: {model_id}")
 
         unload_success = False
@@ -264,8 +271,8 @@ class LMStudioClient:
         async def _do_unload_request():
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
-                    f"{self.base_url}/api/v0/models/unload",
-                    json={"model": model_id},
+                    f"{self.base_url}/api/v1/models/unload",
+                    json={"instance_id": model_id},
                     headers=self._headers,
                 )
                 resp.raise_for_status()  # surface 5xx so _with_retry can retry
@@ -410,7 +417,7 @@ class LMStudioClient:
         temperature: float = 0.7,
         priority: int = 2,
         chunk_callback=None,
-        enable_thinking: bool = False,
+        enable_thinking: bool | None = None,
     ) -> str:
         """Stream chat completion and return the full content string.
 
@@ -423,6 +430,8 @@ class LMStudioClient:
         handle the error context, or wrap with ``stream_chat_completion``
         which translates the exception into an ``{"error": ...}`` dict.
         """
+        if enable_thinking is None:
+            enable_thinking = get_settings().enable_thinking
         self.queue_depths[priority] += 1
         # Update metrics via callback (avoid circular import)
         if self._metrics_callback:

@@ -49,6 +49,7 @@ CONFIG_ALLOWED_FIELDS: frozenset[str] = frozenset(
         "t2_ttl",
         "t3_ttl",
         "metrics_interval",
+        "enable_thinking",
     }
 )
 
@@ -263,6 +264,7 @@ async def get_config():
         "pageindex_model": settings.pageindex_model,
         "t2_ttl": settings.t2_ttl,
         "t3_ttl": settings.t3_ttl,
+        "enable_thinking": settings.enable_thinking,
     }
 
 

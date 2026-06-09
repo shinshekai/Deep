@@ -11,14 +11,59 @@ from app.services.solve_orchestrator import run_solve_pipeline
 def mock_lm_client():
     client = MagicMock(spec=LMStudioClient)
 
-    # Mock stream_chat_completion to instantly invoke callback and return a dict
     async def mock_stream(model, messages, max_tokens, chunk_callback=None):
+        system_msg = ""
+        for m in messages:
+            if m.get("role") == "system":
+                system_msg = m["content"].lower()
+                break
+
+        is_verification = max_tokens <= 256
+
+        if is_verification:
+            response = "PASS: The output is internally consistent, addresses the query, and contains no factual contradictions."
+        elif "investigate" in system_msg:
+            response = (
+                "Key concepts identified: The query involves multi-step reasoning "
+                "about the provided knowledge base. Relevant domains include "
+                "data structures and algorithm analysis. Complexity: moderate."
+            )
+        elif "note" in system_msg:
+            response = (
+                "Investigation notes: The query requires retrieving information "
+                "from the knowledge base. Key facts identified. Approach: "
+                "use tree-based retrieval for structured sections."
+            )
+        elif "plan" in system_msg:
+            response = (
+                "Plan: 1) Retrieve relevant context from KB. 2) Synthesize "
+                "answer from retrieved chunks. 3) Verify consistency. "
+                "4) Format final response."
+            )
+        elif "solve" in system_msg:
+            response = (
+                "Based on the analysis and retrieved context, here is the answer: "
+                "The solution involves a combination of tree-based retrieval and "
+                "semantic search to identify the most relevant sections."
+            )
+        elif "check" in system_msg:
+            response = (
+                "Verification: The answer is consistent with the retrieved context. "
+                "No factual errors detected. The reasoning chain is logical."
+            )
+        elif "format" in system_msg:
+            response = (
+                "## Answer\n\nBased on the analysis, here is the solution:\n\n"
+                "The approach combines tree-based retrieval with semantic search."
+            )
+        else:
+            response = "Agent response for the given query."
+
         if chunk_callback:
-            await chunk_callback("mock token")
-        # Return PASS for verification calls (short max_tokens), content for agent calls
-        if max_tokens <= 256:
-            return {"content": "PASS - output is consistent and addresses the query"}
-        return {"content": "mock final content"}
+            for token in response.split():
+                await chunk_callback(token + " ")
+
+        return {"content": response}
 
     client.stream_chat_completion = AsyncMock(side_effect=mock_stream)
     return client
@@ -56,7 +101,7 @@ async def test_run_solve_pipeline(mock_lm_client, mock_model_manager, tmp_path, 
         ws_send=ws_send,
     )
 
-    # Assert stream_chat_completion was called multiple times (for all agents)
+    # Assert stream_chat_completion was called for all agents + verification
     # 2 analysis + 4 solve + 2 verification = 8 calls
     assert mock_lm_client.stream_chat_completion.call_count == 8
 
@@ -66,6 +111,11 @@ async def test_run_solve_pipeline(mock_lm_client, mock_model_manager, tmp_path, 
     # Assert ws_send was called with complete at the end
     complete_calls = [c for c in ws_send.call_args_list if c[0][0].get("type") == "complete"]
     assert len(complete_calls) == 1
+
+    # Verify the answer is non-empty and was written
+    final_answer = complete_calls[0][0][0].get("answer", "")
+    assert len(final_answer) > 0, "Final answer should not be empty"
+    assert "Answer" in final_answer or "answer" in final_answer or "solution" in final_answer.lower()
 
     # Verify the files were created
     assert os.path.exists(f"data/user/solve/{session_id}/final_answer.md")

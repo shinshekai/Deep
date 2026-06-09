@@ -769,7 +769,7 @@ export default function ModelsConsoleV2() {
                       <AlertTriangle className="h-4.5 w-4.5 text-yellow-500 shrink-0 mt-0.5" />
                       <div className="min-w-0">
                         <div className="font-semibold text-yellow-400">Safe Fallback Cascade</div>
-                        <div className="text-[9px] text-zinc-400 mt-0.5">qwen3.6-35b default</div>
+                        <div className="text-[9px] text-zinc-400 mt-0.5">gemma-4-12b default</div>
                       </div>
                     </div>
                   )}

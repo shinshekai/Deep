@@ -27,15 +27,13 @@ async def ws_server():
     import app.main as _main
     from app.main import app
 
-    # Ensure auth is enforced for WS tests — conftest sets token to ""
     old_env = os.environ.get("WS_AUTH_TOKEN")
     os.environ["WS_AUTH_TOKEN"] = "ws-test-token-12345"
     get_settings.cache_clear()
 
-    # Re-import / update main settings singleton
     _main.settings = get_settings()
 
-    port = 18765
+    port = 19765
     config = uvicorn.Config(
         app,
         host="127.0.0.1",

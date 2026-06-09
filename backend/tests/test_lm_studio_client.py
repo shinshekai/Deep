@@ -418,7 +418,7 @@ async def test_unload_model_retries_on_network_error_then_succeeds():
 
     list_resp = MagicMock()
     list_resp.status_code = 200
-    list_resp.json.return_value = {"data": []}
+    list_resp.json.return_value = {"data": [{"id": "test_model"}]}
 
     # post fails twice with ConnectError, then succeeds with 200
     mock_client_instance = AsyncMock()
@@ -439,8 +439,9 @@ async def test_unload_model_retries_on_network_error_then_succeeds():
         with patch("app.services.lm_studio_client.asyncio.sleep", AsyncMock()):
             assert await client.unload_model("test_model") is True
 
-    # 3 attempts on the REST unload (2 fail + 1 succeed) and 1 for the
-    # list_models() verification loop → 4 total httpx client opens.
+    # 1 list_models() bail-early check + 3 attempts on the REST unload
+    # (2 fail + 1 succeed) = 4 total httpx client opens.
+    assert mock_client_instance.get.await_count == 1
     assert mock_client_instance.post.await_count == 3
     assert mock_ctx.__aenter__.await_count == 4
 
