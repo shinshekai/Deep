@@ -112,6 +112,19 @@ CREATE TABLE IF NOT EXISTS project_profiles (
     last_queried REAL
 );
 
+CREATE TABLE IF NOT EXISTS staged_observations (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    confidence REAL DEFAULT 0.5,
+    metadata TEXT,
+    created_at REAL NOT NULL,
+    crystallized INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_staged_device ON staged_observations(device_id, crystallized);
+
 CREATE TABLE IF NOT EXISTS dead_ends (
     id TEXT PRIMARY KEY,
     device_id TEXT NOT NULL,
@@ -377,9 +390,7 @@ class MemoryService:
         db = self._db
         for table in ("episodes", "facts", "agent_outcomes"):
             try:
-                row = await db.execute_fetchall(
-                    "PRAGMA table_info(" + table + ")"
-                )
+                row = await db.execute_fetchall("PRAGMA table_info(" + table + ")")
                 cols = [r[1] for r in row] if row else []
                 if "provenance" not in cols:
                     default = "ai-executed" if table == "agent_outcomes" else "user"
@@ -657,6 +668,91 @@ class MemoryService:
                 )
             return results
 
+    # ── Progressive Crystallization ─────────────────────────────────────────
+
+    async def stage_observation(
+        self,
+        device_id: str,
+        content: str,
+        source_type: str = "observation",
+        source_id: str = "",
+        confidence: float = 0.5,
+        metadata: dict | None = None,
+    ) -> str:
+        with trace_span("memory.stage_observation", {"device_id": device_id}):
+            db = await self._get_db()
+            obs_id = uuid.uuid4().hex[:12]
+            now = time.time()
+            await db.execute(
+                """INSERT INTO staged_observations
+                   (id, device_id, content, source_type, source_id,
+                    confidence, metadata, created_at, crystallized)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                (
+                    obs_id,
+                    device_id,
+                    content,
+                    source_type,
+                    source_id,
+                    confidence,
+                    json.dumps(metadata or {}),
+                    now,
+                ),
+            )
+            await db.commit()
+            return obs_id
+
+    async def crystallize_observations(self, device_id: str) -> int:
+        with trace_span("memory.crystallize_observations", {"device_id": device_id}):
+            db = await self._get_db()
+            rows = await db.execute_fetchall(
+                """SELECT id, content, source_type, source_id, confidence
+                   FROM staged_observations
+                   WHERE device_id = ? AND crystallized = 0""",
+                (device_id,),
+            )
+            if not rows:
+                return 0
+            count = 0
+            for obs_id, content, source_type, source_id, confidence in rows:
+                await self.store_fact(
+                    device_id=device_id,
+                    content=content,
+                    source_type=source_type,
+                    source_id=source_id,
+                    confidence=confidence,
+                    provenance="ai-executed",
+                )
+                await db.execute(
+                    "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
+                    (obs_id,),
+                )
+                count += 1
+            await db.commit()
+            return count
+
+    async def get_staged_observations(self, device_id: str) -> list[dict]:
+        db = await self._get_db()
+        rows = await db.execute_fetchall(
+            """SELECT id, content, source_type, source_id, confidence, metadata, created_at
+               FROM staged_observations
+               WHERE device_id = ? AND crystallized = 0
+               ORDER BY created_at DESC""",
+            (device_id,),
+        )
+        return [
+            {
+                "id": r[0],
+                "content": r[1],
+                "source_type": r[2],
+                "source_id": r[3],
+                "confidence": r[4],
+                "metadata": json.loads(r[5]) if r[5] else {},
+                "created_at": r[6],
+            }
+            for r in rows
+        ]
+
     # ── Facts ─────────────────────────────────────────────────────────────────
 
     async def store_fact(
@@ -677,7 +773,18 @@ class MemoryService:
                    (id, device_id, content, source_type, source_id,
                     confidence, created_at, last_accessed, access_count, provenance)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (fact_id, device_id, content, source_type, source_id, confidence, now, now, 0, provenance),
+                (
+                    fact_id,
+                    device_id,
+                    content,
+                    source_type,
+                    source_id,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    provenance,
+                ),
             )
             await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
             await db.commit()
@@ -814,7 +921,7 @@ class MemoryService:
                 (device_id,),
             )
             if len(rows) < 2:
-                return {"resolved": 0, "groups": 0, "merged_episodes": []}
+                return {"resolved": 0, "groups": 0, "candidates": []}
 
             negations = ["not", "no", "never", "isn't", "aren't", "wasn't", "won't", "can't"]
             groups: list[list[dict]] = []
@@ -858,45 +965,61 @@ class MemoryService:
                     seen.add(rows[i][0])
                     groups.append(group)
 
-            resolved = 0
-            merged_episodes = []
+            candidates = []
             for group in groups[:batch_size]:
-                for item in group:
-                    await db.execute("UPDATE facts SET archived = 1 WHERE id = ?", (item["id"],))
-                    resolved += 1
-                merged_content = "Resolved contradiction: " + "; ".join(
-                    item["content"] for item in group
+                candidates.append(
+                    {
+                        "facts": group,
+                        "suggested_resolution": "; ".join(item["content"] for item in group),
+                    }
                 )
-                ep_id = uuid.uuid4().hex[:12]
-                now = time.time()
-                await db.execute(
-                    """INSERT INTO episodes
-                       (id, device_id, session_type, query, answer, agents,
-                        model_used, tier, citations, outcome_rating, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        ep_id,
-                        device_id,
-                        "maintenance",
-                        "contradiction resolution",
-                        merged_content,
-                        json.dumps([]),
-                        "",
-                        0,
-                        json.dumps([]),
-                        0.0,
-                        now,
-                    ),
-                )
-                combined = f"contradiction resolution\n\n{merged_content}"
-                await self._store_chunks("episode_chunks", ep_id, device_id, combined, now)
-                merged_episodes.append(ep_id)
-            await db.commit()
             return {
-                "resolved": resolved,
-                "groups": len(groups),
-                "merged_episodes": merged_episodes,
+                "resolved": 0,
+                "groups": len(candidates),
+                "candidates": candidates,
             }
+
+    async def resolve_contradiction(
+        self, device_id: str, fact_ids: list[str], keep: str, merge: bool = True
+    ) -> dict:
+        with trace_span("memory.resolve_contradiction", {"device_id": device_id}):
+            db = await self._get_db()
+            if not fact_ids:
+                return {"resolved": 0}
+            async with self._transaction():
+                if merge:
+                    merged_content = keep
+                    ep_id = uuid.uuid4().hex[:12]
+                    now = time.time()
+                    await db.execute(
+                        """INSERT INTO episodes
+                           (id, device_id, session_type, query, answer, agents,
+                            model_used, tier, citations, outcome_rating, created_at, provenance)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            ep_id,
+                            device_id,
+                            "maintenance",
+                            "contradiction resolution",
+                            merged_content,
+                            json.dumps([]),
+                            "",
+                            0,
+                            json.dumps([]),
+                            0.0,
+                            now,
+                            "user",
+                        ),
+                    )
+                    combined = f"contradiction resolution\n\n{merged_content}"
+                    await self._store_chunks("episode_chunks", ep_id, device_id, combined, now)
+                placeholders = ",".join("?" * len(fact_ids))
+                await db.execute(
+                    f"UPDATE facts SET archived = 1 WHERE id IN ({placeholders})",
+                    fact_ids,
+                )
+                await db.commit()
+            return {"resolved": len(fact_ids)}
 
     # ── User Profile ──────────────────────────────────────────────────────────
 
@@ -1128,13 +1251,24 @@ class MemoryService:
 
                 return count
 
+    async def update_episode_rating(self, episode_id: str, rating: float) -> bool:
+        with trace_span("memory.update_episode_rating", {"episode_id": episode_id}):
+            db = await self._get_db()
+            clamped = max(0.0, min(1.0, float(rating)))
+            await db.execute(
+                "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
+                (clamped, episode_id),
+            )
+            await db.commit()
+            return True
+
     async def compact_episodes(self, older_than_days: int = 90) -> int:
         with trace_span("memory.compact_episodes", {"older_than_days": older_than_days}):
             async with self._write_lock:
                 db = await self._get_db()
                 cutoff = time.time() - older_than_days * 86400
                 rows = await db.execute_fetchall(
-                    """SELECT id, device_id, session_type, query, answer, citations
+                    """SELECT id, device_id, session_type, query, answer, citations, outcome_rating
                        FROM episodes
                        WHERE archived = 0 AND created_at < ?""",
                     (cutoff,),
@@ -1150,17 +1284,26 @@ class MemoryService:
                         f"UPDATE episodes SET archived = 1 WHERE id IN ({placeholders})",
                         episode_ids,
                     )
-                    for ep_id, device_id, session_type, query, answer, citations_json in rows:
+                    for (
+                        ep_id,
+                        device_id,
+                        session_type,
+                        query,
+                        answer,
+                        citations_json,
+                        rating,
+                    ) in rows:
                         answer_snippet = (answer or "")[:300]
                         citations = json.loads(citations_json) if citations_json else []
                         citation_summary = f" [{len(citations)} sources]" if citations else ""
-                        summary = f"Session ({session_type}): Q: {query[:200]} A: {answer_snippet}{citation_summary}"
+                        rating_str = f" (rating={rating:.1f})" if rating else ""
+                        summary = f"Session ({session_type}){rating_str}: Q: {query[:200]} A: {answer_snippet}{citation_summary}"
                         fact_id = uuid.uuid4().hex[:12]
                         await db.execute(
                             """INSERT INTO facts
                                (id, device_id, content, source_type, source_id,
-                                confidence, created_at, last_accessed, access_count)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                confidence, created_at, last_accessed, access_count, provenance)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                ON CONFLICT(source_type, source_id)
                                WHERE source_type = 'session_summary' AND source_id IS NOT NULL
                                DO NOTHING""",
@@ -1174,6 +1317,7 @@ class MemoryService:
                                 now,
                                 now,
                                 0,
+                                "ai-executed",
                             ),
                         )
                     await db.commit()
@@ -1257,10 +1401,20 @@ class MemoryService:
                     provenance, tags, confidence, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    dead_end_id, device_id, title, hypothesis, approach,
-                    failure_mode, failure_evidence, lesson,
-                    parent_node_id, parent_node_type,
-                    provenance, json.dumps(tags or []), 0.5, now,
+                    dead_end_id,
+                    device_id,
+                    title,
+                    hypothesis,
+                    approach,
+                    failure_mode,
+                    failure_evidence,
+                    lesson,
+                    parent_node_id,
+                    parent_node_type,
+                    provenance,
+                    json.dumps(tags or []),
+                    0.5,
+                    now,
                 ),
             )
             searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
@@ -1302,13 +1456,20 @@ class MemoryService:
                 )
             return [
                 {
-                    "id": r[0], "device_id": r[1], "title": r[2],
-                    "hypothesis": r[3], "approach": r[4],
-                    "failure_mode": r[5], "failure_evidence": r[6] or "",
-                    "lesson": r[7], "parent_node_id": r[8] or "",
+                    "id": r[0],
+                    "device_id": r[1],
+                    "title": r[2],
+                    "hypothesis": r[3],
+                    "approach": r[4],
+                    "failure_mode": r[5],
+                    "failure_evidence": r[6] or "",
+                    "lesson": r[7],
+                    "parent_node_id": r[8] or "",
                     "parent_node_type": r[9] or "",
-                    "provenance": r[10], "tags": json.loads(r[11]) if r[11] else [],
-                    "confidence": r[12] or 0.5, "created_at": r[13],
+                    "provenance": r[10],
+                    "tags": json.loads(r[11]) if r[11] else [],
+                    "confidence": r[12] or 0.5,
+                    "created_at": r[13],
                 }
                 for r in rows
             ]
@@ -1334,8 +1495,11 @@ class MemoryService:
                 return []
             return [
                 {
-                    "id": r[0], "title": r[1], "approach": r[2],
-                    "failure_mode": r[3], "lesson": r[4],
+                    "id": r[0],
+                    "title": r[1],
+                    "approach": r[2],
+                    "failure_mode": r[3],
+                    "lesson": r[4],
                     "confidence": r[5] or 0.5,
                 }
                 for r in rows
@@ -1352,8 +1516,13 @@ class MemoryService:
                 (device_id, slot),
             )
             if not row:
-                return {"slot": slot, "content": {}, "entry_count": 0,
-                        "last_consolidated_at": None, "updated_at": None}
+                return {
+                    "slot": slot,
+                    "content": {},
+                    "entry_count": 0,
+                    "last_consolidated_at": None,
+                    "updated_at": None,
+                }
             return {
                 "slot": slot,
                 "content": json.loads(row[0][0]) if row[0][0] else {},
@@ -1443,8 +1612,7 @@ class MemoryService:
             (entity_type, entity_id),
         )
         return [
-            {"provenance": r[0], "was": r[1], "reasoning": r[2] or "", "at": r[3]}
-            for r in rows
+            {"provenance": r[0], "was": r[1], "reasoning": r[2] or "", "at": r[3]} for r in rows
         ]
 
     async def get_stats(self, device_id: str | None = None) -> dict:

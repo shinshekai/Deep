@@ -18,7 +18,7 @@ class RetrieveRequest(BaseModel):
     query: str
     kb_name: str
     doc_id: str | None = None
-    retrieval_pipeline: str = "tree"
+    retrieval_pipeline: str | None = None
     top_k: int = 5
     min_score: float = 0.3
 

@@ -119,7 +119,11 @@ class RAGEvaluator:
 
     @property
     def is_available(self) -> bool:
-        return self.llm_client is not None and bool(self.model_id)
+        if self.llm_client is None or not self.model_id:
+            return False
+        if hasattr(self.llm_client, "is_connected") and not self.llm_client.is_connected:
+            return False
+        return True
 
     async def compute_faithfulness(self, question: str, answer: str, contexts: list[str]) -> float:
         if self.llm_client and self.model_id:
@@ -149,15 +153,9 @@ class RAGEvaluator:
         except Exception:
             logger.debug("Prompt registry unavailable, using fallback prompt")
             prompt = (
-                "You are a strict RAG quality evaluator. Score the following response on 5 criteria. "
-                "Return ONLY a JSON object with these keys and float values 0.0-1.0.\n\n"
-                "Criteria:\n"
-                "- faithfulness: Are all claims in the answer supported by the provided context?\n"
-                "- relevance: Does the answer directly address the question asked?\n"
-                "- coherence: Is the answer well-structured, logical, and easy to follow?\n"
-                "- groundedness: Are specific facts/details from the context cited or referenced?\n"
-                "- hallucination: Does the answer contain information NOT present in the context? "
-                "(1.0 = no hallucination, 0.0 = fully hallucinated)\n\n"
+                f"Score this RAG response on 5 criteria (0.0-1.0): faithfulness, relevance, "
+                f"coherence, groundedness, hallucination (1.0=no hallucination). "
+                f"Return ONLY a JSON object.\n\n"
                 f"Question: {question[:2000]}\n"
                 f"Context: {context_text[:4000]}\n"
                 f"Answer: {answer[:4000]}"

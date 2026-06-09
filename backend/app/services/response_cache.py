@@ -25,13 +25,18 @@ class ResponseCache:
         ttl: int = _DEFAULT_TTL,
         max_entries: int = _MAX_ENTRIES,
     ):
-        self._cache_dir = Path(cache_dir) if cache_dir else _CACHE_DIR
+        self._cache_dir = Path(cache_dir).resolve() if cache_dir else _CACHE_DIR
         self._ttl = ttl
         self._max_entries = max_entries
         self._disk_cache = None
+        self._init_lock = threading.Lock()
 
     def _get_cache(self):
-        if self._disk_cache is None:
+        if self._disk_cache is not None:
+            return self._disk_cache if self._disk_cache is not False else None
+        with self._init_lock:
+            if self._disk_cache is not None:
+                return self._disk_cache if self._disk_cache is not False else None
             try:
                 import diskcache
 
@@ -44,7 +49,7 @@ class ResponseCache:
             except Exception as e:
                 logger.warning("diskcache unavailable, response caching disabled: %s", e)
                 self._disk_cache = False
-        return self._disk_cache
+        return self._disk_cache if self._disk_cache is not False else None
 
     @staticmethod
     def _make_key(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
@@ -80,23 +80,11 @@ export default function PlatformLayout({
     T3: { model_id: string } | null;
   }>({ T1: null, T2: null, T3: null });
 
-  const vram = useMemo(() => wsVram
-    ? {
-        total_mb: wsVram.vram_total_mb,
-        used_mb: wsVram.vram_used_mb,
-        free_mb: wsVram.vram_total_mb - wsVram.vram_used_mb,
-        utilization_pct: wsVram.vram_used_pct,
-        pressure_level: wsVram.pressure_level,
-        gpu_available: wsVram.vram_total_mb > 0,
-      }
-    : {
-        total_mb: 24576,
-        used_mb: 8192,
-        free_mb: 16384,
-        utilization_pct: 33.3,
-        pressure_level: "green",
-        gpu_available: true,
-      }, [wsVram]);
+  const vramTotalMb = wsVram?.vram_total_mb ?? 24576;
+  const vramUsedMb = wsVram?.vram_used_mb ?? 8192;
+  const vramUtilPct = wsVram?.vram_used_pct ?? 33.3;
+  const pressureLevel = wsVram?.pressure_level ?? "green";
+  const gpuAvailable = vramTotalMb > 0;
 
   async function loadSelections() {
     try {
@@ -143,11 +131,11 @@ export default function PlatformLayout({
   const isConnected = solveStatus === "open" || metricsStatus === "open";
 
   const pressureBulbColor =
-    vram.pressure_level === "green"
+    pressureLevel === "green"
       ? "bg-emerald-500 shadow-emerald-500/50"
-      : vram.pressure_level === "yellow"
+      : pressureLevel === "yellow"
         ? "bg-yellow-500 shadow-yellow-500/50"
-        : vram.pressure_level === "orange"
+        : pressureLevel === "orange"
           ? "bg-orange-500 shadow-orange-500/50"
           : "bg-red-500 shadow-red-500/50";
 
@@ -224,7 +212,7 @@ export default function PlatformLayout({
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${pressureBulbColor}`} />
               <span className={`relative inline-flex rounded-full h-2 w-2 ${pressureBulbColor}`} />
             </span>
-            <span className="font-semibold text-zinc-200 hidden sm:inline">{Math.round(vram.utilization_pct)}%</span>
+            <span className="font-semibold text-zinc-200 hidden sm:inline">{Math.round(vramUtilPct)}%</span>
           </div>
 
           {/* Right Observability Toggle button */}
@@ -423,11 +411,11 @@ export default function PlatformLayout({
                 <div className="grid grid-cols-2 gap-3 font-mono">
                   <div className="bg-zinc-950/50 border border-zinc-900 rounded p-2.5">
                     <div className="text-[9px] uppercase font-semibold text-zinc-500">Total VRAM</div>
-                    <div className="text-xs font-bold text-zinc-200 mt-1">{(vram.total_mb / 1024).toFixed(1)} GB</div>
+                    <div className="text-xs font-bold text-zinc-200 mt-1">{(vramTotalMb / 1024).toFixed(1)} GB</div>
                   </div>
                   <div className="bg-zinc-950/50 border border-zinc-900 rounded p-2.5">
                     <div className="text-[9px] uppercase font-semibold text-zinc-500">Used VRAM</div>
-                    <div className="text-xs font-bold text-zinc-200 mt-1">{(vram.used_mb / 1024).toFixed(1)} GB</div>
+                    <div className="text-xs font-bold text-zinc-200 mt-1">{(vramUsedMb / 1024).toFixed(1)} GB</div>
                   </div>
                 </div>
 
@@ -435,20 +423,20 @@ export default function PlatformLayout({
                 <div className="space-y-1">
                   <div className="flex justify-between text-[9px] text-zinc-400 font-mono">
                     <span>PRESSURE CAPACITY</span>
-                    <span className="font-bold text-zinc-300">{Math.round(vram.utilization_pct)}%</span>
+                    <span className="font-bold text-zinc-300">{Math.round(vramUtilPct)}%</span>
                   </div>
                   <div className="relative h-2 w-full rounded-full bg-zinc-900 overflow-hidden">
                     <div 
                       className={`absolute h-full rounded-full transition-all duration-500 ${
-                        vram.pressure_level === "red" 
+                          pressureLevel === "red" 
                           ? "bg-red-500" 
-                          : vram.pressure_level === "orange" 
+                          : pressureLevel === "orange" 
                             ? "bg-orange-500" 
-                            : vram.pressure_level === "yellow" 
+                            : pressureLevel === "yellow" 
                               ? "bg-yellow-500" 
                               : "bg-indigo-500"
                       }`}
-                      style={{ width: `${vram.utilization_pct}%` }}
+                      style={{ width: `${vramUtilPct}%` }} 
                     />
                   </div>
                 </div>

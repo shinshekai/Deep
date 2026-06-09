@@ -475,18 +475,22 @@ class BenchmarkRunner:
             )
 
     async def _evaluate_retrieval_precision(self, run: BenchmarkRun, case: dict):
-        """Evaluate retrieval precision by checking keyword overlap between query and expected contexts."""
-        query = case["query"]
+        """Evaluate retrieval precision: fraction of retrieved results that are relevant."""
         expected = case.get("expected_contexts", [])
+        retrieved = case.get("retrieved_contexts", [])
 
-        if not expected:
+        if not expected or not retrieved:
             precision = 0.0
         else:
-            query_tokens = set(query.lower().split())
-            all_context_text = " ".join(expected).lower()
-            context_tokens = set(all_context_text.split())
-            overlap = query_tokens & context_tokens
-            precision = len(overlap) / len(query_tokens) if query_tokens else 0.0
+            expected_tokens = set()
+            for ctx in expected:
+                expected_tokens |= set(ctx.lower().split())
+            hits = 0
+            for ctx in retrieved:
+                ctx_tokens = set(ctx.lower().split())
+                if expected_tokens & ctx_tokens:
+                    hits += 1
+            precision = hits / len(retrieved) if retrieved else 0.0
 
         self._add_result(
             run,
@@ -495,7 +499,7 @@ class BenchmarkRunner:
                 category="quality",
                 test_case=case["id"],
                 metric="retrieval_precision_at_5",
-                value=precision,
+                value=round(precision, 3),
                 threshold=QUALITY_THRESHOLDS["retrieval_precision_at_5"],
                 passed=precision >= QUALITY_THRESHOLDS["retrieval_precision_at_5"],
             ),

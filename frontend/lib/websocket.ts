@@ -75,9 +75,13 @@ export class WebSocketManager {
         const ws = new WebSocket(url);
         setWs(ws);
 
-        ws.onopen = () => {
+        ws.onopen = async () => {
           setStatus("open");
           this.reconnectAttempts = 0;
+          const token = await getWsAuthToken();
+          if (token) {
+            ws.send(JSON.stringify({ type: "auth", token }));
+          }
           this._notify(subscribers, "_connection", { connection: name, status: "open" });
           resolve();
         };
@@ -192,8 +196,7 @@ export class WebSocketManager {
 }
 
 async function buildWsUrl(path: string): Promise<string> {
-  const token = await getWsAuthToken();
-  return token ? `${WS_BASE_URL}${path}?token=${token}` : `${WS_BASE_URL}${path}`;
+  return `${WS_BASE_URL}${path}`;
 }
 
 // ─────────────────────────────────────────────

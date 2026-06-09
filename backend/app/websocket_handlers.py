@@ -100,7 +100,9 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
                     l3_context = await state.memory_service.read_l3_concat(device_id)
-                    memory_context = build_memory_context(profile, recall, facts, l3_context=l3_context)
+                    memory_context = build_memory_context(
+                        profile, recall, facts, l3_context=l3_context
+                    )
                 except Exception as e:
                     logger.warning(f"Memory recall failed: {e}")
 
@@ -145,7 +147,9 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
                     facts = await state.memory_service.recall_facts(device_id, query)
                     profile = await state.memory_service.get_profile(device_id)
                     l3_context = await state.memory_service.read_l3_concat(device_id)
-                    memory_context = build_memory_context(profile, recall, facts, l3_context=l3_context)
+                    memory_context = build_memory_context(
+                        profile, recall, facts, l3_context=l3_context
+                    )
                 except Exception as e:
                     logger.warning(f"Memory recall failed: {e}")
 
@@ -204,26 +208,30 @@ async def ws_solve(ws: WebSocket):
     from app.services.security import safe_compare
 
     settings = get_settings()
-    token = ws.query_params.get("token")
-    if settings.ws_auth_token and not safe_compare(token, settings.ws_auth_token):
-        client = ws.client.host if ws.client else "unknown"
-        logger.warning("ws_auth_failure: endpoint=/api/v1/solve remote=%s", client)
-        from app.services.audit import audit
-
-        audit("auth.ws_failure", endpoint="/api/v1/solve", remote=client)
-        await ws.close(code=1008, reason="Unauthorized")
-        return
-
     await ws.accept()
     device_id = str(uuid.uuid4())
     in_flight: asyncio.Task | None = None
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
 
     ACTIVE_WS_CONNECTIONS.inc()
+    authenticated = not settings.ws_auth_token
     try:
         while True:
             try:
                 data = await ws.receive_json()
+                if not authenticated:
+                    if data.get("type") == "auth" and safe_compare(
+                        data.get("token", ""), settings.ws_auth_token
+                    ):
+                        authenticated = True
+                        continue
+                    client = ws.client.host if ws.client else "unknown"
+                    logger.warning("ws_auth_failure: endpoint=/api/v1/solve remote=%s", client)
+                    from app.services.audit import audit
+
+                    audit("auth.ws_failure", endpoint="/api/v1/solve", remote=client)
+                    await ws.close(code=1008, reason="Unauthorized")
+                    return
                 data["device_id"] = device_id
 
                 if in_flight is not None and not in_flight.done():
@@ -271,31 +279,37 @@ async def ws_metrics(ws: WebSocket):
     from app.services.security import safe_compare
 
     settings = get_settings()
-    token = ws.query_params.get("token")
-    if settings.ws_auth_token and not safe_compare(token, settings.ws_auth_token):
-        client = ws.client.host if ws.client else "unknown"
-        logger.warning("ws_auth_failure: endpoint=/ws/metrics remote=%s", client)
-        from app.services.audit import audit
-
-        audit("auth.ws_failure", endpoint="/ws/metrics", remote=client)
-        await ws.close(code=1008, reason="Unauthorized")
-        return
-
     await ws.accept()
-    # Send initial metrics frame immediately so client doesn't wait
-    try:
-        await ws.send_json(dict(state._latest_metrics))
-    except Exception as e:
-        logger.warning(f"Failed to send initial metrics frame: {e}")
-        await ws.close()
-        return
-    state.add_ws(ws)
+    authenticated = not settings.ws_auth_token
     from app.services.metrics import ACTIVE_WS_CONNECTIONS
 
     ACTIVE_WS_CONNECTIONS.inc()
     try:
         while True:
-            await asyncio.sleep(10)
+            try:
+                data = await ws.receive_json()
+                if not authenticated:
+                    if data.get("type") == "auth" and safe_compare(
+                        data.get("token", ""), settings.ws_auth_token
+                    ):
+                        authenticated = True
+                        state.add_ws(ws)
+                        try:
+                            await ws.send_json(dict(state._latest_metrics))
+                        except Exception:
+                            pass
+                        continue
+                    client = ws.client.host if ws.client else "unknown"
+                    logger.warning("ws_auth_failure: endpoint=/ws/metrics remote=%s", client)
+                    from app.services.audit import audit
+
+                    audit("auth.ws_failure", endpoint="/ws/metrics", remote=client)
+                    await ws.close(code=1008, reason="Unauthorized")
+                    return
+            except WebSocketDisconnect:
+                raise
+            except Exception:
+                pass
     except WebSocketDisconnect:
         pass
     except Exception:
