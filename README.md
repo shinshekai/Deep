@@ -46,26 +46,45 @@ The result is a platform where a student can upload lecture notes and get guided
 
 ## Architecture
 
+> Full architecture details: [ARCHITECTURE.md](ARCHITECTURE.md)
+
 ### System Overview
 
 ```mermaid
 graph TB
-    subgraph Frontend["Frontend — Next.js 16 :3782"]
+    subgraph Frontend["Frontend — Next.js 16.2 :3782"]
         UI[React 19 + TypeScript]
         WS[WebSocket Provider]
         MP[Memory Provider]
     end
 
-    subgraph Backend["Backend — FastAPI :8001"]
-        R1[Knowledge Router]
-        R2[System Router]
-        R3[Agent Router]
-        R4[Retrieval Router]
-        R5[Query Router]
-        R6[Memory Router]
-        R7[Validation Router]
-        MW[Middleware Stack]
-        SVC[40+ Services]
+    subgraph Backend["Backend — FastAPI 0.136 :8001"]
+        subgraph Middleware["Middleware (6 layers)"]
+            MW1[Rate Limit — 100/min]
+            MW2[CORS — localhost pinning]
+            MW3[Metrics — Prometheus]
+            MW4[Correlation — X-Request-ID]
+            MW5[Headers — CSP/HSTS/COOP]
+            MW6[Auth — 3 methods]
+        end
+        subgraph Routers["7 Routers"]
+            R1[Knowledge]
+            R2[System]
+            R3[Agent]
+            R4[Retrieval]
+            R5[Query]
+            R6[Memory]
+            R7[Validation]
+        end
+        subgraph Services["38+ Services"]
+            SVC1[Inference — LM Studio, Model Manager, VRAM]
+            SVC2[Retrieval — Tree, Vector, Hybrid, KG]
+            SVC3[Agents — Solver, Research, Learning]
+            SVC4[Memory — SQLite+FTS5, Facts, Crystallization]
+            SVC5[Security — SSRF, Secrets, Audit]
+        end
+        WS1["/api/v1/solve (WS)"]
+        WS2["/ws/metrics (WS)"]
     end
 
     subgraph Inference["Inference — LM Studio :1234"]
@@ -76,81 +95,80 @@ graph TB
     end
 
     subgraph Storage["Storage — Local"]
-        DB[(SQLite + FTS5<br/>Memory)]
+        DB[(SQLite + FTS5<br/>14 tables)]
         FS[File System<br/>Knowledge Bases]
-        IDX[PageIndex Trees]
+        KG[Knowledge Graph<br/>Entities + Relations]
+        IDX[PageIndex Trees<br/>3-pass indexing]
     end
 
     UI --> WS
     UI --> MP
     WS --> Backend
     MP --> Backend
-    MW --> SVC
-    R1 & R2 & R3 & R4 & R5 & R6 & R7 --> MW
-    SVC --> Inference
-    SVC --> DB
-    SVC --> FS
-    SVC --> IDX
+    MW1 --> MW2 --> MW3 --> MW4 --> MW5 --> MW6
+    MW6 --> R1 & R2 & R3 & R4 & R5 & R6 & R7
+    R1 & R2 & R3 & R4 & R5 & R6 & R7 --> SVC1 & SVC2 & SVC3 & SVC4 & SVC5
+    SVC1 --> Inference
+    SVC2 --> Storage
+    SVC4 --> DB
     T1 & T2 & T3 --> TQ
 ```
 
-### Data Flow
+### Request Flow
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant FE as Frontend
+    participant MW as Middleware
     participant BE as Backend
     participant MEM as Memory
     participant RET as Retrieval
     participant LLM as LM Studio
 
     U->>FE: Submit query
-    FE->>BE: POST /api/v1/query
-    BE->>MEM: Recall relevant memories
-    MEM-->>BE: Episodes + Facts (<50ms)
+    FE->>BE: WebSocket /api/v1/solve
+    BE->>MW: Rate → CORS → Metrics → Correlation → Headers → Auth
+    MW->>BE: Validated request
+    BE->>MEM: Recall episodes + facts + L3
+    MEM-->>BE: Context (<2000 tokens)
+    BE->>BE: Complexity scoring (4 signals)
     BE->>RET: Route to retrieval pipeline
     RET->>RET: Select mode (tree/hybrid/naive/combined/ARA)
     RET->>LLM: Query with context
-    LLM-->>RET: Response
+    LLM-->>RET: Streaming response
     RET-->>BE: Compiled answer
     BE->>MEM: Store episode + extract facts
-    BE-->>FE: Stream response
+    BE-->>FE: Stream frames (agent_step, citation, complete)
     FE-->>U: Display answer
 ```
 
-### Agent Flow
+### Agent Routing
 
 ```mermaid
 graph TD
     A[User Query] --> B{Complexity Scorer}
-    B -->|Simple| C[Smart Solver]
-    B -->|Complex| D[Recursive Solver]
-    B -->|Research| E[Deep Research]
-    B -->|Learning| F[Guided Learning]
+    B -->|Score < 0.3| C[Smart Solver]
+    B -->|Score 0.3–0.7| D[Recursive Solver]
+    B -->|Score > 0.7| E[Deep Research]
+    B -->|Learning intent| F[Guided Learning]
 
     C --> C1[Analysis Loop]
-    C1 --> C2[Investigate Agent]
-    C2 --> C3[Note Agent]
-    C3 --> C4[Solve Loop]
-    C4 --> C5[Plan Agent]
-    C5 --> C6[Solve Agent]
-    C6 --> C7[Check Agent]
-    C7 --> C8[Format Agent]
+    C1 --> C2[Investigate]
+    C2 --> C3[Note]
+    C3 --> C4{Sufficient?}
+    C4 -->|No| C2
+    C4 -->|Yes| C5[Solve Loop]
+    C5 --> C6[Plan → Solve → Check → Format]
 
     D --> D1[Sequential]
     D --> D2[Mixture]
     D --> D3[Deliberation]
     D --> D4[Distillation]
 
-    E --> E1[Decompose Phase]
-    E1 --> E2[Parallel Research]
-    E2 --> E3[Report Compilation]
+    E --> E1[Decompose → Parallel Research → Report]
 
-    F --> F1[Locate Agent]
-    F1 --> F2[Interactive Agent]
-    F2 --> F3[Chat Agent]
-    F3 --> F4[Summary Agent]
+    F --> F1[Locate → Interactive → Chat → Summary]
 ```
 
 ### Memory Flow
@@ -171,237 +189,160 @@ graph LR
     K --> L[Background Maintenance]
     L --> M[Decay 30-day HL]
     L --> N[Compaction 90 days]
+    L --> O[Progressive Crystallization]
 ```
 
-### Component Breakdown
+### Middleware Stack
 
-| Component | Location | Responsibility |
-|-----------|----------|----------------|
-| Knowledge Router | `routers/knowledge.py` | Document upload, KB management, PageIndex trees |
-| System Router | `routers/system.py` | Health checks, config, model management, backups |
-| Agent Router | `routers/agent.py` | Research, questions, guided learning, notebooks, co-writer |
-| Retrieval Router | `routers/retrieval.py` | 5-mode retrieval pipeline execution |
-| Query Router | `routers/query.py` | HTTP query endpoint (non-streaming) |
-| Memory Router | `routers/memory.py` | Recall, episodes, facts, profiles, stats, decay |
-| Validation Router | `routers/validation_routes.py` | Self-validation framework |
-| LM Studio Client | `services/lm_studio_client.py` | OpenAI-compatible API communication |
-| Model Manager | `services/model_manager.py` | 3-tier lifecycle, loading, unloading, TTL |
-| VRAM Monitor | `services/vram_monitor.py` | pynvml pressure detection, 4-level alerts |
-| Solve Orchestrator | `services/solve_orchestrator.py` | Dual-loop smart solver pipeline |
-| Recursive Solver | `services/recursive_solver.py` | 4-pattern multi-agent collaboration |
-| Deep Research | `services/deep_research.py` | 3-phase research pipeline |
-| Guided Learning | `services/guided_learning.py` | 4-agent adaptive tutoring |
-| Question Generator | `services/question_generator.py` | 2-agent question generation + validation |
-| Content Creation | `services/content_creation.py` | Notebook, CoWriter, IdeaGen |
-| Memory Service | `services/memory_service.py` | SQLite + FTS5, recall scoring, maintenance |
-| Fact Extractor | `services/fact_extractor.py` | LLM-based fact extraction + contradiction detection |
-| Tree Search | `services/tree_search.py` | PageIndex tree traversal and reasoning |
-| Vector KB | `services/vector_kb.py` | Vector similarity search |
-| Hybrid RAG | `services/hybrid_rag.py` | RRF merge of vector + keyword retrieval |
-| Query Router | `services/query_router.py` | Auto-selects retrieval mode based on complexity |
-| Complexity Scorer | `services/complexity_scorer.py` | Weighted 4-signal scoring (query/doc/chunks/VRAM) |
-| ARA Compiler | `services/ara_compiler.py` | 4-layer knowledge structure conversion |
-| Embedding Service | `services/embedding_service.py` | Vector embedding generation |
-| Document Processor | `services/document_processor.py` | PDF, DOCX, TXT, MD parsing |
-| OCR Engine | `services/ocr_engine.py` | pytesseract / easyocr integration |
-| Security | `services/security.py` | SSRF protection, path sanitization, auth |
-| Secrets | `services/secrets.py` | OS keyring integration |
-| Metrics | `services/metrics.py` | Prometheus counter/gauge/histogram |
-| Telemetry | `services/telemetry.py` | OpenTelemetry tracing (optional) |
-| Alerting | `services/alerting.py` | VRAM warn/crit, LLM down, error rate |
-| Auth Middleware | `middleware/auth.py` | Token validation, 3 auth methods |
-| CORS Middleware | `middleware/cors.py` | Localhost origin pinning |
-| Rate Limit | `middleware/rate_limit.py` | SlowAPI, 100/min per IP |
-| Correlation Middleware | `middleware/correlation.py` | Request ID tracking |
-| Headers Middleware | `middleware/headers.py` | CSP, HSTS, X-Frame-Options, COOP |
-| Smart Solver WS | `websocket_handlers.py` | Bidirectional /api/v1/solve endpoint |
-| Metrics WS | `websocket_handlers.py` | Server-push /ws/metrics telemetry |
+| # | Layer | File | Purpose |
+|---|-------|------|---------|
+| 1 | Rate Limiting | `middleware/rate_limit.py` | SlowAPI, 100/min per IP |
+| 2 | CORS | `middleware/cors.py` | Localhost origin pinning |
+| 3 | Metrics | `services/metrics.py` | Prometheus counters/histograms |
+| 4 | Correlation | `middleware/correlation.py` | X-Request-ID + ContextVar |
+| 5 | Security Headers | `middleware/headers.py` | CSP, HSTS, X-Frame, COOP |
+| 6 | Auth | `middleware/auth.py` | Token validation (3 methods) |
+
+### Service Categories
+
+| Category | Services | Key Files |
+|----------|----------|-----------|
+| **Inference** | LM Studio client, Model Manager (3-tier), Model Discovery, VRAM Monitor, Embedding Service, Response Cache, Prompt Registry | `lm_studio_client.py`, `model_manager.py`, `vram_monitor.py` |
+| **Retrieval & RAG** | Retrieval Pipeline, Query Router, Complexity Scorer, Tree Search, Vector KB, Hybrid RAG, PageIndex Generator, Knowledge Graph, RAG Eval | `retrieval_service.py`, `tree_search.py`, `vector_kb.py`, `knowledge_graph.py` |
+| **Agents** | Solve Orchestrator (dual-loop), Recursive Solver (4-pattern), Deep Research, Guided Learning, Question Generator, Content Creation, ARA Compiler | `solve_orchestrator.py`, `recursive_solver.py`, `deep_research.py` |
+| **Memory** | Memory Service (14 tables), Memory Context, Memory Maintenance, Fact Extractor | `memory_service.py`, `memory_context.py`, `fact_extractor.py` |
+| **Document Processing** | Document Processor, Text Extractor, Text Chunker, OCR Engine | `document_processor.py`, `text_chunker.py`, `ocr_engine.py` |
+| **Security** | Security (SSRF), Secrets (keyring), Audit | `security.py`, `secrets.py`, `audit.py` |
+| **Observability** | Metrics (Prometheus), Telemetry (OpenTelemetry), Alerting, Logging | `metrics.py`, `telemetry.py`, `alerting.py` |
+| **Infrastructure** | Service Registry + DI, Backup, Benchmark Runner, Session Cleanup, Task Registry, Task WAL | `base.py`, `backup.py`, `task_wal.py` |
+
+### Memory Tables (14)
+
+| Table | Purpose |
+|-------|---------|
+| `episodes` | Chat/session history with query, answer, agents, rating |
+| `episode_chunks` + `episodes_fts` | FTS5 full-text search on episodes |
+| `facts` | Extracted knowledge with confidence + provenance |
+| `fact_chunks` + `facts_fts` | FTS5 full-text search on facts |
+| `user_profiles` | Per-device JSON profiles with staleness tracking |
+| `agent_outcomes` | Agent performance records |
+| `agent_strategies` | Best-strategy aggregation per agent type |
+| `project_profiles` | Global KB metadata |
+| `staged_observations` | Progressive crystallization buffer |
+| `dead_ends` | Failed research paths + lessons |
+| `user_l3` | L3 cross-surface synthesis (4 slots) |
+| `provenance_log` | Audit trail for provenance upgrades |
 
 ## Repository Structure
 
 ```
 Deep/
 ├── .env.example                        # Environment template (40+ vars)
-├── .gitignore                          # Git ignore rules
 ├── .github/workflows/
-│   └── production-readiness.yml        # CI: lint, typecheck, 107 tests, SAST, SBOM, Docker, Locust
+│   └── production-readiness.yml        # CI/CD: 11 jobs (lint, test, security, Docker, SBOM)
 ├── docker-compose.yml                  # Development
-├── docker-compose.prod.yml             # Production (hardened)
-├── docker-compose.blue-green.yml       # Blue-green (zero-downtime)
+├── docker-compose.prod.yml             # Production (read-only, caps, health checks)
+├── docker-compose.blue-green.yml       # Blue-green (zero-downtime, nginx)
 ├── scripts/
-│   ├── deploy-blue-green.sh            # Zero-downtime deployment
+│   ├── orchestrate.py                  # Blue-green deployment orchestrator
+│   ├── deploy-blue-green.sh            # Deploy wrapper
 │   ├── nginx-blue-green.conf           # Nginx config for blue-green
-│   └── generate_hashed_requirements.py # Hashed requirements for SBOM
+│   └── generate_hashed_requirements.py # Supply-chain: hashed requirements
 ├── backend/                            # FastAPI Python 3.14 backend
-│   ├── Dockerfile
-│   ├── pyproject.toml
-│   ├── requirements.txt                # 67 pinned packages
-│   ├── requirements-dev.txt            # 12 dev/test packages
+│   ├── Dockerfile                      # Python 3.12-slim, non-root, health check
+│   ├── pyproject.toml                  # Project config + tool settings
+│   ├── requirements.txt                # 67 pinned production packages
+│   ├── requirements-dev.txt            # Dev/test packages
 │   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                     # Primary entrypoint
-│   │   ├── config.py                   # Settings (pydantic-settings)
-│   │   ├── state.py                    # Global singletons (module-level)
-│   │   ├── lifespan.py                 # Startup/shutdown context manager
-│   │   ├── dependencies.py             # DI container
-│   │   ├── websocket_handlers.py       # WS endpoints (solve + metrics)
-│   │   ├── middleware/                  # 5 middleware modules
-│   │   │   ├── __init__.py
+│   │   ├── main.py                     # Entry point (FastAPI + lifespan)
+│   │   ├── config.py                   # pydantic-settings (40+ env vars)
+│   │   ├── state.py                    # 11 global singletons
+│   │   ├── lifespan.py                 # Startup/shutdown orchestration
+│   │   ├── dependencies.py             # DI container (singleton/transient)
+│   │   ├── websocket_handlers.py       # /api/v1/solve + /ws/metrics
+│   │   ├── middleware/                  # 6 middleware layers
 │   │   │   ├── auth.py                 # Token validation (3 methods)
 │   │   │   ├── cors.py                 # Localhost origin pinning
 │   │   │   ├── rate_limit.py           # SlowAPI 100/min per IP
-│   │   │   ├── correlation.py          # Request ID tracking
-│   │   │   └── headers.py             # Security headers (CSP, HSTS)
-│   │   ├── routers/                    # 6 API routers
-│   │   │   ├── __init__.py
-│   │   │   ├── knowledge.py            # Document upload + KB management
-│   │   │   ├── system.py               # Health, config, models, backups
-│   │   │   ├── agent.py                # Research, questions, learning
+│   │   │   ├── correlation.py          # X-Request-ID tracking
+│   │   │   └── headers.py             # CSP, HSTS, X-Frame, COOP
+│   │   ├── routers/                    # 7 API routers
+│   │   │   ├── knowledge.py            # Upload, KB CRUD, PageIndex
+│   │   │   ├── system.py               # Health, config, models, VRAM, GDPR
+│   │   │   ├── agent.py                # Research, questions, learning, notebooks
 │   │   │   ├── retrieval.py            # 5-mode retrieval pipeline
-│   │   │   ├── query.py                # HTTP query (non-streaming)
-│   │   │   └── memory.py               # Recall, episodes, facts, profiles
-│   │   ├── services/                   # 34 business logic services
-│   │   │   ├── __init__.py
-│   │   │   ├── lm_studio_client.py     # OpenAI-compatible API client
+│   │   │   ├── query.py                # HTTP Q&A (non-streaming)
+│   │   │   ├── memory.py               # Recall, episodes, facts, profiles
+│   │   │   └── validation_routes.py    # Self-validation framework
+│   │   ├── services/                   # 38+ business logic services
+│   │   │   ├── lm_studio_client.py     # LM Studio API client (httpx)
 │   │   │   ├── model_manager.py        # 3-tier model lifecycle
-│   │   │   ├── vram_monitor.py         # pynvml VRAM pressure detection
+│   │   │   ├── vram_monitor.py         # pynvml GPU pressure (4 levels)
 │   │   │   ├── solve_orchestrator.py   # Dual-loop smart solver
 │   │   │   ├── recursive_solver.py     # 4-pattern multi-agent
 │   │   │   ├── deep_research.py        # 3-phase research pipeline
-│   │   │   ├── guided_learning.py      # 4-agent tutoring
-│   │   │   ├── question_generator.py   # 2-agent question gen
-│   │   │   ├── content_creation.py     # Notebook, CoWriter, IdeaGen
-│   │   │   ├── memory_service.py       # SQLite + FTS5 memory
-│   │   │   ├── memory_context.py       # 2000-token memory budget builder
-│   │   │   ├── memory_maintenance.py   # Hourly decay/compaction loop
-│   │   │   ├── fact_extractor.py       # LLM fact extraction + profiles
-│   │   │   ├── tree_search.py          # PageIndex tree traversal
-│   │   │   ├── vector_kb.py            # Vector similarity search
+│   │   │   ├── guided_learning.py      # 4-agent adaptive tutoring
+│   │   │   ├── memory_service.py       # SQLite+FTS5 (14 tables)
+│   │   │   ├── knowledge_graph.py      # Entity-relation KG
+│   │   │   ├── tree_search.py          # PageIndex tree reasoning
+│   │   │   ├── vector_kb.py            # Local numpy vector store
 │   │   │   ├── hybrid_rag.py           # RRF vector + keyword merge
-│   │   │   ├── query_router.py         # Auto-select retrieval mode
-│   │   │   ├── complexity_scorer.py    # 4-signal complexity scoring
-│   │   │   ├── pageindex_generator.py  # Tree generation
-│   │   │   ├── embedding_service.py    # Vector embeddings
-│   │   │   ├── document_processor.py   # PDF, DOCX, TXT, MD
-│   │   │   ├── text_extractor.py       # Text extraction pipeline
-│   │   │   ├── text_chunker.py         # Text chunking for indexing
-│   │   │   ├── ocr_engine.py           # pytesseract / easyocr
-│   │   │   ├── ara_compiler.py         # 4-layer ARA conversion
+│   │   │   ├── document_processor.py   # PDF/DOCX/TXT/MD extraction
 │   │   │   ├── security.py             # SSRF, path sanitize, auth
 │   │   │   ├── secrets.py              # OS keyring integration
-│   │   │   ├── metrics.py              # Prometheus metrics
-│   │   │   ├── telemetry.py            # OpenTelemetry tracing
-│   │   │   ├── alerting.py             # VRAM + error rate alerts
-│   │   │   ├── audit.py                # Audit logging
-│   │   │   ├── backup.py               # KB backup service
-│   │   │   ├── base.py                 # ServiceRegistry + DI
-│   │   │   ├── benchmark_runner.py     # Benchmark execution
-│   │   │   ├── logging_config.py       # Structured logging setup
-│   │   │   ├── model_discovery.py      # Auto-discover models
-│   │   │   ├── rag_eval.py             # RAG evaluation
-│   │   │   ├── session_cleanup.py      # Stale session cleanup
-│   │   │   ├── evaluation_dataset.json # Evaluation test data
-│   │   │   └── __init__.py
-│   │   └── validation/                 # Self-validation framework
-│   │       ├── __init__.py
-│   │       ├── __main__.py
-│   │       ├── baselines.py
-│   │       ├── config_validator.py
-│   │       ├── coverage_tracker.py
-│   │       ├── health_checker.py
-│   │       ├── remediation_tracker.py
-│   │       ├── runner.py
-│   │       └── validation_routes.py
-│   ├── reports/
-│   │   └── ragas_evaluation.json       # RAG evaluation results
-│   ├── scripts/
-│   │   └── migrate_to_memory.py        # Legacy data migration
-│   ├── tests/                          # 50+ test files
-│   │   ├── conftest.py
-│   │   ├── test_memory_service.py
-│   │   ├── test_memory_router.py
-│   │   ├── test_memory_integration.py
-│   │   ├── test_memory_learning.py
-│   │   ├── test_memory_security.py
-│   │   ├── test_memory_performance.py
-│   │   └── ... (44 more test files)
-│   └── turboquant_plus/                # Git submodule: TurboQuant KV cache
+│   │   │   ├── metrics.py              # Prometheus + MetricsMiddleware
+│   │   │   ├── task_wal.py             # Write-ahead log (crash recovery)
+│   │   │   └── ... (23 more services)
+│   │   ├── validation/                 # Self-validation framework
+│   │   │   ├── baselines.py            # Thresholds + data classes
+│   │   │   ├── config_validator.py     # Static config analysis
+│   │   │   ├── coverage_tracker.py     # pytest coverage measurement
+│   │   │   ├── health_checker.py       # LM Studio + Phase 10 checks
+│   │   │   ├── remediation_tracker.py  # Sprint progress tracking
+│   │   │   ├── runner.py               # CLI orchestrator
+│   │   │   └── validation_routes.py    # REST API endpoints
+│   │   └── prompts/                    # YAML prompt templates
+│   ├── tests/                          # 62 test files, 556 tests
+│   │   ├── conftest.py                 # Shared fixtures (real services, no mocks)
+│   │   ├── test_memory_service.py      # Memory core operations
+│   │   ├── test_solve_orchestrator.py  # Smart solver pipeline
+│   │   ├── test_contract.py            # API contract testing
+│   │   ├── test_property_based.py      # Hypothesis property tests
+│   │   ├── locust_load.py              # Locust load testing
+│   │   └── ... (57 more test files)
+│   └── turboquant_plus/                # KV cache quantization (embedded repo)
 ├── frontend/                           # Next.js 16.2 TypeScript frontend
-│   ├── Dockerfile
-│   ├── package.json                    # 20 dependencies + 7 devDependencies
-│   ├── package-lock.json
-│   ├── next.config.ts
-│   ├── tsconfig.json
-│   ├── postcss.config.mjs
-│   ├── eslint.config.mjs
-│   ├── vitest.config.ts
-│   ├── AGENTS.md                       # Frontend agent docs
-│   ├── README.md                       # Frontend docs
+│   ├── Dockerfile                      # Multi-stage Node.js 20 build
+│   ├── package.json                    # 20 deps + 7 devDeps
 │   ├── app/
-│   │   ├── favicon.ico
-│   │   ├── globals.css                 # Tailwind + custom utilities
 │   │   ├── layout.tsx                  # Root layout (MemoryProvider)
 │   │   ├── page.tsx                    # Redirects to /chat
 │   │   └── (platform)/
 │   │       ├── layout.tsx              # App shell (sidebar, panels)
-│   │       ├── chat/page.tsx           # Chat interface
-│   │       ├── solve/page.tsx          # Smart Solver
-│   │       ├── research/page.tsx       # Deep Research
-│   │       ├── guide/page.tsx          # Guided Learning
-│   │       ├── questions/page.tsx      # Question Generator
-│   │       ├── notebooks/page.tsx      # Notebooks
-│   │       ├── cowriter/page.tsx       # Co-Writer
-│   │       ├── documents/page.tsx      # Document management
-│   │       ├── knowledge/page.tsx      # Knowledge base viewer
-│   │       ├── dashboard/page.tsx      # Analytics dashboard
-│   │       ├── models/page.tsx         # Model management
-│   │       └── settings/page.tsx       # Configuration
-│   ├── components/
-│   │   ├── error-boundary.tsx
-│   │   ├── dashboard/
-│   │   │   ├── index.ts
-│   │   │   ├── global-resource-monitor.tsx
-│   │   │   ├── inference-throughput-grid.tsx
-│   │   │   └── router-effectiveness-matrix.tsx
-│   │   ├── documents/
-│   │   │   ├── document-list.tsx
-│   │   │   └── document-upload.tsx
-│   │   ├── solve/
-│   │   │   ├── agent-step-display.tsx
-│   │   │   ├── citation-list.tsx
-│   │   │   └── solve-input.tsx
-│   │   └── ui/
-│   │       ├── badge.tsx
-│   │       └── card.tsx
-│   ├── providers/
-│   │   ├── memory-provider.tsx         # MemoryContext + useMemory() hook
-│   │   └── websocket-provider.tsx      # WebSocket connection manager
-│   ├── lib/
-│   │   ├── config.ts
-│   │   ├── knowledge.ts
-│   │   ├── memory.ts                   # Memory API client
-│   │   ├── use-upload-polling.ts
-│   │   └── websocket.ts
-│   ├── types/
-│   │   └── api.ts
-│   ├── __tests__/
-│   │   ├── setup.ts
-│   │   ├── components/
-│   │   │   ├── badge.test.tsx
-│   │   │   ├── dashboard/global-resource-monitor.test.tsx
-│   │   │   └── solve/solve-input.test.tsx
-│   │   ├── lib/websocket.test.ts
-│   │   └── pages/
-│   │       ├── chat-page.test.tsx
-│   │       ├── guide-page.test.tsx
-│   │       └── settings-page.test.tsx
-│   └── public/
-│       ├── file.svg
-│       ├── globe.svg
-│       ├── next.svg
-│       ├── vercel.svg
-│       └── window.svg
-└── README.md
+│   │       ├── chat/page.tsx           # Chat + Smart Solve streaming
+│   │       ├── solve/page.tsx          # Recursive solver UI
+│   │       ├── research/page.tsx       # Deep research pipeline
+│   │       ├── guide/page.tsx          # Guided learning sessions
+│   │       ├── questions/page.tsx      # Question generator
+│   │       ├── notebooks/page.tsx      # Notebooks + CoWriter + IdeaGen
+│   │       ├── documents/page.tsx      # Document upload + management
+│   │       ├── knowledge/page.tsx      # KB viewer + PageIndex trees
+│   │       ├── dashboard/page.tsx      # Real-time telemetry
+│   │       ├── models/page.tsx         # Model management + tier config
+│   │       └── settings/page.tsx       # System configuration
+│   ├── components/                     # Reusable UI components
+│   │   ├── dashboard/                  # Telemetry visualizations
+│   │   ├── documents/                  # Upload + list
+│   │   ├── solve/                      # Agent steps, citations, input
+│   │   └── ui/                         # Badge, card
+│   ├── providers/                      # WebSocket + Memory contexts
+│   ├── lib/                            # API clients + utilities
+│   ├── types/                          # TypeScript interfaces
+│   └── __tests__/                      # 8 test files, 43 tests
+├── ACKNOWLEDGEMENTS.md                 # Research attributions + license compliance
+├── ARCHITECTURE.md                     # Full architecture documentation
+├── SECURITY.md                         # Security policy + vulnerability status
+└── CONTRIBUTING.md                     # Contribution guide
 ```
 
 ## Installation
