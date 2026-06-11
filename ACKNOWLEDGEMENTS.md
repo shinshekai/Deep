@@ -202,7 +202,69 @@ DEEP builds upon the work of open-source projects and academic research. We are 
 - **License**: MPL 2.0
 - **Integration**: Property-based testing for data transformations, security invariants, and prompt registry.
 
-## Community
+## Upgrade Research Foundations
+
+Sources referenced in DEEP's comprehensive upgrade plan (UPGRADE_PLAN.md). Deep code-level research validated against DEEP's existing architecture.
+
+### RHO — Agent Self-Improvement Loop
+
+- **Paper**: [arXiv:2606.05922](https://arxiv.org/abs/2606.05922)
+- **Repository**: [github.com/wbopan/retro-harness](https://github.com/wbopan/retro-harness)
+- **License**: MIT License
+- **What we adopted**: DPP coreset selection for diverse episode sampling, group rollout with self-validation + self-consistency diagnosis, best-of-N harness proposal with pairwise self-preference ranking. Implemented in `backend/app/services/rho_service.py`.
+
+### AI Harness Engineering — Agent Maturity Framework
+
+- **Paper**: [arXiv:2605.13357](https://arxiv.org/abs/2605.13357)
+- **License**: arXiv (open access)
+- **What we adopted**: 11-component agent maturity framework. Implemented 3 missing components: failure attribution (MAST taxonomy + binary search attribution), entropy auditor (severity-weighted scoring), intervention logger (human-in-the-loop tracking). Implemented in `backend/app/services/failure_attribution.py`, `entropy_auditor.py`, `intervention_logger.py`.
+
+### Autoresearch — Autonomous Optimization Patterns
+
+- **Repository**: [github.com/karpathy/autoresearch](https://github.com/karpathy/autoresearch)
+- **License**: MIT License
+- **What we adopted**: Three-file architecture (INSTRUCTIONS human-only, PROMPTS agent-editable, SCORING locked), git-based experiment tracking (each experiment = commit), fixed-budget normalization (5-minute experiments), simplicity criterion. Implemented in `agent_instructions.md`, `agent_prompts.py`, `agent_scoring.py`.
+
+### Open Notebook — Knowledge Management Patterns
+
+- **Repository**: [github.com/lfnovo/open-notebook](https://github.com/lfnovo/open-notebook)
+- **License**: MIT License
+- **What we adopted**: DB-first credential management (encrypted API keys with env-var fallback), content-type-aware chunking (markdown/code/plain detection), command-based background jobs with retry logic. Patterns informed DEEP's credential management and document processing design.
+
+### DOX — Documentation Hierarchy
+
+- **Repository**: [github.com/agent0ai/dox](https://github.com/agent0ai/dox)
+- **License**: MIT License
+- **What we adopted**: AGENTS.md hierarchy system (root → child → grandchild), read-before-editing protocol (walk from root to each target, read every AGENTS.md), closeout protocol (re-check changed paths, update affected docs). Implemented as root `AGENTS.md` + `backend/AGENTS.md` + `frontend/AGENTS.md` + `backend/app/services/AGENTS.md` + `backend/app/routers/AGENTS.md`.
+
+### Bklit UI — Dashboard Charts
+
+- **Repository**: [github.com/bklit/bklit-ui](https://github.com/bklit/bklit-ui)
+- **License**: MIT License
+- **What we adopted**: shadcn-compatible chart components (area, line, bar, pie) for dashboard telemetry visualizations. DEEP uses Recharts as the primary charting library with similar component patterns.
+
+### Pake — Desktop Companion App
+
+- **Repository**: [github.com/tw93/Pake](https://github.com/tw93/Pake)
+- **License**: GPL-3.0
+- **What we adopted**: Desktop wrapper pattern for turning web apps into native desktop applications. Used as reference for potential future desktop companion build. DEEP's web frontend runs as a standalone web app; Pake pattern informs potential future desktop packaging.
+
+### Karpathy Prompt — Optimization Methodology
+
+- **Source**: [joindreamlabs.com/karpathyprompt](https://joindreamlabs.com/karpathyprompt/)
+- **What we adopted**: FIT CHECK methodology — validate before optimizing: scored objectively (real number, not vibes), fast feedback (minutes, not weeks), asset accessible (agent has read+write). Applied to DEEP's RAG retrieval, memory recall, agent prompts, and complexity scoring optimization targets.
+
+### Handy — Speech-to-Text Insights
+
+- **Repository**: [github.com/cjpais/Handy](https://github.com/cjpais/Handy)
+- **License**: MIT License
+- **What we adopted**: Multi-engine STT architecture pattern (primary → fallback → last resort), SmoothedVad with attack/release for voice activity detection, model auto-unload on idle for VRAM savings. Informs DEEP's planned voice input integration.
+
+### Shieldcn — README Badges
+
+- **Repository**: [github.com/jal-co/shieldcn](https://github.com/jal-co/shieldcn)
+- **License**: MIT License
+- **What we adopted**: Badge generation for README documentation. DEEP uses shields.io badges for version, tests, license, and PR status indicators.
 
 - 30+ TurboQuant testers across diverse hardware (M1–M5 Mac, RTX 3080Ti–5090, AMD 6800XT/9070XT)
 - Active collaboration with llama.cpp upstream for TurboQuant contribution
@@ -213,8 +275,9 @@ DEEP builds upon the work of open-source projects and academic research. We are 
 All incorporated code and algorithms are used in compliance with their respective licenses:
 
 - **Apache License 2.0** (DeepTutor, RecursiveMAS, DOMPurify): Requires copyright notice, state changes, and license inclusion. DEEP retains all original copyright notices and includes license texts.
-- **MIT License** (PageIndex, ARA, AI-Research-SKILLs, DeepTutor Claude Skill, llama.cpp, shadcn/ui, Base UI, Tailwind CSS, Sonner, clsx, tailwind-merge, cva, Recharts, react-markdown, remark-gfm, TanStack Virtual, FastAPI, Pydantic, aiosqlite, Locust): Requires copyright notice and license inclusion. DEEP retains all original copyright notices.
+- **MIT License** (PageIndex, ARA, AI-Research-SKILLs, DeepTutor Claude Skill, llama.cpp, shadcn/ui, Base UI, Tailwind CSS, Sonner, clsx, tailwind-merge, cva, Recharts, react-markdown, remark-gfm, TanStack Virtual, FastAPI, Pydantic, aiosqlite, Locust, RHO, Autoresearch, Open Notebook, DOX, Bklit UI, Handy, Shieldcn): Requires copyright notice and license inclusion. DEEP retains all original copyright notices.
 - **ISC License** (Lucide Icons): Requires copyright notice and license inclusion. DEEP retains all original copyright notices.
+- **GPL-3.0** (Pake): DEEP uses Pake only as a build tool reference (no code redistribution). DEEP's own code remains MIT-licensed. Pake's GPL terms apply to Pake itself, not to applications built with it.
 - **CC-BY-4.0** (TurboQuant, PolarQuant): Requires attribution. DEEP cites original papers.
 - **ACM** (Reciprocal Rank Fusion): Academic citation provided.
 - **BSD License** (pynvml, httpx): Requires copyright notice and license inclusion.

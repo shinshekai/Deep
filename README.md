@@ -1490,6 +1490,15 @@ DEEP builds upon the work of open-source projects and academic research. See [AC
 | [TurboQuant](https://arxiv.org/abs/2504.19874) (Google Research) | CC-BY-4.0 | 3-4 bit KV cache quantization |
 | [PolarQuant](https://arxiv.org/abs/2502.02617) (Google Research) | CC-BY-4.0 | Random rotation + Lloyd-Max scalar quantization |
 | [RRF](https://dl.acm.org/doi/10.1145/1571941.1572114) (Cormack et al.) | ACM | k=60 reciprocal rank fusion for hybrid retrieval |
+| [RHO](https://arxiv.org/abs/2606.05922) | MIT | DPP coreset selection, harness self-improvement loop |
+| [AI Harness Engineering](https://arxiv.org/abs/2605.13357) | arXiv | Agent maturity framework, failure attribution, entropy auditor |
+| [Autoresearch](https://github.com/karpathy/autoresearch) (Karpathy) | MIT | Three-file architecture, git-based experiment tracking |
+| [Open Notebook](https://github.com/lfnovo/open-notebook) | MIT | DB-first credentials, content-aware chunking |
+| [DOX](https://github.com/agent0ai/dox) | MIT | AGENTS.md hierarchy, read-before-editing protocol |
+| [Bklit UI](https://github.com/bklit/bklit-ui) | MIT | Dashboard chart component patterns |
+| [Pake](https://github.com/tw93/Pake) | GPL-3.0 | Desktop wrapper pattern (build tool reference) |
+| [Handy](https://github.com/cjpais/Handy) | MIT | Multi-engine STT architecture, VAD pipeline |
+| [Shieldcn](https://github.com/jal-co/shieldcn) | MIT | README badge generation |
 
 ## How DEEP Is Different
 
