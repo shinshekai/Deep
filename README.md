@@ -7,7 +7,7 @@
 <p align="center"><em>Unified Document Intelligence Pipeline</em></p>
 
 ![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)
-![License](https://img.shields.io/badge/License-MIT%20(Apache%202.0%20attributions)-green)
+![License](https://img.shields.io/badge/License-Personal%20Use%20Only-blue)
 ![Version](https://img.shields.io/badge/Version-1.2.0-blue)
 ![Tests](https://img.shields.io/badge/Tests-556%20backend-brightgreen)
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-orange)
@@ -1579,7 +1579,9 @@ DEEP builds upon the work of open-source projects and academic research. See [AC
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for full text.
+DEEP License — Personal Use Only. See [LICENSE](LICENSE) for full text.
+
+Commercial use requires a separate license. Contact via [GitHub](https://github.com/shinshekai/Deep).
 
 ### License Compliance
 
@@ -1592,7 +1594,7 @@ DEEP incorporates code and algorithms from projects under the following licenses
 | **CC-BY-4.0** | TurboQuant, PolarQuant | Original papers cited, attribution provided |
 | **ACM** | Reciprocal Rank Fusion | Academic citation provided |
 
-DEEP's use of research foundations is for **attribution and acknowledgment purposes**. No proprietary code from these projects is redistributed. DEEP's original code is licensed under MIT.
+DEEP's use of research foundations is for **attribution and acknowledgment purposes**. No proprietary code from these projects is redistributed. DEEP's original code is licensed under the DEEP License (personal use only).
 
 ---
 

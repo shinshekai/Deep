@@ -277,7 +277,7 @@ All incorporated code and algorithms are used in compliance with their respectiv
 - **Apache License 2.0** (DeepTutor, RecursiveMAS, DOMPurify): Requires copyright notice, state changes, and license inclusion. DEEP retains all original copyright notices and includes license texts.
 - **MIT License** (PageIndex, ARA, AI-Research-SKILLs, DeepTutor Claude Skill, llama.cpp, shadcn/ui, Base UI, Tailwind CSS, Sonner, clsx, tailwind-merge, cva, Recharts, react-markdown, remark-gfm, TanStack Virtual, FastAPI, Pydantic, aiosqlite, Locust, RHO, Autoresearch, Open Notebook, DOX, Bklit UI, Handy, Shieldcn): Requires copyright notice and license inclusion. DEEP retains all original copyright notices.
 - **ISC License** (Lucide Icons): Requires copyright notice and license inclusion. DEEP retains all original copyright notices.
-- **GPL-3.0** (Pake): DEEP uses Pake only as a build tool reference (no code redistribution). DEEP's own code remains MIT-licensed. Pake's GPL terms apply to Pake itself, not to applications built with it.
+- **GPL-3.0** (Pake): DEEP uses Pake only as a build tool reference (no code redistribution). DEEP's own code is licensed under the DEEP License (personal use only). Pake's GPL terms apply to Pake itself, not to applications built with it.
 - **CC-BY-4.0** (TurboQuant, PolarQuant): Requires attribution. DEEP cites original papers.
 - **ACM** (Reciprocal Rank Fusion): Academic citation provided.
 - **BSD License** (pynvml, httpx): Requires copyright notice and license inclusion.
