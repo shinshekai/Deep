@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { AlertCircle, CheckCircle2, X } from "lucide-react";
+import { toast } from "sonner";
 import { useWebSocket } from "@/providers/websocket-provider";
 import type { SolveQuery, Citation } from "@/types/api";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
@@ -38,9 +38,6 @@ export default function ChatPage() {
 
   const [retrievalMode, setRetrievalMode] = useState<SolveQuery["retrieval_pipeline"]>("tree");
   const [solveMode, setSolveMode] = useState<SolveQuery["mode"]>("auto");
-
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string>(crypto.randomUUID());
   const streamingAnswerRef = useRef("");
@@ -123,7 +120,7 @@ export default function ChatPage() {
     return subscribe("error", (data) => {
       if (data.session_id && data.session_id !== sessionIdRef.current) return;
       setIsStreaming(false);
-      setErrorMsg(
+      toast.error(
         String(
           (data as Record<string, unknown>).message ??
             "AI Synthesizer pipeline failed."
@@ -145,7 +142,6 @@ export default function ChatPage() {
     setStreamingAnswer("");
     setStreamingSteps({});
     setStreamingAgent(null);
-    setErrorMsg(null);
     sessionIdRef.current = crypto.randomUUID();
     const query: SolveQuery = {
       query: textToSend.trim(),
@@ -178,13 +174,12 @@ export default function ChatPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setSuccessMsg("Copied reply markdown to clipboard.");
-    setTimeout(() => setSuccessMsg(null), 2500);
+    toast.success("Copied reply markdown to clipboard.");
   };
 
   const handleSaveMessageToNotebook = async (text: string) => {
     if (!selectedNbId) {
-      setErrorMsg(
+      toast.error(
         "Please select or construct a Notebook in the right panel first."
       );
       return;
@@ -200,10 +195,9 @@ export default function ChatPage() {
       );
       if (!res.ok) throw new Error("Save note failed.");
       setNbRefreshKey((k) => k + 1);
-      setSuccessMsg("Added chat response to Notebook.");
-      setTimeout(() => setSuccessMsg(null), 3000);
+      toast.success("Added chat response to Notebook.");
     } catch (err: unknown) {
-      setErrorMsg(
+      toast.error(
         err instanceof Error ? err.message : "Failed to append note."
       );
     }
@@ -214,7 +208,6 @@ export default function ChatPage() {
       {showLeftSidebar && (
         <ChatSessionSidebar
           onKbChange={setSelectedKb}
-          setErrorMsg={setErrorMsg}
         />
       )}
 
@@ -263,36 +256,8 @@ export default function ChatPage() {
           selectedNbId={selectedNbId}
           onNotebookChange={setSelectedNbId}
           refreshKey={nbRefreshKey}
-          setErrorMsg={setErrorMsg}
-          setSuccessMsg={setSuccessMsg}
         />
       )}
-
-      <div
-        className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 select-none pointer-events-none max-w-sm"
-        role="status"
-        aria-live="polite"
-      >
-        {successMsg && (
-          <div className="rounded-lg border border-emerald-900 bg-emerald-950/80 backdrop-blur-md px-4 py-3 text-xs text-emerald-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-emerald-950/20">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-        {errorMsg && (
-          <div className="rounded-lg border border-red-900 bg-red-950/80 backdrop-blur-md px-4 py-3 text-xs text-red-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-red-950/20">
-            <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-            <span className="select-text">{errorMsg}</span>
-            <button
-              onClick={() => setErrorMsg(null)}
-              className="ml-auto text-red-500 hover:text-red-400"
-              aria-label="Dismiss error"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { DocumentList } from "@/components/documents/document-list";
 import { fetchKnowledgeBases, createKnowledgeBase, type UploadTask } from "@/lib/knowledge";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import { Library, FolderPlus, Database, ShieldCheck, Loader2, RefreshCw, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 
 type ActiveUpload = {
@@ -295,9 +296,17 @@ export default function DocumentsPage() {
         </div>
 
         {loadingDocs ? (
-          <div className="rounded-xl border border-dashed border-zinc-900 p-12 text-center text-xs text-zinc-600 font-mono select-none">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-400 mx-auto mb-3" />
-            <span>Loading library document index...</span>
+          <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-4 space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-zinc-900 bg-zinc-950/20">
+                <Skeleton className="h-4 w-4 rounded" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-40 rounded" />
+                  <Skeleton className="h-2.5 w-24 rounded" />
+                </div>
+                <Skeleton className="h-2 w-2 rounded-full" />
+              </div>
+            ))}
           </div>
         ) : (
           <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-4 shadow-inner select-text">

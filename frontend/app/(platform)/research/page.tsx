@@ -5,10 +5,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   FileSearch, Loader2, Sparkles, CheckCircle2,
-  AlertCircle, PanelLeft, PanelRight, Database, PlayCircle, BarChart3,
-  Terminal, ShieldCheck, Timer, Cpu, Copy, RefreshCw, X, Layers
+  PanelLeft, PanelRight, Database, PlayCircle, BarChart3,
+  Terminal, ShieldCheck, Timer, Cpu, Copy, RefreshCw, Layers
 } from "lucide-react";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
+import { toast } from "sonner";
 
 const TOPICS = [
   {
@@ -59,8 +60,6 @@ export default function ResearchPage() {
   const [kbs, setKbs] = useState<{ name: string }[]>([]);
   const [running, setRunning] = useState(false);
   const [session, setSession] = useState<SessionData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Layout View Toggles
@@ -129,7 +128,6 @@ export default function ResearchPage() {
   const handleStart = async () => {
     if (!topic.trim()) return;
     setRunning(true);
-    setError(null);
     setSession(null);
     setElapsedTime(0);
 
@@ -167,15 +165,14 @@ export default function ResearchPage() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to start research";
-      setError(msg);
+      toast.error(msg);
       setRunning(false);
     }
   };
 
   const copyReport = (txt: string) => {
     navigator.clipboard.writeText(txt);
-    setSuccessMsg("Copied final research report to clipboard.");
-    setTimeout(() => setSuccessMsg(null), 3000);
+    toast.success("Copied final research report to clipboard.");
   };
 
   const completedCount = session?.queue.filter((s) => s.status === "COMPLETED").length ?? 0;
@@ -645,25 +642,6 @@ export default function ResearchPage() {
           </div>
         </aside>
       )}
-
-      {/* ─── Toast Notifications & Banners ─── */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 select-none pointer-events-none max-w-sm" role="status" aria-live="polite">
-        {successMsg && (
-          <div className="rounded-lg border border-emerald-900 bg-emerald-950/80 backdrop-blur-md px-4 py-3 text-xs text-emerald-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-emerald-950/20 animate-slide-in">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-        {error && (
-          <div className="rounded-lg border border-red-900 bg-red-950/80 backdrop-blur-md px-4 py-3 text-xs text-red-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-red-950/20 animate-slide-in">
-            <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-            <span className="select-text">{error}</span>
-            <button onClick={() => setError(null)} aria-label="Dismiss error" className="ml-auto text-red-500 hover:text-red-400 pointer-events-auto">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
 
     </div>
   );

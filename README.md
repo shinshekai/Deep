@@ -43,6 +43,12 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Device-Scoped Privacy** | UUID v4 per device, no cross-device data leakage, OS keyring integration. |
 | **Property-Based Testing** | Hypothesis-powered tests for data transformations, security invariants, and prompt registry. |
 | **Contract Testing** | Frontend/backend API schema validation ensuring type safety across the stack. |
+| **shadcn/ui Design System** | Base-Nova style with @base-ui/react primitives, dark-only oklch theme, 18 UI components. |
+| **Component Decomposition** | Solve page: 987→347 lines (9 components). Models page: 932→230 lines (4 components + 1 utility). |
+| **Shared Components** | KbSelector shared across ChatSessionSidebar and SourcesSidebar for KB selection. |
+| **Sonner Toasts** | Unified toast system across all 8 pages (chat, solve, research, cowriter, knowledge, guide, models, documents). |
+| **Collaboration Patterns** | Sequential, Mixture of Experts, Deliberation, Distillation — with in-app explanations. |
+| **Autoresearch System** | Three-file architecture (instructions, prompts, scoring) for iterative quality improvement. |
 
 ## Architecture
 
@@ -242,7 +248,7 @@ Deep/
 │   │   │   ├── auth.py                 # Token validation (3 methods)
 │   │   │   ├── cors.py                 # Localhost origin pinning
 │   │   │   ├── rate_limit.py           # SlowAPI 100/min per IP
-│   │   │   ├── correlation.py          # X-Request-ID tracking
+│   │   │   ├── correlation.py          # X-Request-ID + ContextVar
 │   │   │   └── headers.py             # CSP, HSTS, X-Frame, COOP
 │   │   ├── routers/                    # 7 API routers
 │   │   │   ├── knowledge.py            # Upload, KB CRUD, PageIndex
@@ -266,11 +272,17 @@ Deep/
 │   │   │   ├── vector_kb.py            # Local numpy vector store
 │   │   │   ├── hybrid_rag.py           # RRF vector + keyword merge
 │   │   │   ├── document_processor.py   # PDF/DOCX/TXT/MD extraction
+│   │   │   ├── agent_permissions.py    # Sliding window rate limiter + RBAC
+│   │   │   ├── input_origin.py         # ContextVar-based request origin tracking
+│   │   │   ├── rho_service.py          # RHO coreset selection (DPP greedy)
+│   │   │   ├── failure_attribution.py  # MAST taxonomy + binary search attribution
+│   │   │   ├── entropy_auditor.py      # Severity-weighted entropy scoring
+│   │   │   ├── intervention_logger.py  # Human-in-the-loop intervention tracking
 │   │   │   ├── security.py             # SSRF, path sanitize, auth
 │   │   │   ├── secrets.py              # OS keyring integration
 │   │   │   ├── metrics.py              # Prometheus + MetricsMiddleware
 │   │   │   ├── task_wal.py             # Write-ahead log (crash recovery)
-│   │   │   └── ... (23 more services)
+│   │   │   └── ... (18 more services)
 │   │   ├── validation/                 # Self-validation framework
 │   │   │   ├── baselines.py            # Thresholds + data classes
 │   │   │   ├── config_validator.py     # Static config analysis
@@ -291,14 +303,16 @@ Deep/
 │   └── turboquant_plus/                # KV cache quantization (embedded repo)
 ├── frontend/                           # Next.js 16.2 TypeScript frontend
 │   ├── Dockerfile                      # Multi-stage Node.js 20 build
-│   ├── package.json                    # 20 deps + 7 devDeps
+│   ├── package.json                    # 15 deps + 14 devDeps
+│   ├── components.json                 # shadcn/ui config (base-nova, Tailwind v4)
 │   ├── app/
-│   │   ├── layout.tsx                  # Root layout (MemoryProvider)
+│   │   ├── layout.tsx                  # Root layout (TooltipProvider + Toaster)
+│   │   ├── globals.css                 # Dark-only oklch design tokens
 │   │   ├── page.tsx                    # Redirects to /chat
 │   │   └── (platform)/
-│   │       ├── layout.tsx              # App shell (sidebar, panels)
+│   │       ├── layout.tsx              # App shell (sidebar, panels, navigation)
 │   │       ├── chat/page.tsx           # Chat + Smart Solve streaming
-│   │       ├── solve/page.tsx          # Recursive solver UI
+│   │       ├── solve/page.tsx          # Recursive solver UI (decomposed, 347 lines)
 │   │       ├── research/page.tsx       # Deep research pipeline
 │   │       ├── guide/page.tsx          # Guided learning sessions
 │   │       ├── questions/page.tsx      # Question generator
@@ -306,17 +320,66 @@ Deep/
 │   │       ├── documents/page.tsx      # Document upload + management
 │   │       ├── knowledge/page.tsx      # KB viewer + PageIndex trees
 │   │       ├── dashboard/page.tsx      # Real-time telemetry
-│   │       ├── models/page.tsx         # Model management + tier config
+│   │       ├── models/page.tsx         # Model management (decomposed, 230 lines)
 │   │       └── settings/page.tsx       # System configuration
 │   ├── components/                     # Reusable UI components
+│   │   ├── ui/                         # 18 shadcn/ui base components
+│   │   │   ├── badge.tsx              # Badge
+│   │   │   ├── button.tsx             # Button
+│   │   │   ├── card.tsx               # Card
+│   │   │   ├── dialog.tsx             # Dialog (base-ui/react)
+│   │   │   ├── input.tsx              # Input
+│   │   │   ├── label.tsx              # Label
+│   │   │   ├── select.tsx             # Select
+│   │   │   ├── sheet.tsx              # Sheet (side drawer)
+│   │   │   ├── skeleton.tsx           # Skeleton loading
+│   │   │   ├── sonner.tsx             # Sonner toast (dark-only)
+│   │   │   ├── tabs.tsx               # Tabs
+│   │   │   ├── textarea.tsx           # Textarea
+│   │   │   ├── tooltip.tsx            # Tooltip
+│   │   │   └── ... (5 more)
+│   │   ├── solve/                      # 12 components (9 new + 3 pre-existing)
+│   │   │   ├── tree-item.tsx          # PageIndex tree item
+│   │   │   ├── sources-sidebar.tsx    # Document sources panel
+│   │   │   ├── solve-toolbar.tsx      # Agent selection toolbar
+│   │   │   ├── solve-composer.tsx     # Composer with collaboration patterns
+│   │   │   ├── suggested-prompts.tsx  # Suggested prompt chips
+│   │   │   ├── streaming-pipeline.tsx # Real-time agent step streaming
+│   │   │   ├── error-banner.tsx       # Error display banner
+│   │   │   ├── synthesis-result.tsx   # Final synthesis with citations
+│   │   │   ├── page-index-sidebar.tsx # PageIndex tree navigation
+│   │   │   ├── agent-step-display.tsx # Agent step visualization
+│   │   │   ├── citation-list.tsx      # Citation list
+│   │   │   └── solve-input.tsx        # Input area
+│   │   ├── models/                     # 4 components (decomposed from 932-line page)
+│   │   │   ├── models-header.tsx      # Header with telemetry bar
+│   │   │   ├── connection-rail.tsx    # Provider connection rail
+│   │   │   ├── filter-toolbar.tsx     # Search + param category filters
+│   │   │   └── tier-slot-card.tsx     # Generic T1/T2/T3 tier slot card
+│   │   ├── shared/                     # Shared cross-page components
+│   │   │   └── kb-selector.tsx        # KB selector (Chat + Sources sidebars)
+│   │   ├── deep/                       # DEEP-specific visual components
+│   │   │   ├── agent-step-card.tsx    # Agent step visualization card
+│   │   │   ├── citation-inline.tsx    # Inline citation display
+│   │   │   ├── streaming-indicator.tsx# Streaming status indicator
+│   │   │   └── index.ts              # Barrel exports
+│   │   ├── chat/                       # Chat components
+│   │   │   ├── ChatSessionSidebar.tsx # Session list + KB selector
+│   │   │   └── ChatInferenceDisplay.tsx# Inference display
 │   │   ├── dashboard/                  # Telemetry visualizations
 │   │   ├── documents/                  # Upload + list
-│   │   ├── solve/                      # Agent steps, citations, input
-│   │   └── ui/                         # Badge, card
+│   │   └── error-boundary.tsx          # Global error boundary
 │   ├── providers/                      # WebSocket + Memory contexts
 │   ├── lib/                            # API clients + utilities
+│   │   ├── config.ts                  # secureFetch + API_BASE_URL
+│   │   ├── knowledge.ts               # KB API client
+│   │   ├── estimate-vram.ts           # VRAM estimation (extracted from models)
+│   │   └── utils.ts                   # cn() utility (tailwind-merge + clsx)
 │   ├── types/                          # TypeScript interfaces
 │   └── __tests__/                      # 8 test files, 43 tests
+├── agent_instructions.md               # Autoresearch INSTRUCTIONS (human-only)
+├── agent_prompts.py                    # Autoresearch PROMPTS (agent-editable)
+├── agent_scoring.py                    # Autoresearch SCORING (locked)
 ├── ACKNOWLEDGEMENTS.md                 # Research attributions + license compliance
 ├── ARCHITECTURE.md                     # Full architecture documentation
 ├── SECURITY.md                         # Security policy + vulnerability status
@@ -965,18 +1028,62 @@ Background tasks keep memory healthy:
 
 ## Integrations
 
+### shadcn/ui Design System
+
+- **Style**: Base-Nova — `@base-ui/react` primitives (NOT Radix UI)
+- **Configuration**: `frontend/components.json` (base-nova, Tailwind v4, oklch)
+- **Components installed**: badge, button, card, dialog, input, label, popover, scroll-area, select, separator, sheet, skeleton, sonner, switch, tabs, textarea, tooltip, accordion
+- **Theme**: Dark-only oklch design tokens in `app/globals.css`
+- **Utility**: `cn()` from `lib/utils.ts` (tailwind-merge + clsx)
+
+### Sonner (Toast Notifications)
+
+- **Website**: [sonner.emilkowal.ski](https://sonner.emilkawal.ski)
+- **License**: MIT
+- **Integration**: Unified toast system across all 8 pages. `toast()` from sonner, `<Toaster />` in root layout.
+- **Pages migrated**: chat, solve, research, cowriter, knowledge, guide, models, documents
+
+### Tailwind CSS v4
+
+- **Website**: [tailwindcss.com](https://tailwindcss.com)
+- **License**: MIT
+- **Integration**: Utility-first CSS with oklch color system. No `tailwind.config.ts` — uses CSS-first configuration.
+- **PostCSS**: `@tailwindcss/postcss` v4
+
+### Lucide Icons
+
+- **Website**: [lucide.dev](https://lucide.dev)
+- **License**: ISC
+- **Integration**: Icon library for all UI components. 1000+ consistent icons.
+
 ### LM Studio
 
-DEEP communicates with LM Studio via the OpenAI-compatible API:
+- **Website**: [lmstudio.ai](https://lmstudio.ai)
+- **License**: Proprietary (free for personal and commercial use)
+- **Integration**: Primary local inference backend via OpenAI-compatible API. Chat completions, embeddings, and model management. DEEP uses `stream_chat()` API v1 endpoints.
 
-- Default endpoint: `http://localhost:1234/v1`
-- Supports chat completions, embeddings, and model listing
-- Automatic model discovery via `/v1/models`
-- VRAM-aware model loading with tier-based scheduling
+### Ollama
 
-### Cloud Providers
+- **Website**: [ollama.ai](https://ollama.ai)
+- **License**: MIT
+- **Integration**: Alternative local inference backend. Same OpenAI-compatible API format.
 
-Cloud providers are optional and configured via the Settings page or environment variables. When enabled, they serve as fallback when local models are unavailable or insufficient.
+### llama.cpp
+
+- **Repository**: [github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
+- **License**: MIT
+- **Integration**: Backend inference engine. TurboQuant+ has active PR preparation for upstream contribution.
+
+### Cloud Providers (Optional)
+
+| Provider | API Key Required | Notes |
+|----------|------------------|-------|
+| OpenAI | Yes | GPT-4o, GPT-4o-mini |
+| Anthropic | Yes | Claude Sonnet, Claude Opus |
+| Google Gemini | Yes | Gemini 2.5 Pro, Flash |
+| Mistral | Yes | Mistral Large, Small |
+| OpenRouter | Yes | Multi-provider gateway |
+| OpenCode | No | Generic OpenAI-compatible |
 
 ### OCR
 
@@ -1394,12 +1501,16 @@ DEEP builds upon the work of open-source projects and academic research. See [AC
 | Retrieval | Basic RAG or none | 5 pipeline modes with LLM reasoning |
 | Document indexing | Flat chunks | 3-pass PageIndex trees |
 | Agent architecture | Single-turn | Dual-loop 6-agent + recursive 4-pattern |
-| Memory | History only | 8-table SQLite with fact extraction, contradiction detection |
+| Memory | History only | 14-table SQLite with fact extraction, contradiction detection |
 | Observability | Basic logging | OpenTelemetry + Prometheus + VRAM monitoring |
 | Multi-provider | Single provider | 11 providers with auto-discovery |
 | Knowledge representation | Flat text | ARA 4-layer knowledge packages |
 | Hardware awareness | None | Complexity-scored tier routing with VRAM safety caps |
 | Privacy | Data sent to cloud | Local-first, device-scoped isolation |
+| Design system | Basic CSS | shadcn/ui Base-Nova + oklch dark theme + Tailwind v4 |
+| Component architecture | Monolithic pages | Decomposed (solve: 987→347, models: 932→230 lines) |
+| Toast notifications | Inconsistent | Sonner unified across all 8 pages |
+| Loading states | Spinners | Shadcn Skeleton components |
 
 **Unique innovations:**
 
@@ -1408,10 +1519,34 @@ DEEP builds upon the work of open-source projects and academic research. See [AC
 - **Device-scoped memory**: UUID v4 isolation ensures no cross-device data leakage
 - **Self-validating pipeline**: Built-in validation framework with comprehensive test coverage
 - **Blue-green deployment**: Zero-downtime updates for production self-hosting
+- **Component decomposition**: Solve page 65% reduction, Models page 75% reduction via extraction
+- **Shared KB selector**: Single component reused across Chat and Sources sidebars
+- **Collaboration pattern explanations**: In-app UI explaining Sequential, Mixture, Deliberation, Distillation
 
 ## Roadmap
 
-- [ ] Streaming WebSocket responses for all agent types
+### Completed
+
+- [x] Unified Document Intelligence Pipeline — 12 pages, 38+ services, 556 backend tests
+- [x] 3-tier model management with VRAM-aware loading and eviction
+- [x] Dual-loop smart solver + recursive 4-pattern multi-agent solver
+- [x] 14-table persistent memory with fact extraction and contradiction detection
+- [x] Production Docker with read-only containers, capability dropping, blue-green deployment
+- [x] 11 inference providers (local + cloud) with auto-discovery
+- [x] TurboQuant KV cache quantization (3-4 bit)
+- [x] ARA 4-layer knowledge compilation
+- [x] CI/CD pipeline with 11 jobs (lint, test, security, Docker, SBOM)
+- [x] UI/UX overhaul — shadcn/ui design system, component decomposition, Sonner toasts
+- [x] Solve page decomposition (987→347 lines, 9 components)
+- [x] Models page decomposition (932→230 lines, 4 components + 1 utility)
+- [x] Shared KB selector component
+- [x] Collaboration pattern explanations in-app
+- [x] Skeleton loading states for knowledge and documents
+- [x] Autoresearch system (instructions, prompts, scoring)
+- [x] Research acknowledgements and license compliance
+
+### Planned
+
 - [ ] Multi-document ARA knowledge graph visualization
 - [ ] Voice input and speech-to-text integration
 - [ ] Plugin system for custom agent definitions

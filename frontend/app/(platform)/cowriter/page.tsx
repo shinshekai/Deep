@@ -3,10 +3,12 @@
 import { useState, useEffect } from "react";
 import {
   PenTool, Minimize2, Maximize2, Quote, Loader2, Sparkles, Clipboard,
-  Trash2, Library, AlertCircle, X, Check, PanelLeft, PanelRight, Database
+  Trash2, Library, PanelLeft, PanelRight, Database
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
+import { toast } from "sonner";
 
 type ProvenanceSource = {
   doc_id: string;
@@ -35,8 +37,6 @@ export default function CoWriterPage() {
 
   // Action status
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Provenance logs from edits/annotations
   const [provenanceHistory, setProvenanceHistory] = useState<Provenance[]>([]);
@@ -77,17 +77,15 @@ export default function CoWriterPage() {
 
   const handleEdit = async (action: "shorten" | "expand" | "rewrite") => {
     if (!text.trim()) {
-      setError("Please enter some text in the editor first.");
+      toast.error("Please enter some text in the editor first.");
       return;
     }
     if (action === "rewrite" && !instruction.trim()) {
-      setError("Please provide custom instructions for the rewrite.");
+      toast.error("Please provide custom instructions for the rewrite.");
       return;
     }
 
     setIsProcessing(true);
-    setError(null);
-    setSuccessMsg(null);
 
     try {
       const res = await secureFetch(`${API_BASE_URL}/cowriter/edit`, {
@@ -105,13 +103,13 @@ export default function CoWriterPage() {
       const data = await res.json();
 
       setText(data.text);
-      setSuccessMsg(`Successfully applied AI ${action}!`);
+      toast.success(`Successfully applied AI ${action}!`);
       
       if (data.provenance) {
         setProvenanceHistory((prev) => [data.provenance, ...prev]);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to process text edit");
+      toast.error(err instanceof Error ? err.message : "Failed to process text edit");
     } finally {
       setIsProcessing(false);
     }
@@ -119,13 +117,11 @@ export default function CoWriterPage() {
 
   const handleAnnotate = async () => {
     if (!text.trim()) {
-      setError("Please enter some text in the editor first.");
+      toast.error("Please enter some text in the editor first.");
       return;
     }
 
     setIsProcessing(true);
-    setError(null);
-    setSuccessMsg(null);
 
     try {
       const res = await secureFetch(`${API_BASE_URL}/cowriter/annotate`, {
@@ -143,13 +139,13 @@ export default function CoWriterPage() {
       const data = await res.json();
 
       setText(data.text);
-      setSuccessMsg("Auto-annotations and reference list successfully generated!");
+      toast.success("Auto-annotations and reference list successfully generated!");
 
       if (data.provenance) {
         setProvenanceHistory((prev) => [data.provenance, ...prev]);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to annotate document");
+      toast.error(err instanceof Error ? err.message : "Failed to annotate document");
     } finally {
       setIsProcessing(false);
     }
@@ -157,8 +153,7 @@ export default function CoWriterPage() {
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(text);
-    setSuccessMsg("Copied editor text to clipboard!");
-    setTimeout(() => setSuccessMsg(null), 3000);
+    toast.success("Copied editor text to clipboard!");
   };
 
   const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
@@ -456,36 +451,17 @@ export default function CoWriterPage() {
         </aside>
       )}
 
-      {/* Processing loading spinner overlay */}
-      {isProcessing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs select-none pointer-events-auto">
-          <div className="rounded-xl border border-zinc-900 bg-zinc-950 p-6 flex flex-col items-center gap-2.5 shadow-2xl">
+      {/* Processing loading overlay */}
+      <Dialog open={isProcessing}>
+        <DialogContent showCloseButton={false} className="sm:max-w-xs pointer-events-none">
+          <div className="flex flex-col items-center gap-2.5 py-2">
             <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
             <p className="text-[10px] uppercase font-bold font-mono tracking-wider text-zinc-400">
               CoWriter is compiling edit...
             </p>
           </div>
-        </div>
-      )}
-
-      {/* Global alert toast banners */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 select-none pointer-events-none max-w-sm" role="status" aria-live="polite">
-        {successMsg && (
-          <div className="rounded-lg border border-emerald-900 bg-emerald-950/80 backdrop-blur-md px-4 py-3 text-xs text-emerald-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-emerald-950/20">
-            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-        {error && (
-          <div className="rounded-lg border border-red-900 bg-red-950/80 backdrop-blur-md px-4 py-3 text-xs text-red-400 flex items-center gap-2 pointer-events-auto shadow-lg shadow-red-950/20">
-            <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-            <span className="select-text">{error}</span>
-            <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-400 pointer-events-auto" aria-label="Dismiss error">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

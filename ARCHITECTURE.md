@@ -8,7 +8,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Frontend — Next.js 16.2 :3782                                           │
 │  ├─ app/(platform)/chat          — Chat + Smart Solve streaming        │
-│  ├─ app/(platform)/solve         — Recursive solver UI                 │
+│  ├─ app/(platform)/solve         — Recursive solver (decomposed)       │
 │  ├─ app/(platform)/research      — Deep research pipeline              │
 │  ├─ app/(platform)/guide         — Guided learning sessions            │
 │  ├─ app/(platform)/questions     — Question generator                  │
@@ -16,11 +16,42 @@
 │  ├─ app/(platform)/documents     — Document upload + management        │
 │  ├─ app/(platform)/knowledge     — KB viewer + PageIndex trees         │
 │  ├─ app/(platform)/dashboard     — Real-time telemetry                 │
-│  ├─ app/(platform)/models        — Model management + tier config      │
+│  ├─ app/(platform)/models        — Model management (decomposed)       │
 │  ├─ app/(platform)/settings      — System configuration                │
+│  │                                                                          │
+│  ├─ components/                                                           │
+│  │   ├─ ui/                    — 18 shadcn/ui Base-Nova components      │
+│  │   │   ├─ badge, button, card, dialog, input, label                  │
+│  │   │   ├─ popover, scroll-area, select, separator                    │
+│  │   │   ├─ sheet, skeleton, sonner, switch, tabs                      │
+│  │   │   └─ textarea, tooltip, accordion                               │
+│  │   ├─ solve/                 — 12 components (9 extracted)            │
+│  │   │   ├─ tree-item, sources-sidebar, solve-toolbar                  │
+│  │   │   ├─ solve-composer, suggested-prompts, streaming-pipeline      │
+│  │   │   ├─ error-banner, synthesis-result, page-index-sidebar         │
+│  │   │   ├─ agent-step-display, citation-list, solve-input             │
+│  │   │   └─ (decomposed from 987→347 line page)                        │
+│  │   ├─ models/                — 4 components (extracted)               │
+│  │   │   ├─ models-header, connection-rail, filter-toolbar             │
+│  │   │   └─ tier-slot-card                                             │
+│  │   │   └─ (decomposed from 932→230 line page)                        │
+│  │   ├─ shared/                — Cross-page reusable                    │
+│  │   │   └─ kb-selector         — KB selector (Chat + Sources)         │
+│  │   ├─ deep/                  — DEEP-specific visuals                  │
+│  │   │   ├─ agent-step-card, citation-inline                           │
+│  │   │   └─ streaming-indicator, index.ts                              │
+│  │   ├─ chat/                  — Chat components                        │
+│  │   ├─ dashboard/             — Telemetry visualizations               │
+│  │   ├─ documents/             — Upload + list                          │
+│  │   └─ error-boundary.tsx     — Global error boundary                  │
+│  │                                                                          │
 │  ├─ providers/                   — WebSocket + Memory contexts         │
-│  ├─ components/                  — Reusable UI (dashboard, solve, etc) │
-│  └─ lib/                         — API clients, config, utilities      │
+│  ├─ lib/                         — API clients, config, utilities      │
+│  │   ├─ config.ts              — secureFetch + API_BASE_URL            │
+│  │   ├─ knowledge.ts           — KB API client                         │
+│  │   ├─ estimate-vram.ts       — VRAM estimation (extracted)           │
+│  │   └─ utils.ts               — cn() (tailwind-merge + clsx)          │
+│  └─ types/                       — TypeScript interfaces               │
 └───────────────────────────┬─────────────────────────────────────────────┘
                             │ WebSocket + REST (http://localhost:8001)
                             ▼
@@ -155,6 +186,9 @@ OpenTelemetry tracing (optional OTLP export) + Prometheus metrics + structured J
 
 ### 6. Production Hardening
 Docker containers with read-only filesystems, capability dropping, resource limits. Blue-green zero-downtime deployment. CI/CD with 11 jobs including Trivy scanning, SBOM generation, and Locust load testing.
+
+### 7. Component-Driven UI
+shadcn/ui Base-Nova design system with `@base-ui/react` primitives. Dark-only oklch theme. Tailwind CSS v4. Pages decomposed into focused components (solve: 12 components, models: 4 components). Shared components (KbSelector) reused across pages. Sonner unified toasts across all 8 pages.
 
 ## Middleware Stack
 
@@ -383,7 +417,16 @@ Deep/
 │   └── requirements-dev.txt    # Pinned dev/test deps
 ├── frontend/                   # Next.js 16.2 TypeScript frontend
 │   ├── app/(platform)/         # 12 pages
-│   ├── components/             # Reusable UI components
+│   ├── components/
+│   │   ├── ui/                 # 18 shadcn/ui Base-Nova components
+│   │   ├── solve/              # 12 decomposed solve components
+│   │   ├── models/             # 4 decomposed model components
+│   │   ├── shared/             # Shared cross-page components
+│   │   ├── deep/               # DEEP-specific visuals
+│   │   ├── chat/               # Chat components
+│   │   ├── dashboard/          # Telemetry visualizations
+│   │   ├── documents/          # Upload + list
+│   │   └── error-boundary.tsx  # Global error boundary
 │   ├── providers/              # WebSocket + Memory contexts
 │   ├── lib/                    # API clients + utilities
 │   └── __tests__/              # 8 test files, 43 tests

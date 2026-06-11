@@ -231,18 +231,18 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
-    }
-  }, [messages, streamingAnswer, streamingSteps, virtualizer]);
-
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 120,
     overscan: 5,
   });
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+    }
+  }, [messages, streamingAnswer, streamingSteps, virtualizer]);
 
   return (
     <div className="flex-1 p-4 md:p-6 space-y-6">

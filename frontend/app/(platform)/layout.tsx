@@ -23,7 +23,9 @@ import {
   Laptop,
   Smartphone,
   BookOpen,
-  PenTool
+  PenTool,
+  MessageSquare,
+  GraduationCap
 } from "lucide-react";
 import { useWebSocket } from "@/providers/websocket-provider";
 import { Badge } from "@/components/ui/badge";
@@ -34,28 +36,28 @@ const navSections = [
   {
     label: "Documents Hub",
     items: [
-      { href: "/documents", label: "Library Node", icon: Database },
+      { href: "/documents", label: "Documents", icon: Database },
       { href: "/knowledge", label: "Knowledge Bases", icon: BarChart3 },
     ],
   },
   {
     label: "AI Orchestration",
     items: [
-      { href: "/solve", label: "Smart Solve", icon: Zap },
-      { href: "/chat", label: "Chat Lab", icon: Brain },
-      { href: "/research", label: "Deep Research", icon: FileText },
-      { href: "/guide", label: "Guided Tutor", icon: Brain },
-      { href: "/questions", label: "Question Studio", icon: FileText },
-      { href: "/notebooks", label: "Notebook Lab", icon: BookOpen },
-      { href: "/cowriter", label: "CoWriter Studio", icon: PenTool },
+      { href: "/solve", label: "Solve", icon: Zap },
+      { href: "/chat", label: "Chat", icon: MessageSquare },
+      { href: "/research", label: "Research", icon: FileText },
+      { href: "/guide", label: "Guided Tutor", icon: GraduationCap },
+      { href: "/questions", label: "Questions", icon: HelpCircle },
+      { href: "/notebooks", label: "Notebooks", icon: BookOpen },
+      { href: "/cowriter", label: "CoWriter", icon: PenTool },
     ],
   },
   {
-    label: "Platform Infrastructure",
+    label: "Platform",
     items: [
-      { href: "/dashboard", label: "Performance Observ", icon: Activity },
-      { href: "/models", label: "Models Console", icon: Zap },
-      { href: "/settings", label: "Runtime Settings", icon: SettingsIcon },
+      { href: "/dashboard", label: "Dashboard", icon: Activity },
+      { href: "/models", label: "Models", icon: Zap },
+      { href: "/settings", label: "Settings", icon: SettingsIcon },
     ],
   },
 ];

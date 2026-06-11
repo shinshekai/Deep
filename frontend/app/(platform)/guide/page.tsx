@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import {
   BookOpen, MessageSquare, Target, ClipboardList, Loader2, Send,
   ChevronRight, PlayCircle, CheckCircle2, PanelLeft, PanelRight,
-  Sparkles, X, AlertCircle
+  Sparkles
 } from "lucide-react";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import DOMPurify from "dompurify";
+import { toast } from "sonner";
 
 const SUGGESTIONS = [
   "Transformers attention mechanism details",
@@ -47,9 +48,6 @@ export default function GuidedLearningPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isEnding, setIsEnding] = useState(false);
 
-  // Error State
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,7 +61,7 @@ export default function GuidedLearningPage() {
       })
       .catch((err) => {
         console.error("Failed to load KBs", err);
-        setErrorMsg("Failed to load knowledge bases. Check your connection and try again.");
+        toast.error("Failed to load knowledge bases. Check your connection and try again.");
       });
   }, []);
 
@@ -94,7 +92,7 @@ export default function GuidedLearningPage() {
       }
     } catch (e) {
       console.error(e);
-      setErrorMsg("Failed to start learning session. The AI tutor may be temporarily unavailable.");
+      toast.error("Failed to start learning session. The AI tutor may be temporarily unavailable.");
     } finally {
       setIsStarting(false);
     }
@@ -115,7 +113,7 @@ export default function GuidedLearningPage() {
       setHtmlContent(data.html || "<p>Failed to generate content.</p>");
     } catch (e) {
       console.error(e);
-      setErrorMsg("Failed to load lesson content. Please try again.");
+      toast.error("Failed to load lesson content. Please try again.");
     } finally {
       setIsLoadingPage(false);
     }
@@ -148,7 +146,7 @@ export default function GuidedLearningPage() {
       setChatHistory((prev) => [...prev, { role: "assistant", content: data.reply }]);
     } catch (e) {
       console.error(e);
-      setErrorMsg("Failed to send message. Please try again.");
+      toast.error("Failed to send message. Please try again.");
     } finally {
       setIsChatting(false);
     }
@@ -166,7 +164,7 @@ export default function GuidedLearningPage() {
       setCurrentPointIndex(-1); // Switch view to summary
     } catch (e) {
       console.error(e);
-      setErrorMsg("Failed to end session. Your progress has been saved.");
+      toast.error("Failed to end session. Your progress has been saved.");
     } finally {
       setIsEnding(false);
     }
@@ -176,15 +174,6 @@ export default function GuidedLearningPage() {
   if (!sessionId) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] p-4 md:p-8">
-        {errorMsg && (
-          <div className="mb-4 w-full max-w-md flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-xs text-red-300" role="alert">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{errorMsg}</span>
-            <button onClick={() => setErrorMsg(null)} className="shrink-0 p-0.5 hover:text-red-200" aria-label="Dismiss error">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
         <div className="max-w-md w-full space-y-8 select-none">
           <div className="text-center space-y-3">
             <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-indigo-650/10 border border-indigo-500/20 text-indigo-400 shadow-inner animate-pulse">
@@ -268,17 +257,6 @@ export default function GuidedLearningPage() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)] -mx-3 sm:-mx-5 md:-mx-6 lg:-mx-8 -my-3 sm:-my-5 md:-my-6 lg:-my-8 overflow-hidden bg-zinc-950 text-zinc-100 antialiased relative">
       
-      {/* Error banner */}
-      {errorMsg && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-lg border border-red-900/50 bg-red-950/90 px-4 py-2.5 text-xs text-red-300 shadow-xl backdrop-blur-sm max-w-lg" role="alert">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span className="flex-1">{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)} className="shrink-0 p-0.5 hover:text-red-200" aria-label="Dismiss error">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* ─── LEFT COLUMN: Learning roadmap tree ─── */}
       {showLeftSidebar && (
         <aside className="w-80 shrink-0 border-r border-zinc-900 bg-zinc-950/60 backdrop-blur-sm flex flex-col h-full overflow-hidden select-none animate-slide-in">

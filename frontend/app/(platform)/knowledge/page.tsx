@@ -8,17 +8,17 @@ import {
   createKnowledgeBase,
   type KnowledgeBase,
 } from "@/lib/knowledge";
-import { Trash2, Database, FolderOpen, RefreshCw, CheckCircle2, Loader2, Plus, AlertCircle } from "lucide-react";
+import { Trash2, Database, FolderOpen, RefreshCw, Loader2, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function KnowledgePage() {
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [newKbName, setNewKbName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,21 +36,17 @@ export default function KnowledgePage() {
     const sanitized = newKbName.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
     if (!sanitized) return;
     setCreating(true);
-    setErrorMsg(null);
     try {
       const res = await createKnowledgeBase(sanitized);
       if (res) {
-        setSuccessMsg(`Successfully created Knowledge Base: ${res.name}`);
+        toast.success(`Successfully created Knowledge Base: ${res.name}`);
         setNewKbName("");
         load();
-        setTimeout(() => setSuccessMsg(null), 3000);
       } else {
-        setErrorMsg("Failed to create Knowledge Base. Make sure backend is running.");
-        setTimeout(() => setErrorMsg(null), 4000);
+        toast.error("Failed to create Knowledge Base. Make sure backend is running.");
       }
     } catch {
-      setErrorMsg("An unexpected error occurred.");
-      setTimeout(() => setErrorMsg(null), 4000);
+      toast.error("An unexpected error occurred.");
     } finally {
       setCreating(false);
     }
@@ -64,8 +60,7 @@ export default function KnowledgePage() {
     const ok = await deleteKnowledgeBase(name);
     if (ok) {
       setBases((prev) => prev.filter((b) => b.name !== name));
-      setSuccessMsg(`Successfully deleted Knowledge Base: ${name}`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      toast.success(`Successfully deleted Knowledge Base: ${name}`);
     }
     setDeleting(null);
   };
@@ -153,20 +148,24 @@ export default function KnowledgePage() {
             )}
           </button>
         </form>
-
-        {errorMsg && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-red-400 select-none font-sans">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
       </div>
 
       {/* Grid listing */}
       {loading ? (
-        <div className="rounded-xl border border-dashed border-zinc-900 p-12 text-center text-xs text-zinc-600 font-mono">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-400 mx-auto mb-3" />
-          <span>Loading knowledge bases...</span>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded" />
+                <Skeleton className="h-4 w-32 rounded" />
+              </div>
+              <Skeleton className="h-3 w-48 rounded" />
+              <div className="flex gap-2 pt-2">
+                <Skeleton className="h-5 w-16 rounded" />
+                <Skeleton className="h-5 w-20 rounded" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : bases.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-900 p-12 text-center bg-zinc-950/10">
@@ -230,16 +229,6 @@ export default function KnowledgePage() {
           ))}
         </div>
       )}
-
-      {/* Global alert toast banners */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 select-none pointer-events-none max-w-sm" role="status" aria-live="polite">
-        {successMsg && (
-          <div className="rounded-lg border border-emerald-900 bg-emerald-950/80 backdrop-blur-md px-4 py-3 text-xs text-emerald-400 flex items-center gap-2 pointer-events-auto shadow-lg">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-      </div>
 
     </div>
   );

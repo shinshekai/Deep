@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { Database, Upload, Loader2, FileText } from "lucide-react";
+import { KbSelector } from "@/components/shared/kb-selector";
 import { useUploadPolling } from "@/lib/use-upload-polling";
 import {
   uploadDocument,
@@ -20,12 +22,10 @@ type DocumentInfo = {
 
 interface ChatSessionSidebarProps {
   onKbChange: (kb: string) => void;
-  setErrorMsg: (msg: string | null) => void;
 }
 
 export function ChatSessionSidebar({
   onKbChange,
-  setErrorMsg,
 }: ChatSessionSidebarProps) {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [selectedKb, setSelectedKb] = useState<string>("");
@@ -107,7 +107,7 @@ export function ChatSessionSidebar({
       setUploadProgress(null);
       setActiveUploadTaskId(null);
       setPendingUploadName(null);
-      setErrorMsg(
+      toast.error(
         `Document parsing failed: ${name} (${task?.message ?? "unknown error"})`
       );
     },
@@ -122,18 +122,17 @@ export function ChatSessionSidebar({
     const ext = file.name.split(".").pop()?.toLowerCase();
     const allowed = ["pdf", "txt", "md"];
     if (!allowed.includes(ext ?? "")) {
-      setErrorMsg("Supported document formats: PDF, TXT, MD");
+      toast.error("Supported document formats: PDF, TXT, MD");
       return;
     }
     setUploadProgress(file.name);
-    setErrorMsg(null);
     const result = await uploadDocument(file, selectedKb);
     if (result && result.task_id) {
       setPendingUploadName(file.name);
       setActiveUploadTaskId(result.task_id);
     } else {
       setUploadProgress(null);
-      setErrorMsg("Failed to initiate file ingestion.");
+      toast.error("Failed to initiate file ingestion.");
     }
   };
 
@@ -148,7 +147,7 @@ export function ChatSessionSidebar({
     e.preventDefault();
     setDragging(false);
     if (!selectedKb) {
-      setErrorMsg("Please select or create a Knowledge Base scope first.");
+      toast.error("Please select or create a Knowledge Base scope first.");
       return;
     }
     const file = e.dataTransfer.files[0];
@@ -181,27 +180,11 @@ export function ChatSessionSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        <div className="space-y-2">
-          <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono block">
-            Active Knowledge Base
-          </label>
-          <select
-            value={selectedKb}
-            onChange={(e) => handleKbSelect(e.target.value)}
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
-            aria-label="Select active knowledge base"
-          >
-            {kbs.length === 0 ? (
-              <option value="">No KBs (Upload to create)</option>
-            ) : (
-              kbs.map((kb) => (
-                <option key={kb.name} value={kb.name}>
-                  {kb.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
+        <KbSelector
+          kbOptions={kbs.map((kb) => ({ value: kb.name, label: kb.name }))}
+          selectedKb={selectedKb}
+          onSelect={handleKbSelect}
+        />
 
         <div className="space-y-2">
           <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono block">

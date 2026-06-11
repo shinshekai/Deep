@@ -13,7 +13,7 @@ export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:800
  *   - ``WS_AUTH_TOKEN`` (server-side only — no ``NEXT_PUBLIC_`` prefix)
  */
 let _cachedToken: string | null = null;
-let _tokenFetchPromise: Promise<string | null> | null = null;
+let _tokenFetchPromise: Promise<string> | null = null;
 
 export async function getWsAuthToken(): Promise<string> {
   if (_cachedToken) return _cachedToken;

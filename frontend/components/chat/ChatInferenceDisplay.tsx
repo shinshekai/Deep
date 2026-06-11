@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   BookMarked,
   Plus,
@@ -33,16 +34,12 @@ interface ChatInferenceDisplayProps {
   selectedNbId: string | null;
   onNotebookChange: (id: string | null) => void;
   refreshKey: number;
-  setErrorMsg: (msg: string | null) => void;
-  setSuccessMsg: (msg: string | null) => void;
 }
 
 export function ChatInferenceDisplay({
   selectedNbId,
   onNotebookChange,
   refreshKey,
-  setErrorMsg,
-  setSuccessMsg,
 }: ChatInferenceDisplayProps) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [showCreateNbModal, setShowCreateNbModal] = useState(false);
@@ -112,7 +109,6 @@ export function ChatInferenceDisplay({
     e.preventDefault();
     if (!newNbTitle.trim()) return;
     setCreatingNb(true);
-    setErrorMsg(null);
     try {
       const res = await secureFetch(`${API_BASE_URL}/notebooks`, {
         method: "POST",
@@ -126,10 +122,9 @@ export function ChatInferenceDisplay({
       setNewNbTitle("");
       setNewNbDesc("");
       setShowCreateNbModal(false);
-      setSuccessMsg("Notebook constructed successfully.");
-      setTimeout(() => setSuccessMsg(null), 3000);
+      toast.success("Notebook constructed successfully.");
     } catch (err: unknown) {
-      setErrorMsg(
+      toast.error(
         err instanceof Error ? err.message : "Failed to construct notebook."
       );
     } finally {
@@ -140,7 +135,6 @@ export function ChatInferenceDisplay({
   const handleSaveNote = async () => {
     if (!selectedNbId || !noteInput.trim()) return;
     setSavingNote(true);
-    setErrorMsg(null);
     try {
       const res = await secureFetch(
         `${API_BASE_URL}/notebooks/${selectedNbId}/notes`,
@@ -153,10 +147,9 @@ export function ChatInferenceDisplay({
       if (!res.ok) throw new Error("Failed to write note.");
       await loadNotebooks();
       setNoteInput("");
-      setSuccessMsg("Research note saved.");
-      setTimeout(() => setSuccessMsg(null), 3000);
+      toast.success("Research note saved.");
     } catch (err: unknown) {
-      setErrorMsg(
+      toast.error(
         err instanceof Error ? err.message : "Failed to write note."
       );
     } finally {
@@ -167,13 +160,12 @@ export function ChatInferenceDisplay({
   const handleSynthesizeProposals = async () => {
     const activeNb = notebooks.find((n) => n.id === selectedNbId);
     if (!activeNb || activeNb.notes.length === 0) {
-      setErrorMsg(
+      toast.error(
         "Add notes or save responses to this Notebook before synthesis."
       );
       return;
     }
     setIsGeneratingIdeas(true);
-    setErrorMsg(null);
     setGeneratedIdeas([]);
     try {
       const res = await secureFetch(`${API_BASE_URL}/ideagen/generate`, {
@@ -188,7 +180,7 @@ export function ChatInferenceDisplay({
       const data = await res.json();
       setGeneratedIdeas(data.ideas || []);
     } catch (err: unknown) {
-      setErrorMsg(
+      toast.error(
         err instanceof Error
           ? err.message
           : "Failed to generate conceptual links."

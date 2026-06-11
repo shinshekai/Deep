@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono, Geist } from "next/font/google";
 import "./globals.css";
 import { WebSocketProvider } from "@/providers/websocket-provider";
 import { MemoryProvider } from "@/providers/memory-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 const inter = Inter({
   variable: "--font-inter",
@@ -28,12 +33,22 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
+      className={cn(
+        "h-full",
+        "antialiased",
+        inter.variable,
+        geistMono.variable,
+        "font-sans",
+        geist.variable
+      )}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <MemoryProvider>
-          <WebSocketProvider>{children}</WebSocketProvider>
-        </MemoryProvider>
+        <TooltipProvider delay={300}>
+          <MemoryProvider>
+            <WebSocketProvider>{children}</WebSocketProvider>
+          </MemoryProvider>
+          <Toaster />
+        </TooltipProvider>
       </body>
     </html>
   );
