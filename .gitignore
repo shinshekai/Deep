@@ -77,3 +77,6 @@ tests/load/
 
 # Root-level meta files (kept locally, not in repo)
 AGENTS.md
+blackbox_mcp_settings.json
+package-lock.json
+package.json
