@@ -272,12 +272,7 @@ Deep/
 │   │   │   ├── vector_kb.py            # Local numpy vector store
 │   │   │   ├── hybrid_rag.py           # RRF vector + keyword merge
 │   │   │   ├── document_processor.py   # PDF/DOCX/TXT/MD extraction
-│   │   │   ├── agent_permissions.py    # Sliding window rate limiter + RBAC
 │   │   │   ├── input_origin.py         # ContextVar-based request origin tracking
-│   │   │   ├── rho_service.py          # RHO coreset selection (DPP greedy)
-│   │   │   ├── failure_attribution.py  # MAST taxonomy + binary search attribution
-│   │   │   ├── entropy_auditor.py      # Severity-weighted entropy scoring
-│   │   │   ├── intervention_logger.py  # Human-in-the-loop intervention tracking
 │   │   │   ├── security.py             # SSRF, path sanitize, auth
 │   │   │   ├── secrets.py              # OS keyring integration
 │   │   │   ├── metrics.py              # Prometheus + MetricsMiddleware
@@ -378,8 +373,6 @@ Deep/
 │   ├── types/                          # TypeScript interfaces
 │   └── __tests__/                      # 8 test files, 43 tests
 ├── agent_instructions.md               # Autoresearch INSTRUCTIONS (human-only)
-├── agent_prompts.py                    # Autoresearch PROMPTS (agent-editable)
-├── agent_scoring.py                    # Autoresearch SCORING (locked)
 ├── ACKNOWLEDGEMENTS.md                 # Research attributions + license compliance
 ├── ARCHITECTURE.md                     # Full architecture documentation
 ├── SECURITY.md                         # Security policy + vulnerability status

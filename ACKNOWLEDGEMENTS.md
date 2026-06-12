@@ -211,19 +211,19 @@ Sources referenced in DEEP's comprehensive upgrade plan (UPGRADE_PLAN.md). Deep 
 - **Paper**: [arXiv:2606.05922](https://arxiv.org/abs/2606.05922)
 - **Repository**: [github.com/wbopan/retro-harness](https://github.com/wbopan/retro-harness)
 - **License**: MIT License
-- **What we adopted**: DPP coreset selection for diverse episode sampling, group rollout with self-validation + self-consistency diagnosis, best-of-N harness proposal with pairwise self-preference ranking. Implemented in `backend/app/services/rho_service.py`.
+- **Verdict**: NOT APPLICABLE. RHO targets multi-user SWE-Bench with 1000+ episodes. DEEP is local-first single-user with ~10-50 episodes/month — DPP coreset selection not meaningful at this scale.
 
 ### AI Harness Engineering — Agent Maturity Framework
 
 - **Paper**: [arXiv:2605.13357](https://arxiv.org/abs/2605.13357)
 - **License**: arXiv (open access)
-- **What we adopted**: 11-component agent maturity framework. Implemented 3 missing components: failure attribution (MAST taxonomy + binary search attribution), entropy auditor (severity-weighted scoring), intervention logger (human-in-the-loop tracking). Implemented in `backend/app/services/failure_attribution.py`, `entropy_auditor.py`, `intervention_logger.py`.
+- **Verdict**: SELECTIVE. Adopted H0 (observability via correlation.py + input_origin.py) and H2 (verification via PageIndex). Not applicable: H3 components (permissions, entropy auditor, intervention logger) — designed for multi-user SaaS with permissioned access, not local-first single-user.
 
 ### Autoresearch — Autonomous Optimization Patterns
 
 - **Repository**: [github.com/karpathy/autoresearch](https://github.com/karpathy/autoresearch)
 - **License**: MIT License
-- **What we adopted**: Three-file architecture (INSTRUCTIONS human-only, PROMPTS agent-editable, SCORING locked), git-based experiment tracking (each experiment = commit), fixed-budget normalization (5-minute experiments), simplicity criterion. Implemented in `agent_instructions.md`, `agent_prompts.py`, `agent_scoring.py`.
+- **Verdict**: NOT APPLICABLE. Requires autonomous code modification loop (agents modify their own code and run experiments). DEEP's agents don't self-modify — they execute predefined pipelines. The three-file architecture (INSTRUCTIONS/PROMPTS/SCORING) is retained in `agent_instructions.md` as human-readable reference only.
 
 ### Open Notebook — Knowledge Management Patterns
 

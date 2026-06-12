@@ -66,16 +66,24 @@ class TextChunker:
         text: str,
         doc_id: str = "",
         kb_name: str = "",
+        content_type: str = "",
     ) -> list[TextChunk]:
         """Chunk plain text into overlapping segments.
 
         Returns list of TextChunk. Positions refer to character offsets
         in the original `text` string.
+
+        Args:
+            content_type: If "markdown", splits on heading boundaries
+                          to keep headings with their content.
         """
         if not text or not text.strip():
             return []
 
-        raw_chunks = self._split(text)
+        if content_type == "markdown":
+            raw_chunks = self._split_markdown(text)
+        else:
+            raw_chunks = self._split(text)
         return self._to_text_chunks(raw_chunks, text, doc_id, kb_name)
 
     def chunk_with_pages(
@@ -122,6 +130,28 @@ class TextChunker:
             chunk.page_end = self._page_at(chunk.end_char, page_map)
 
         return chunks
+
+    # ── Markdown-aware splitting ─────────────────────────────────────────────
+
+    _HEADING_RE = re.compile(r"^(#{1,6})\s+.+$", re.MULTILINE)
+
+    def _split_markdown(self, text: str) -> list[str]:
+        """Split markdown on heading boundaries, keeping headings with content."""
+        matches = list(self._HEADING_RE.finditer(text))
+        if len(matches) < 2:
+            return self._split(text)
+
+        sections: list[str] = []
+        for i, match in enumerate(matches):
+            start = match.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            sections.append(text[start:end].strip())
+
+        leading = text[: matches[0].start()].strip()
+        if leading:
+            sections.insert(0, leading)
+
+        return self._merge_segments(sections)
 
     # ── Internal splitting ───────────────────────────────────────────────────
 

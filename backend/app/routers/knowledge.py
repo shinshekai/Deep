@@ -228,6 +228,7 @@ async def _build_vectors(
     embedding_service,
     text_chunker,
     vector_kb_service,
+    content_type: str = "",
 ) -> int:
     """Chunk text, embed, and store vectors. Returns chunk count or 0 on failure."""
     try:
@@ -239,7 +240,9 @@ async def _build_vectors(
         else:
             text_to_chunk = doc_content or ""
 
-        chunks = text_chunker.chunk_text(text_to_chunk, doc_id=doc_id, kb_name=kb_name)
+        chunks = text_chunker.chunk_text(
+            text_to_chunk, doc_id=doc_id, kb_name=kb_name, content_type=content_type
+        )
         if not chunks:
             logger.info(f"No chunks produced for {doc_id}")
             return 0
@@ -272,6 +275,7 @@ async def _process_document(
     embedding_service=None,
     text_chunker=None,
     vector_kb_service=None,
+    content_type: str = "",
 ):
     """Background task: extract text, build PageIndex tree + vector embeddings in parallel."""
     _tasks[task_id]["status"] = "processing"
@@ -318,7 +322,8 @@ async def _process_document(
         if run_vectors:
             parallel_tasks.append(
                 _build_vectors(
-                    doc_content, doc_id, kb_name, embedding_service, text_chunker, vector_kb_service
+                    doc_content, doc_id, kb_name, embedding_service, text_chunker, vector_kb_service,
+                    content_type=content_type,
                 )
             )
 
@@ -480,6 +485,9 @@ async def upload_document(
         }
 
         # Fire and forget -- client polls via /tasks/{task_id}
+        ext = Path(raw_name).suffix.lower()
+        content_type = "markdown" if ext == ".md" else ""
+
         async def _with_timeout():
             try:
                 await asyncio.wait_for(
@@ -492,6 +500,7 @@ async def upload_document(
                         embedding_service=state.embedding_service,
                         text_chunker=state.text_chunker,
                         vector_kb_service=state.vector_kb_service,
+                        content_type=content_type,
                     ),
                     timeout=600.0,
                 )
