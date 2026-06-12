@@ -37,9 +37,6 @@
 │  │   │   └─ (decomposed from 932→230 line page)                        │
 │  │   ├─ shared/                — Cross-page reusable                    │
 │  │   │   └─ kb-selector         — KB selector (Chat + Sources)         │
-│  │   ├─ deep/                  — DEEP-specific visuals                  │
-│  │   │   ├─ agent-step-card, citation-inline                           │
-│  │   │   └─ streaming-indicator, index.ts                              │
 │  │   ├─ chat/                  — Chat components                        │
 │  │   ├─ dashboard/             — Telemetry visualizations               │
 │  │   ├─ documents/             — Upload + list                          │
@@ -422,7 +419,6 @@ Deep/
 │   │   ├── solve/              # 12 decomposed solve components
 │   │   ├── models/             # 4 decomposed model components
 │   │   ├── shared/             # Shared cross-page components
-│   │   ├── deep/               # DEEP-specific visuals
 │   │   ├── chat/               # Chat components
 │   │   ├── dashboard/          # Telemetry visualizations
 │   │   ├── documents/          # Upload + list

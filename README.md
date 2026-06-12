@@ -48,7 +48,7 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Shared Components** | KbSelector shared across ChatSessionSidebar and SourcesSidebar for KB selection. |
 | **Sonner Toasts** | Unified toast system across all 8 pages (chat, solve, research, cowriter, knowledge, guide, models, documents). |
 | **Collaboration Patterns** | Sequential, Mixture of Experts, Deliberation, Distillation — with in-app explanations. |
-| **Autoresearch System** | Three-file architecture (instructions, prompts, scoring) for iterative quality improvement. |
+| **Autoresearch Patterns** | Reference patterns from Karpathy's autoresearch (human-readable documentation only). |
 
 ## Architecture
 
@@ -353,11 +353,6 @@ Deep/
 │   │   │   └── tier-slot-card.tsx     # Generic T1/T2/T3 tier slot card
 │   │   ├── shared/                     # Shared cross-page components
 │   │   │   └── kb-selector.tsx        # KB selector (Chat + Sources sidebars)
-│   │   ├── deep/                       # DEEP-specific visual components
-│   │   │   ├── agent-step-card.tsx    # Agent step visualization card
-│   │   │   ├── citation-inline.tsx    # Inline citation display
-│   │   │   ├── streaming-indicator.tsx# Streaming status indicator
-│   │   │   └── index.ts              # Barrel exports
 │   │   ├── chat/                       # Chat components
 │   │   │   ├── ChatSessionSidebar.tsx # Session list + KB selector
 │   │   │   └── ChatInferenceDisplay.tsx# Inference display
@@ -1544,7 +1539,7 @@ DEEP builds upon the work of open-source projects and academic research. See [AC
 - [x] Shared KB selector component
 - [x] Collaboration pattern explanations in-app
 - [x] Skeleton loading states for knowledge and documents
-- [x] Autoresearch system (instructions, prompts, scoring)
+- [x] Autoresearch patterns (reference documentation only)
 - [x] Research acknowledgements and license compliance
 
 ### Planned
