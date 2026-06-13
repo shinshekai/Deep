@@ -199,22 +199,27 @@ graph LR
 | **Observability** | Metrics (Prometheus), Telemetry (OpenTelemetry), Alerting, Logging | `metrics.py`, `telemetry.py`, `alerting.py` |
 | **Infrastructure** | Service Registry + DI, Backup, Benchmark Runner, Session Cleanup, Task Registry, Task WAL | `base.py`, `backup.py`, `task_wal.py` |
 
-### Memory Tables (14)
+### Memory Tables (14 + 3 FTS5)
 
 | Table | Purpose |
 |-------|---------|
 | `episodes` | Chat/session history with query, answer, agents, rating |
-| `episode_chunks` + `episodes_fts` | FTS5 full-text search on episodes |
+| `episode_chunks` | Chunked episode text (source for FTS5) |
+| `episodes_fts` | FTS5 full-text search on episodes (contentless) |
 | `facts` | Extracted knowledge with confidence + provenance |
-| `fact_chunks` + `facts_fts` | FTS5 full-text search on facts |
-| `user_profiles` | Per-device JSON profiles with staleness tracking |
+| `fact_chunks` | Chunked fact text (source for FTS5) |
+| `facts_fts` | FTS5 full-text search on facts (contentless) |
+| `user_profiles` | Per-device JSON profiles |
 | `agent_outcomes` | Agent performance records |
 | `agent_strategies` | Best-strategy aggregation per agent type |
-| `project_profiles` | Global KB metadata |
+| `project_profiles` | Per-KB metadata |
 | `staged_observations` | Progressive crystallization buffer |
 | `dead_ends` | Failed research paths + lessons |
+| `dead_end_chunks` | Chunked dead-end text (source for FTS5) |
+| `dead_ends_fts` | FTS5 full-text search on dead ends (contentless) |
 | `user_l3` | L3 cross-surface synthesis (4 slots) |
 | `provenance_log` | Audit trail for provenance upgrades |
+| `memory_usage` | Per-device memory operation metrics |
 
 ## Repository Structure
 
