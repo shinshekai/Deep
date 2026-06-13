@@ -109,6 +109,14 @@ async def _run_solve_pipeline_for_message(ws: WebSocket, data: dict, state) -> N
             if memory_context:
                 context = f"{memory_context}\n\n{context}" if context else memory_context
 
+            # Fence the assembled context (retrieved chunks + recalled memory)
+            # as untrusted data before handing it to the recursive solver, so
+            # poisoned documents/memory cannot inject instructions.
+            if context:
+                from app.services.solve_orchestrator import _fence_untrusted
+
+                context = _fence_untrusted("retrieved context", context)
+
             model_id = (
                 await state.model_manager.get_best_available_model(target_tier)
                 or "Qwen3-1.7B-Q4_K_M"
