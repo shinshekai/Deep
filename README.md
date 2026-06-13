@@ -1343,13 +1343,13 @@ All responses include:
 
 | Header | Value |
 |--------|-------|
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'` |
 | `X-Frame-Options` | `DENY` |
 | `X-Content-Type-Options` | `nosniff` |
-| `X-XSS-Protection` | `1; mode=block` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Referrer-Policy` | `no-referrer` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Strict-Transport-Security` | `max-age=63072000` (opt-in via `UDIP_HSTS_ENABLED`) |
+| `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` (opt-in via `UDIP_HSTS_ENABLED`) |
 
 ### Secrets Management
 
