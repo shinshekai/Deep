@@ -1220,25 +1220,26 @@ class MemoryService:
                 k: v for k, v in profile.items() if k not in ("document_count", "total_pages")
             }
 
-            await db.execute(
-                """INSERT INTO project_profiles
-                   (kb_name, profile_json, document_count, total_pages, created_at, last_queried)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(kb_name) DO UPDATE SET
-                       profile_json = excluded.profile_json,
-                       document_count = excluded.document_count,
-                       total_pages = excluded.total_pages,
-                       last_queried = excluded.last_queried""",
-                (
-                    kb_name,
-                    json.dumps(profile_filtered),
-                    doc_count,
-                    total_pages,
-                    existing["created_at"] if existing else now,
-                    now,
-                ),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO project_profiles
+                       (kb_name, profile_json, document_count, total_pages, created_at, last_queried)
+                       VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(kb_name) DO UPDATE SET
+                           profile_json = excluded.profile_json,
+                           document_count = excluded.document_count,
+                           total_pages = excluded.total_pages,
+                           last_queried = excluded.last_queried""",
+                    (
+                        kb_name,
+                        json.dumps(profile_filtered),
+                        doc_count,
+                        total_pages,
+                        existing["created_at"] if existing else now,
+                        now,
+                    ),
+                )
+                await db.commit()
 
     # ── Maintenance ───────────────────────────────────────────────────────────
 
@@ -1246,7 +1247,7 @@ class MemoryService:
         with trace_span("memory.decay_old_facts", {"days": days, "decay_rate": decay_rate}):
             db = await self._get_db()
             cutoff = time.time() - days * 86400
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 rows = await db.execute_fetchall(
                     """SELECT id, confidence FROM facts
                        WHERE archived = 0 AND created_at < ?""",
@@ -1270,11 +1271,12 @@ class MemoryService:
         with trace_span("memory.update_episode_rating", {"episode_id": episode_id}):
             db = await self._get_db()
             clamped = max(0.0, min(1.0, float(rating)))
-            await db.execute(
-                "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
-                (clamped, episode_id),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
+                    (clamped, episode_id),
+                )
+                await db.commit()
             return True
 
     async def compact_episodes(self, older_than_days: int = 90) -> int:
@@ -1433,9 +1435,10 @@ class MemoryService:
                 ),
             )
             searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
-            await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
-            await db.commit()
-            await self.track_usage(device_id, "dead_ends_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "dead_ends_stored", 1)
             return dead_end_id
 
     async def recall_dead_ends(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
@@ -1558,16 +1561,17 @@ class MemoryService:
             now = time.time()
             current = await self.get_l3(device_id, "preferences")
             content = {**current["content"], **updates}
-            await db.execute(
-                """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
-                   VALUES (?, 'preferences', ?, 1, ?)
-                   ON CONFLICT(device_id, slot) DO UPDATE SET
-                      content = excluded.content,
-                      entry_count = excluded.entry_count,
-                      updated_at = excluded.updated_at""",
-                (device_id, json.dumps(content), now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
+                       VALUES (?, 'preferences', ?, 1, ?)
+                       ON CONFLICT(device_id, slot) DO UPDATE SET
+                          content = excluded.content,
+                          entry_count = excluded.entry_count,
+                          updated_at = excluded.updated_at""",
+                    (device_id, json.dumps(content), now),
+                )
+                await db.commit()
             return content
 
     async def read_l3_concat(self, device_id: str) -> str:
@@ -1603,18 +1607,19 @@ class MemoryService:
             valid = {"user", "ai-suggested", "ai-executed", "user-revised"}
             if new_provenance not in valid:
                 return False
-            await db.execute(
-                f"UPDATE {table} SET provenance = ? WHERE id = ?",
-                (new_provenance, entity_id),
-            )
-            await db.execute(
-                """INSERT INTO provenance_log
-                   (entity_type, entity_id, provenance_type, original_provenance,
-                    reasoning, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (entity_type, entity_id, new_provenance, old, reasoning, now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    f"UPDATE {table} SET provenance = ? WHERE id = ?",
+                    (new_provenance, entity_id),
+                )
+                await db.execute(
+                    """INSERT INTO provenance_log
+                       (entity_type, entity_id, provenance_type, original_provenance,
+                        reasoning, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (entity_type, entity_id, new_provenance, old, reasoning, now),
+                )
+                await db.commit()
             return True
 
     async def get_provenance_lineage(self, entity_type: str, entity_id: str) -> list[dict]:
