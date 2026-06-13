@@ -13,12 +13,11 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-orange)
 
 DEEP is a local-first AI platform that merges document intelligence, multi-agent reasoning, and persistent memory into a single system. It runs entirely on your hardware — no cloud, no data leakage. Upload documents, build hierarchical indexes, and interact with specialized agents that research, tutor, generate, and solve problems using your local LLM.
-
 ## Why DEEP Exists
 
 Modern AI tools force a choice: powerful cloud APIs that send your data elsewhere, or local models that lack the orchestration to do anything useful with them. DEEP bridges this gap. It pairs local inference (via LM Studio, Ollama, or llama.cpp) with a full agent system, structured retrieval pipeline, and persistent memory — all running on your own machine.
 
-The result is a platform where a student can upload lecture notes and get guided tutoring, a researcher can compile deep multi-source analysis, and a developer can query their codebase through a knowledge graph — without any data leaving their network. Every component, from the 3-tier model manager that balances VRAM across always-resident and on-demand models, to the 8-table memory system that tracks episodic recall and semantic facts, is designed for the constraints and strengths of consumer hardware.
+The result is a platform where a student can upload lecture notes and get guided tutoring, a researcher can compile deep multi-source analysis, and a developer can query their codebase through a knowledge graph — without any data leaving their network. Every component, from the 3-tier model manager that balances VRAM across always-resident and on-demand models, to the 14-table memory system that tracks episodic recall and semantic facts, is designed for the constraints and strengths of consumer hardware.
 
 ## Key Features
 
@@ -31,7 +30,7 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Recursive Multi-Agent Solver** | 4 collaboration patterns: Sequential, Mixture, Deliberation, Distillation from RecursiveMAS research. |
 | **Deep Research Pipeline** | 3-phase: Decompose → Parallel Research → Report with source attribution. |
 | **Guided Learning System** | 4-agent pipeline: Locate → Interactive → Chat → Summary for adaptive tutoring. |
-| **Persistent Memory** | 10-table SQLite with episodic recall, semantic facts, contradiction detection, staged observations, and background maintenance. |
+| **Persistent Memory** | 14-table SQLite (+3 FTS5 virtual tables) with episodic recall, semantic facts, contradiction detection, staged observations, and background maintenance. |
 | **Knowledge Graph** | Entity-relation graph for dual-index RAG (KG + Dense Embeddings), enabling graph-based retrieval. |
 | **Progressive Crystallization** | Observations staged before permanent storage, crystallized on closure signals. |
 | **TurboQuant KV Cache** | 3-4 bit KV cache quantization reducing VRAM usage 40-50% with minimal quality loss. |
@@ -40,7 +39,7 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Self-Validating Pipeline** | Built-in validation framework with 556 backend tests and 8 frontend tests. |
 | **Hardened Docker Deployment** | Read-only containers, capability dropping, resource limits, healthchecks, blue-green zero-downtime. |
 | **11 Inference Providers** | Local: LM Studio, Ollama, llama.cpp. Cloud: OpenAI, Anthropic, Gemini, Mistral, OpenRouter, and more. |
-| **Device-Scoped Privacy** | UUID v4 per device, no cross-device data leakage, OS keyring integration. |
+| **Device-Scoped Privacy** | UUID v4 per device (validated server-side), device-scoped memory isolation, OS keyring integration. Designed for single-user local deployments. |
 | **Property-Based Testing** | Hypothesis-powered tests for data transformations, security invariants, and prompt registry. |
 | **Contract Testing** | Frontend/backend API schema validation ensuring type safety across the stack. |
 | **shadcn/ui Design System** | Base-Nova style with @base-ui/react primitives, dark-only oklch theme, 18 UI components. |
@@ -80,7 +79,7 @@ graph TB
     end
 
     subgraph Storage["Storage — Local"]
-        DB[(SQLite + FTS5 — 14 tables)]
+        DB[(SQLite + FTS5 — 14 tables + 3 FTS5)]
         FS[File System — Knowledge Bases]
         KG[Knowledge Graph]
         IDX[PageIndex Trees]
@@ -200,22 +199,27 @@ graph LR
 | **Observability** | Metrics (Prometheus), Telemetry (OpenTelemetry), Alerting, Logging | `metrics.py`, `telemetry.py`, `alerting.py` |
 | **Infrastructure** | Service Registry + DI, Backup, Benchmark Runner, Session Cleanup, Task Registry, Task WAL | `base.py`, `backup.py`, `task_wal.py` |
 
-### Memory Tables (14)
+### Memory Tables (14 + 3 FTS5)
 
 | Table | Purpose |
 |-------|---------|
 | `episodes` | Chat/session history with query, answer, agents, rating |
-| `episode_chunks` + `episodes_fts` | FTS5 full-text search on episodes |
+| `episode_chunks` | Chunked episode text (source for FTS5) |
+| `episodes_fts` | FTS5 full-text search on episodes (contentless) |
 | `facts` | Extracted knowledge with confidence + provenance |
-| `fact_chunks` + `facts_fts` | FTS5 full-text search on facts |
-| `user_profiles` | Per-device JSON profiles with staleness tracking |
+| `fact_chunks` | Chunked fact text (source for FTS5) |
+| `facts_fts` | FTS5 full-text search on facts (contentless) |
+| `user_profiles` | Per-device JSON profiles |
 | `agent_outcomes` | Agent performance records |
 | `agent_strategies` | Best-strategy aggregation per agent type |
-| `project_profiles` | Global KB metadata |
+| `project_profiles` | Per-KB metadata |
 | `staged_observations` | Progressive crystallization buffer |
 | `dead_ends` | Failed research paths + lessons |
+| `dead_end_chunks` | Chunked dead-end text (source for FTS5) |
+| `dead_ends_fts` | FTS5 full-text search on dead ends (contentless) |
 | `user_l3` | L3 cross-surface synthesis (4 slots) |
 | `provenance_log` | Audit trail for provenance upgrades |
+| `memory_usage` | Per-device memory operation metrics |
 
 ## Repository Structure
 
@@ -1344,13 +1348,13 @@ All responses include:
 
 | Header | Value |
 |--------|-------|
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'` |
 | `X-Frame-Options` | `DENY` |
 | `X-Content-Type-Options` | `nosniff` |
-| `X-XSS-Protection` | `1; mode=block` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Referrer-Policy` | `no-referrer` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Strict-Transport-Security` | `max-age=63072000` (opt-in via `UDIP_HSTS_ENABLED`) |
+| `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` (opt-in via `UDIP_HSTS_ENABLED`) |
 
 ### Secrets Management
 

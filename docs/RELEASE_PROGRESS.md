@@ -32,7 +32,7 @@ branch/MR that addresses it.
 |--------|----------|---------|-------------|
 | ⬜ | MEDIUM | Agent prompts are hardcoded inline despite an existing `prompt_registry` + `prompts/*.yaml` infrastructure. | Move agent prompts into the registry and version them. |
 | ⬜ | MEDIUM | Evaluation assets (`rag_eval.py`, `evaluation_dataset.json`, RAGAS report) exist but are not a CI regression gate. | Add a CI job that fails on eval regression. |
-| ⬜ | MEDIUM | README over-claims vs. code (table counts, CSP, WCAG AA, "tested"). | Reconcile docs to the actual schema and shipped behavior. |
+| 🟡 | MEDIUM | README over-claims vs. code (table counts, CSP, device-privacy phrasing). | Reconciled README to the schema and shipped behavior: standardized memory tables to "14 + 3 FTS5" with the full list, corrected the security-headers table to the actual CSP/Referrer/Permissions/HSTS values (removed the unsent X-XSS-Protection), and clarified the device-scoped privacy claim. Branch `docs/readme-reconciliation`. |
 
 ## Changelog
 
@@ -64,3 +64,8 @@ branch/MR that addresses it.
   `crypto.randomUUID()`). Existing ownership checks on delete/feedback are
   preserved. Added rejection tests. **All audit P0/HIGH items now
   addressed.**
+- **2026-06-13** — Phase 3 (README reconciliation) **implemented** on branch
+  `docs/readme-reconciliation`: fixed inconsistent memory-table counts
+  (now "14 + 3 FTS5" with the full list), corrected the security-headers
+  table to the values actually shipped by `middleware/headers.py`, and
+  clarified the device-scoped privacy wording. Docs-only, no code changes.
