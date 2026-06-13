@@ -3,13 +3,17 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+# Valid UUID device id used across the router tests. device_id validation
+# now requires a canonical UUID, so test fixtures use a real one.
+DEV1 = "11111111-1111-4111-8111-111111111111"
+
 
 @pytest.fixture
 def mock_memory_service():
     svc = MagicMock()
     svc.recall_episodes = AsyncMock(return_value=[])
     svc.recall_facts = AsyncMock(return_value=[])
-    svc.get_profile = AsyncMock(return_value={"device_id": "test", "profile": {}})
+    svc.get_profile = AsyncMock(return_value={"device_id": DEV1, "profile": {}})
     svc.update_profile = AsyncMock(return_value={"profile": {}})
     svc.store_episode = AsyncMock(return_value="ep_123")
     svc.store_fact = AsyncMock(return_value="fact_123")
@@ -37,7 +41,7 @@ async def test_recall_endpoint(mock_memory_service):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            "/api/v1/memory/recall", json={"query": "test", "device_id": "dev1"}
+            "/api/v1/memory/recall", json={"query": "test", "device_id": DEV1}
         )
     assert resp.status_code == 200
     data = resp.json()
@@ -51,10 +55,10 @@ async def test_profile_endpoint(mock_memory_service):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/memory/profile/dev1")
+        resp = await client.get(f"/api/v1/memory/profile/{DEV1}")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["device_id"] == "dev1"
+    assert data["device_id"] == DEV1
 
 
 @pytest.mark.asyncio
@@ -66,7 +70,7 @@ async def test_store_episode_endpoint(mock_memory_service):
         resp = await client.post(
             "/api/v1/memory/episode",
             json={
-                "device_id": "dev1",
+                "device_id": DEV1,
                 "query": "test",
                 "answer": "answer",
                 "agents": ["solve"],
@@ -84,7 +88,7 @@ async def test_stats_endpoint(mock_memory_service):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/memory/stats/dev1")
+        resp = await client.get(f"/api/v1/memory/stats/{DEV1}")
     assert resp.status_code == 200
 
 
@@ -94,25 +98,25 @@ async def test_list_episodes_endpoint(mock_memory_service):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/memory/episodes/dev1")
+        resp = await client.get(f"/api/v1/memory/episodes/{DEV1}")
     assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_delete_episode_endpoint(mock_memory_service):
-    mock_memory_service.get_episode = AsyncMock(return_value={"id": "ep_123", "device_id": "dev1"})
+    mock_memory_service.get_episode = AsyncMock(return_value={"id": "ep_123", "device_id": DEV1})
     from app.main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.delete("/api/v1/memory/episode/ep_123?device_id=dev1")
+        resp = await client.delete(f"/api/v1/memory/episode/ep_123?device_id={DEV1}")
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
 
 
 @pytest.mark.asyncio
 async def test_submit_feedback_endpoint(mock_memory_service):
-    mock_memory_service.get_episode = AsyncMock(return_value={"id": "ep_123", "device_id": "dev1"})
+    mock_memory_service.get_episode = AsyncMock(return_value={"id": "ep_123", "device_id": DEV1})
     mock_db = AsyncMock()
     mock_memory_service._get_db = AsyncMock(return_value=mock_db)
     from app.main import app
@@ -121,7 +125,7 @@ async def test_submit_feedback_endpoint(mock_memory_service):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/api/v1/memory/feedback",
-            json={"episode_id": "ep_123", "device_id": "dev1", "rating": 4.5},
+            json={"episode_id": "ep_123", "device_id": DEV1, "rating": 4.5},
         )
     assert resp.status_code == 200
     assert resp.json()["updated"] is True
@@ -137,7 +141,7 @@ async def test_create_fact_endpoint(mock_memory_service):
         resp = await client.post(
             "/api/v1/memory/fact",
             json={
-                "device_id": "dev1",
+                "device_id": DEV1,
                 "content": "fact content",
                 "source_type": "conversation",
                 "source_id": "s1",
@@ -153,7 +157,7 @@ async def test_list_facts_endpoint(mock_memory_service):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/memory/facts/dev1")
+        resp = await client.get(f"/api/v1/memory/facts/{DEV1}")
     assert resp.status_code == 200
     assert "facts" in resp.json()
 
@@ -178,6 +182,47 @@ async def test_service_unavailable():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            "/api/v1/memory/recall", json={"query": "test", "device_id": "dev1"}
+            "/api/v1/memory/recall", json={"query": "test", "device_id": DEV1}
         )
     assert resp.status_code == 503
+
+
+# ── device_id validation (IDOR defense-in-depth) ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_recall_rejects_non_uuid_device_id(mock_memory_service):
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/memory/recall", json={"query": "test", "device_id": "dev1"}
+        )
+    assert resp.status_code == 400
+    mock_memory_service.recall_episodes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stats_rejects_non_uuid_device_id(mock_memory_service):
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/memory/stats/not-a-uuid")
+    assert resp.status_code == 400
+    mock_memory_service.get_stats.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_episode_create_rejects_non_uuid_device_id(mock_memory_service):
+    from app.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/memory/episode",
+            json={"device_id": "../etc", "query": "q", "answer": "a"},
+        )
+    assert resp.status_code == 400
+    mock_memory_service.store_episode.assert_not_called()
