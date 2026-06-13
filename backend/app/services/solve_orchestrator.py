@@ -372,19 +372,26 @@ async def _run_dual_loop(
         step_content = None
 
         for attempt in range(1 + MAX_STEP_RETRIES):
+            # Both recalled memory and the analysis summary derive from
+            # untrusted retrieved content, so fence them as data.
+            fenced_mem = _fence_untrusted("recalled memory", memory_context)
+            fenced_summary = _fence_untrusted("analysis notes", context_summary)
             user_prompt = query
             if memory_context:
-                user_prompt = f"{memory_context}\n\nOriginal query: {query}"
+                user_prompt = f"{fenced_mem}\n\nOriginal query: {query}"
             if agent_key in ("solve", "check", "format") and context_summary:
                 if memory_context:
-                    user_prompt = f"{memory_context}\n\nContext from analysis: {context_summary}\n\nOriginal query: {query}"
+                    user_prompt = f"{fenced_mem}\n\nContext from analysis: {fenced_summary}\n\nOriginal query: {query}"
                 else:
-                    user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
+                    user_prompt = f"Context from analysis: {fenced_summary}\n\nOriginal query: {query}"
             if attempt > 0:
                 user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"
 
             messages = [
-                {"role": "system", "content": AGENT_PROMPTS[agent_key]},
+                {
+                    "role": "system",
+                    "content": AGENT_PROMPTS[agent_key] + INJECTION_DEFENSE_DIRECTIVE,
+                },
                 {"role": "user", "content": user_prompt},
             ]
 
