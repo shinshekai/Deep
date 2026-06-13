@@ -39,7 +39,7 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Self-Validating Pipeline** | Built-in validation framework with 556 backend tests and 8 frontend tests. |
 | **Hardened Docker Deployment** | Read-only containers, capability dropping, resource limits, healthchecks, blue-green zero-downtime. |
 | **11 Inference Providers** | Local: LM Studio, Ollama, llama.cpp. Cloud: OpenAI, Anthropic, Gemini, Mistral, OpenRouter, and more. |
-| **Device-Scoped Privacy** | UUID v4 per device, no cross-device data leakage, OS keyring integration. |
+| **Device-Scoped Privacy** | UUID v4 per device (validated server-side), device-scoped memory isolation, OS keyring integration. Designed for single-user local deployments. |
 | **Property-Based Testing** | Hypothesis-powered tests for data transformations, security invariants, and prompt registry. |
 | **Contract Testing** | Frontend/backend API schema validation ensuring type safety across the stack. |
 | **shadcn/ui Design System** | Base-Nova style with @base-ui/react primitives, dark-only oklch theme, 18 UI components. |
