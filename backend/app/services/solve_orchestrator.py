@@ -320,16 +320,23 @@ async def _run_dual_loop(
                     content = res.get("content", "") or res.get("summary", "")
                     tool_context += f"--- Chunk {i + 1} ---\n{content}\n\n"
 
+        # Untrusted blocks (memory, dead-ends, retrieved chunks) are fenced
+        # so the model treats them as data, not instructions.
         user_prompt = query
         if memory_context:
-            user_prompt = f"{memory_context}\n\nOriginal query: {query}"
+            fenced_mem = _fence_untrusted("recalled memory", memory_context)
+            user_prompt = f"{fenced_mem}\n\nOriginal query: {query}"
         if dead_end_context:
-            user_prompt = f"{dead_end_context}\n\n{user_prompt}"
+            fenced_de = _fence_untrusted("known dead ends", dead_end_context)
+            user_prompt = f"{fenced_de}\n\n{user_prompt}"
         if tool_context:
-            user_prompt += f"\n\n{tool_context}"
+            user_prompt += f"\n\n{_fence_untrusted('knowledge base', tool_context)}"
 
         messages = [
-            {"role": "system", "content": AGENT_PROMPTS[agent_key]},
+            {
+                "role": "system",
+                "content": AGENT_PROMPTS[agent_key] + INJECTION_DEFENSE_DIRECTIVE,
+            },
             {"role": "user", "content": user_prompt},
         ]
 
