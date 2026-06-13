@@ -54,9 +54,22 @@ def _require_memory():
     return state.memory_service
 
 
+def _check_device_id(device_id: str) -> None:
+    """Reject malformed device ids before they reach the data layer.
+
+    Device ids are client-generated UUIDs; rejecting non-UUID values is a
+    defense-in-depth guard against IDOR/enumeration and path/query abuse.
+    """
+    from app.services.security import is_valid_device_id
+
+    if not is_valid_device_id(device_id):
+        raise HTTPException(status_code=400, detail="Invalid device_id (must be a UUID)")
+
+
 @router.post("/recall")
 async def recall(request: RecallRequest):
     svc = _require_memory()
+    _check_device_id(request.device_id)
     episodes = await svc.recall_episodes(request.device_id, request.query, top_k=request.top_k)
     facts = await svc.recall_facts(request.device_id, request.query)
     profile = await svc.get_profile(request.device_id)
@@ -66,6 +79,7 @@ async def recall(request: RecallRequest):
 @router.get("/profile/{device_id}")
 async def get_profile(device_id: str):
     svc = _require_memory()
+    _check_device_id(device_id)
     profile = await svc.get_profile(device_id)
     return {"device_id": device_id, "profile": profile}
 
@@ -73,6 +87,7 @@ async def get_profile(device_id: str):
 @router.post("/profile/{device_id}")
 async def update_profile(device_id: str, request: ProfileInteractionRequest):
     svc = _require_memory()
+    _check_device_id(device_id)
     profile = await svc.update_profile(device_id, request.interaction)
     return {"profile": profile}
 
@@ -80,6 +95,7 @@ async def update_profile(device_id: str, request: ProfileInteractionRequest):
 @router.post("/episode")
 async def create_episode(request: EpisodeRequest):
     svc = _require_memory()
+    _check_device_id(request.device_id)
     episode_id = await svc.store_episode(
         device_id=request.device_id,
         query=request.query,
@@ -94,6 +110,7 @@ async def create_episode(request: EpisodeRequest):
 @router.get("/episodes/{device_id}")
 async def list_episodes(device_id: str, limit: int = 20, offset: int = 0):
     svc = _require_memory()
+    _check_device_id(device_id)
     result = await svc.list_episodes(device_id, limit=limit, offset=offset)
     return {"episodes": result, "total": len(result)}
 
@@ -101,6 +118,7 @@ async def list_episodes(device_id: str, limit: int = 20, offset: int = 0):
 @router.delete("/episode/{episode_id}")
 async def delete_episode(episode_id: str, device_id: str):
     svc = _require_memory()
+    _check_device_id(device_id)
     episode = await svc.get_episode(episode_id)
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")
@@ -113,6 +131,7 @@ async def delete_episode(episode_id: str, device_id: str):
 @router.post("/fact")
 async def create_fact(request: FactRequest):
     svc = _require_memory()
+    _check_device_id(request.device_id)
     fact_id = await svc.store_fact(
         device_id=request.device_id,
         content=request.content,
@@ -125,6 +144,7 @@ async def create_fact(request: FactRequest):
 @router.get("/facts/{device_id}")
 async def list_facts(device_id: str, query: str = "", top_k: int = 10):
     svc = _require_memory()
+    _check_device_id(device_id)
     result = await svc.recall_facts(device_id, query=query, top_k=top_k)
     return {"facts": result}
 
@@ -132,6 +152,7 @@ async def list_facts(device_id: str, query: str = "", top_k: int = 10):
 @router.get("/stats/{device_id}")
 async def get_stats(device_id: str):
     svc = _require_memory()
+    _check_device_id(device_id)
     stats = await svc.get_stats(device_id)
     return stats
 
@@ -139,6 +160,7 @@ async def get_stats(device_id: str):
 @router.get("/usage/{device_id}")
 async def get_usage(device_id: str, metric: str | None = None, hours: int = 24):
     svc = _require_memory()
+    _check_device_id(device_id)
     usage = await svc.get_usage(device_id, metric_name=metric, hours=hours)
     return {"device_id": device_id, "usage": usage}
 
@@ -154,6 +176,7 @@ async def run_decay():
 @router.post("/search")
 async def search(request: SearchRequest):
     svc = _require_memory()
+    _check_device_id(request.device_id)
     episodes = await svc.recall_episodes(request.device_id, request.query, top_k=request.top_k)
     facts = await svc.recall_facts(request.device_id, request.query)
     return {"episodes": episodes, "facts": facts}
@@ -162,6 +185,7 @@ async def search(request: SearchRequest):
 @router.get("/history")
 async def get_history(device_id: str, limit: int = 20, offset: int = 0):
     svc = _require_memory()
+    _check_device_id(device_id)
     result = await svc.list_episodes(device_id, limit=limit, offset=offset)
     return {"episodes": result, "total": len(result)}
 
@@ -169,6 +193,7 @@ async def get_history(device_id: str, limit: int = 20, offset: int = 0):
 @router.post("/feedback")
 async def submit_feedback(request: FeedbackRequest):
     svc = _require_memory()
+    _check_device_id(request.device_id)
     if not 0.0 <= request.rating <= 5.0:
         raise HTTPException(status_code=400, detail="Rating must be between 0.0 and 5.0")
 
