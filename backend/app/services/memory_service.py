@@ -499,9 +499,10 @@ class MemoryService:
                 ),
             )
             combined = f"{query}\n\n{answer}"
-            await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
-            await db.commit()
-            await self.track_usage(device_id, "episodes_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "episodes_stored", 1)
             return episode_id
 
     async def _stream_query(self, sql: str, params: tuple = (), chunk_size: int = 100):
@@ -699,7 +700,8 @@ class MemoryService:
                     now,
                 ),
             )
-            await db.commit()
+            async with self._write_lock:
+                await db.commit()
             return obs_id
 
     async def crystallize_observations(self, device_id: str) -> int:
@@ -786,9 +788,10 @@ class MemoryService:
                     provenance,
                 ),
             )
-            await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
-            await db.commit()
-            await self.track_usage(device_id, "facts_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "facts_stored", 1)
             return fact_id
 
     async def recall_facts(self, device_id: str, query: str, top_k: int = 10) -> list[dict]:
@@ -848,9 +851,11 @@ class MemoryService:
             selected = results[:top_k]
             selected_ids = [r["id"] for r in selected]
 
-            # Phase 2: Short write transaction (batch UPDATE)
+            # Phase 2: Short write transaction (batch UPDATE).
+            # Serialized via _write_lock so it cannot interleave with other
+            # writes/commits on the shared connection.
             if selected_ids:
-                async with self._transaction():
+                async with self._write_lock, self._transaction():
                     placeholders = ",".join("?" * len(selected_ids))
                     await db.execute(
                         f"UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
@@ -1665,13 +1670,24 @@ class MemoryService:
                 "projects": project_count[0][0] if project_count else 0,
             }
 
-    async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
+    async def _track_usage_nolock(
+        self, device_id: str, metric_name: str, metric_value: float
+    ) -> None:
+        """Insert a usage metric WITHOUT acquiring _write_lock.
+
+        For internal callers that already hold _write_lock (asyncio.Lock is
+        non-reentrant, so re-acquiring it on the same task would deadlock).
+        """
         db = await self._get_db()
         await db.execute(
             "INSERT INTO memory_usage (device_id, metric_name, metric_value) VALUES (?, ?, ?)",
             (device_id, metric_name, metric_value),
         )
         await db.commit()
+
+    async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
+        async with self._write_lock:
+            await self._track_usage_nolock(device_id, metric_name, metric_value)
 
     async def get_usage(
         self, device_id: str, metric_name: str | None = None, hours: int = 24
@@ -1691,11 +1707,12 @@ class MemoryService:
 
     async def prune_usage(self, retention_days: int = 90) -> int:
         db = await self._get_db()
-        cursor = await db.execute(
-            "DELETE FROM memory_usage WHERE timestamp < datetime('now', ?)",
-            (f"-{retention_days} days",),
-        )
-        await db.commit()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM memory_usage WHERE timestamp < datetime('now', ?)",
+                (f"-{retention_days} days",),
+            )
+            await db.commit()
         deleted = cursor.rowcount
         if deleted:
             logger.info("pruned %d memory_usage rows older than %d days", deleted, retention_days)
