@@ -21,7 +21,7 @@ branch/MR that addresses it.
 
 | Status | Severity | Finding | Planned fix |
 |--------|----------|---------|-------------|
-| 🟡 | CRITICAL | Shared single `aiosqlite` connection is mutated by concurrent unawaited writes; common write paths bypass `_write_lock`, risking races/corruption under load. | Serialize all writes through `_write_lock` or move to a per-operation connection / small pool. _(Handed to developer agent for a dedicated MR.)_ |
+| ✅ | CRITICAL | Shared single `aiosqlite` connection is mutated by concurrent unawaited writes; common write paths bypass `_write_lock`, risking races/corruption under load. | Serialized **all** MemoryService writes through `_write_lock` (deadlock-safe via `_track_usage_nolock`; reads stay concurrent). Added `tests/test_memory_concurrency.py`. Branch `fix/memory-write-serialization`. |
 | ⬜ | CRITICAL | Prompt injection via unescaped retrieved RAG / memory / dead-end context concatenated into agent prompts. | Fence retrieved content as untrusted data with explicit delimiters and a system directive to treat it as data, not instructions. |
 | ⬜ | HIGH | IDOR: memory endpoints trust a caller-supplied `device_id` with no server binding, contradicting the "no cross-device leakage" claim. | Bind `device_id` to the authenticated session/ticket and reject mismatches. |
 | ⬜ | HIGH | `secureFetch` only injects the auth header for `localhost:8001`; non-localhost deployments silently 401. | Derive the trusted origin from `API_BASE_URL` instead of a hardcoded host. |
@@ -43,3 +43,10 @@ branch/MR that addresses it.
 - **2026-06-13** — Phase 2 started: database write-serialization race handed
   to the developer agent for a dedicated MR (serialize all MemoryService
   writes through `_write_lock`).
+- **2026-06-13** — Phase 2 (DB race) **implemented** on branch
+  `fix/memory-write-serialization`: every MemoryService write path now holds
+  `_write_lock` for its write+commit; reads remain lock-free for
+  concurrency. Deadlock avoided on the non-reentrant lock via a lock-free
+  `_track_usage_nolock` helper and by calling self-serializing methods
+  outside the lock. Added concurrency regression tests. No public API or
+  schema changes.
