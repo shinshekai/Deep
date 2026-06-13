@@ -1369,25 +1369,26 @@ class MemoryService:
         if not orphaned:
             return 0
         now = time.time()
-        try:
-            await db.execute("BEGIN IMMEDIATE")
-            for ep_id, device_id, session_type, query in orphaned:
-                summary = f"Session summary ({session_type}): {query[:200]}"
-                fact_id = uuid.uuid4().hex[:12]
-                await db.execute(
-                    """INSERT OR IGNORE INTO facts
-                       (id, device_id, content, source_type, source_id,
-                        confidence, created_at, last_accessed, access_count)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
-                )
-            await db.commit()
-        except Exception:
+        async with self._write_lock:
             try:
-                await db.execute("ROLLBACK")
+                await db.execute("BEGIN IMMEDIATE")
+                for ep_id, device_id, session_type, query in orphaned:
+                    summary = f"Session summary ({session_type}): {query[:200]}"
+                    fact_id = uuid.uuid4().hex[:12]
+                    await db.execute(
+                        """INSERT OR IGNORE INTO facts
+                           (id, device_id, content, source_type, source_id,
+                            confidence, created_at, last_accessed, access_count)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                    )
+                await db.commit()
             except Exception:
-                logger.exception("Failed to rollback recovery")
-            raise
+                try:
+                    await db.execute("ROLLBACK")
+                except Exception:
+                    logger.exception("Failed to rollback recovery")
+                raise
         logger.info("Recovered %d orphaned compacted episodes", len(orphaned))
         return len(orphaned)
 
