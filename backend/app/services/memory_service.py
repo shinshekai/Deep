@@ -1000,7 +1000,7 @@ class MemoryService:
             db = await self._get_db()
             if not fact_ids:
                 return {"resolved": 0}
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 if merge:
                     merged_content = keep
                     ep_id = uuid.uuid4().hex[:12]
@@ -1076,15 +1076,16 @@ class MemoryService:
             merged = {k: v for k, v in existing.items() if k not in ("device_id", "updated_at")}
             merged.update(updates)
 
-            await db.execute(
-                """INSERT INTO user_profiles (device_id, profile_json, updated_at)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(device_id) DO UPDATE SET
-                       profile_json = excluded.profile_json,
-                       updated_at = excluded.updated_at""",
-                (device_id, json.dumps(merged), now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO user_profiles (device_id, profile_json, updated_at)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(device_id) DO UPDATE SET
+                           profile_json = excluded.profile_json,
+                           updated_at = excluded.updated_at""",
+                    (device_id, json.dumps(merged), now),
+                )
+                await db.commit()
             return {"device_id": device_id, **merged, "updated_at": now}
 
     # ── Agent Memory ──────────────────────────────────────────────────────────
@@ -1104,7 +1105,7 @@ class MemoryService:
         ):
             db = await self._get_db()
             now = time.time()
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 await db.execute(
                     """INSERT INTO agent_outcomes
                        (agent_type, query_pattern, strategy_used, outcome_quality,
