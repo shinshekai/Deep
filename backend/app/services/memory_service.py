@@ -499,9 +499,10 @@ class MemoryService:
                 ),
             )
             combined = f"{query}\n\n{answer}"
-            await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
-            await db.commit()
-            await self.track_usage(device_id, "episodes_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "episodes_stored", 1)
             return episode_id
 
     async def _stream_query(self, sql: str, params: tuple = (), chunk_size: int = 100):
@@ -601,20 +602,22 @@ class MemoryService:
     async def delete_episode(self, episode_id: str) -> bool:
         with trace_span("memory.delete_episode", {"episode_id": episode_id}):
             db = await self._get_db()
-            await self._delete_chunks("episode_chunks", episode_id)
-            cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
-            await db.commit()
+            async with self._write_lock:
+                await self._delete_chunks("episode_chunks", episode_id)
+                cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+                await db.commit()
             return cursor.rowcount > 0
 
     async def rate_episode(self, device_id: str, episode_id: str, rating: float) -> bool:
         with trace_span("memory.rate_episode", {"device_id": device_id}):
             db = await self._get_db()
             rating = max(0.0, min(1.0, float(rating)))
-            cursor = await db.execute(
-                "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
-                (rating, episode_id, device_id),
-            )
-            await db.commit()
+            async with self._write_lock:
+                cursor = await db.execute(
+                    "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
+                    (rating, episode_id, device_id),
+                )
+                await db.commit()
             return cursor.rowcount > 0
 
     async def list_episodes(self, device_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
@@ -699,7 +702,8 @@ class MemoryService:
                     now,
                 ),
             )
-            await db.commit()
+            async with self._write_lock:
+                await db.commit()
             return obs_id
 
     async def crystallize_observations(self, device_id: str) -> int:
@@ -714,6 +718,10 @@ class MemoryService:
             if not rows:
                 return 0
             count = 0
+            # store_fact self-serializes via _write_lock, so it is called
+            # OUTSIDE the lock here (asyncio.Lock is non-reentrant). The
+            # crystallized-flag updates are then applied under the lock.
+            crystallized_ids = []
             for obs_id, content, source_type, source_id, confidence in rows:
                 await self.store_fact(
                     device_id=device_id,
@@ -723,12 +731,15 @@ class MemoryService:
                     confidence=confidence,
                     provenance="ai-executed",
                 )
-                await db.execute(
-                    "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
-                    (obs_id,),
-                )
+                crystallized_ids.append(obs_id)
                 count += 1
-            await db.commit()
+            async with self._write_lock:
+                for obs_id in crystallized_ids:
+                    await db.execute(
+                        "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
+                        (obs_id,),
+                    )
+                await db.commit()
             return count
 
     async def get_staged_observations(self, device_id: str) -> list[dict]:
@@ -786,9 +797,10 @@ class MemoryService:
                     provenance,
                 ),
             )
-            await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
-            await db.commit()
-            await self.track_usage(device_id, "facts_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "facts_stored", 1)
             return fact_id
 
     async def recall_facts(self, device_id: str, query: str, top_k: int = 10) -> list[dict]:
@@ -848,9 +860,11 @@ class MemoryService:
             selected = results[:top_k]
             selected_ids = [r["id"] for r in selected]
 
-            # Phase 2: Short write transaction (batch UPDATE)
+            # Phase 2: Short write transaction (batch UPDATE).
+            # Serialized via _write_lock so it cannot interleave with other
+            # writes/commits on the shared connection.
             if selected_ids:
-                async with self._transaction():
+                async with self._write_lock, self._transaction():
                     placeholders = ",".join("?" * len(selected_ids))
                     await db.execute(
                         f"UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
@@ -986,7 +1000,7 @@ class MemoryService:
             db = await self._get_db()
             if not fact_ids:
                 return {"resolved": 0}
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 if merge:
                     merged_content = keep
                     ep_id = uuid.uuid4().hex[:12]
@@ -1062,15 +1076,16 @@ class MemoryService:
             merged = {k: v for k, v in existing.items() if k not in ("device_id", "updated_at")}
             merged.update(updates)
 
-            await db.execute(
-                """INSERT INTO user_profiles (device_id, profile_json, updated_at)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(device_id) DO UPDATE SET
-                       profile_json = excluded.profile_json,
-                       updated_at = excluded.updated_at""",
-                (device_id, json.dumps(merged), now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO user_profiles (device_id, profile_json, updated_at)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(device_id) DO UPDATE SET
+                           profile_json = excluded.profile_json,
+                           updated_at = excluded.updated_at""",
+                    (device_id, json.dumps(merged), now),
+                )
+                await db.commit()
             return {"device_id": device_id, **merged, "updated_at": now}
 
     # ── Agent Memory ──────────────────────────────────────────────────────────
@@ -1090,7 +1105,7 @@ class MemoryService:
         ):
             db = await self._get_db()
             now = time.time()
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 await db.execute(
                     """INSERT INTO agent_outcomes
                        (agent_type, query_pattern, strategy_used, outcome_quality,
@@ -1205,25 +1220,26 @@ class MemoryService:
                 k: v for k, v in profile.items() if k not in ("document_count", "total_pages")
             }
 
-            await db.execute(
-                """INSERT INTO project_profiles
-                   (kb_name, profile_json, document_count, total_pages, created_at, last_queried)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(kb_name) DO UPDATE SET
-                       profile_json = excluded.profile_json,
-                       document_count = excluded.document_count,
-                       total_pages = excluded.total_pages,
-                       last_queried = excluded.last_queried""",
-                (
-                    kb_name,
-                    json.dumps(profile_filtered),
-                    doc_count,
-                    total_pages,
-                    existing["created_at"] if existing else now,
-                    now,
-                ),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO project_profiles
+                       (kb_name, profile_json, document_count, total_pages, created_at, last_queried)
+                       VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(kb_name) DO UPDATE SET
+                           profile_json = excluded.profile_json,
+                           document_count = excluded.document_count,
+                           total_pages = excluded.total_pages,
+                           last_queried = excluded.last_queried""",
+                    (
+                        kb_name,
+                        json.dumps(profile_filtered),
+                        doc_count,
+                        total_pages,
+                        existing["created_at"] if existing else now,
+                        now,
+                    ),
+                )
+                await db.commit()
 
     # ── Maintenance ───────────────────────────────────────────────────────────
 
@@ -1231,7 +1247,7 @@ class MemoryService:
         with trace_span("memory.decay_old_facts", {"days": days, "decay_rate": decay_rate}):
             db = await self._get_db()
             cutoff = time.time() - days * 86400
-            async with self._transaction():
+            async with self._write_lock, self._transaction():
                 rows = await db.execute_fetchall(
                     """SELECT id, confidence FROM facts
                        WHERE archived = 0 AND created_at < ?""",
@@ -1255,11 +1271,12 @@ class MemoryService:
         with trace_span("memory.update_episode_rating", {"episode_id": episode_id}):
             db = await self._get_db()
             clamped = max(0.0, min(1.0, float(rating)))
-            await db.execute(
-                "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
-                (clamped, episode_id),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
+                    (clamped, episode_id),
+                )
+                await db.commit()
             return True
 
     async def compact_episodes(self, older_than_days: int = 90) -> int:
@@ -1352,25 +1369,26 @@ class MemoryService:
         if not orphaned:
             return 0
         now = time.time()
-        try:
-            await db.execute("BEGIN IMMEDIATE")
-            for ep_id, device_id, session_type, query in orphaned:
-                summary = f"Session summary ({session_type}): {query[:200]}"
-                fact_id = uuid.uuid4().hex[:12]
-                await db.execute(
-                    """INSERT OR IGNORE INTO facts
-                       (id, device_id, content, source_type, source_id,
-                        confidence, created_at, last_accessed, access_count)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
-                )
-            await db.commit()
-        except Exception:
+        async with self._write_lock:
             try:
-                await db.execute("ROLLBACK")
+                await db.execute("BEGIN IMMEDIATE")
+                for ep_id, device_id, session_type, query in orphaned:
+                    summary = f"Session summary ({session_type}): {query[:200]}"
+                    fact_id = uuid.uuid4().hex[:12]
+                    await db.execute(
+                        """INSERT OR IGNORE INTO facts
+                           (id, device_id, content, source_type, source_id,
+                            confidence, created_at, last_accessed, access_count)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (fact_id, device_id, summary, "session_summary", ep_id, 0.5, now, now, 0),
+                    )
+                await db.commit()
             except Exception:
-                logger.exception("Failed to rollback recovery")
-            raise
+                try:
+                    await db.execute("ROLLBACK")
+                except Exception:
+                    logger.exception("Failed to rollback recovery")
+                raise
         logger.info("Recovered %d orphaned compacted episodes", len(orphaned))
         return len(orphaned)
 
@@ -1418,9 +1436,10 @@ class MemoryService:
                 ),
             )
             searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
-            await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
-            await db.commit()
-            await self.track_usage(device_id, "dead_ends_stored", 1)
+            async with self._write_lock:
+                await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
+                await db.commit()
+                await self._track_usage_nolock(device_id, "dead_ends_stored", 1)
             return dead_end_id
 
     async def recall_dead_ends(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
@@ -1543,16 +1562,17 @@ class MemoryService:
             now = time.time()
             current = await self.get_l3(device_id, "preferences")
             content = {**current["content"], **updates}
-            await db.execute(
-                """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
-                   VALUES (?, 'preferences', ?, 1, ?)
-                   ON CONFLICT(device_id, slot) DO UPDATE SET
-                      content = excluded.content,
-                      entry_count = excluded.entry_count,
-                      updated_at = excluded.updated_at""",
-                (device_id, json.dumps(content), now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
+                       VALUES (?, 'preferences', ?, 1, ?)
+                       ON CONFLICT(device_id, slot) DO UPDATE SET
+                          content = excluded.content,
+                          entry_count = excluded.entry_count,
+                          updated_at = excluded.updated_at""",
+                    (device_id, json.dumps(content), now),
+                )
+                await db.commit()
             return content
 
     async def read_l3_concat(self, device_id: str) -> str:
@@ -1588,18 +1608,19 @@ class MemoryService:
             valid = {"user", "ai-suggested", "ai-executed", "user-revised"}
             if new_provenance not in valid:
                 return False
-            await db.execute(
-                f"UPDATE {table} SET provenance = ? WHERE id = ?",
-                (new_provenance, entity_id),
-            )
-            await db.execute(
-                """INSERT INTO provenance_log
-                   (entity_type, entity_id, provenance_type, original_provenance,
-                    reasoning, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (entity_type, entity_id, new_provenance, old, reasoning, now),
-            )
-            await db.commit()
+            async with self._write_lock:
+                await db.execute(
+                    f"UPDATE {table} SET provenance = ? WHERE id = ?",
+                    (new_provenance, entity_id),
+                )
+                await db.execute(
+                    """INSERT INTO provenance_log
+                       (entity_type, entity_id, provenance_type, original_provenance,
+                        reasoning, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (entity_type, entity_id, new_provenance, old, reasoning, now),
+                )
+                await db.commit()
             return True
 
     async def get_provenance_lineage(self, entity_type: str, entity_id: str) -> list[dict]:
@@ -1665,13 +1686,24 @@ class MemoryService:
                 "projects": project_count[0][0] if project_count else 0,
             }
 
-    async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
+    async def _track_usage_nolock(
+        self, device_id: str, metric_name: str, metric_value: float
+    ) -> None:
+        """Insert a usage metric WITHOUT acquiring _write_lock.
+
+        For internal callers that already hold _write_lock (asyncio.Lock is
+        non-reentrant, so re-acquiring it on the same task would deadlock).
+        """
         db = await self._get_db()
         await db.execute(
             "INSERT INTO memory_usage (device_id, metric_name, metric_value) VALUES (?, ?, ?)",
             (device_id, metric_name, metric_value),
         )
         await db.commit()
+
+    async def track_usage(self, device_id: str, metric_name: str, metric_value: float):
+        async with self._write_lock:
+            await self._track_usage_nolock(device_id, metric_name, metric_value)
 
     async def get_usage(
         self, device_id: str, metric_name: str | None = None, hours: int = 24
@@ -1691,11 +1723,12 @@ class MemoryService:
 
     async def prune_usage(self, retention_days: int = 90) -> int:
         db = await self._get_db()
-        cursor = await db.execute(
-            "DELETE FROM memory_usage WHERE timestamp < datetime('now', ?)",
-            (f"-{retention_days} days",),
-        )
-        await db.commit()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM memory_usage WHERE timestamp < datetime('now', ?)",
+                (f"-{retention_days} days",),
+            )
+            await db.commit()
         deleted = cursor.rowcount
         if deleted:
             logger.info("pruned %d memory_usage rows older than %d days", deleted, retention_days)
