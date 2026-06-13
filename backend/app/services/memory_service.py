@@ -602,20 +602,22 @@ class MemoryService:
     async def delete_episode(self, episode_id: str) -> bool:
         with trace_span("memory.delete_episode", {"episode_id": episode_id}):
             db = await self._get_db()
-            await self._delete_chunks("episode_chunks", episode_id)
-            cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
-            await db.commit()
+            async with self._write_lock:
+                await self._delete_chunks("episode_chunks", episode_id)
+                cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+                await db.commit()
             return cursor.rowcount > 0
 
     async def rate_episode(self, device_id: str, episode_id: str, rating: float) -> bool:
         with trace_span("memory.rate_episode", {"device_id": device_id}):
             db = await self._get_db()
             rating = max(0.0, min(1.0, float(rating)))
-            cursor = await db.execute(
-                "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
-                (rating, episode_id, device_id),
-            )
-            await db.commit()
+            async with self._write_lock:
+                cursor = await db.execute(
+                    "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
+                    (rating, episode_id, device_id),
+                )
+                await db.commit()
             return cursor.rowcount > 0
 
     async def list_episodes(self, device_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
@@ -716,6 +718,10 @@ class MemoryService:
             if not rows:
                 return 0
             count = 0
+            # store_fact self-serializes via _write_lock, so it is called
+            # OUTSIDE the lock here (asyncio.Lock is non-reentrant). The
+            # crystallized-flag updates are then applied under the lock.
+            crystallized_ids = []
             for obs_id, content, source_type, source_id, confidence in rows:
                 await self.store_fact(
                     device_id=device_id,
@@ -725,12 +731,15 @@ class MemoryService:
                     confidence=confidence,
                     provenance="ai-executed",
                 )
-                await db.execute(
-                    "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
-                    (obs_id,),
-                )
+                crystallized_ids.append(obs_id)
                 count += 1
-            await db.commit()
+            async with self._write_lock:
+                for obs_id in crystallized_ids:
+                    await db.execute(
+                        "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
+                        (obs_id,),
+                    )
+                await db.commit()
             return count
 
     async def get_staged_observations(self, device_id: str) -> list[dict]:
