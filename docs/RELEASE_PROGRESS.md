@@ -21,7 +21,7 @@ branch/MR that addresses it.
 
 | Status | Severity | Finding | Planned fix |
 |--------|----------|---------|-------------|
-| ⬜ | CRITICAL | Shared single `aiosqlite` connection is mutated by concurrent unawaited writes; common write paths bypass `_write_lock`, risking races/corruption under load. | Serialize all writes through `_write_lock` or move to a per-operation connection / small pool. |
+| 🟡 | CRITICAL | Shared single `aiosqlite` connection is mutated by concurrent unawaited writes; common write paths bypass `_write_lock`, risking races/corruption under load. | Serialize all writes through `_write_lock` or move to a per-operation connection / small pool. _(Handed to developer agent for a dedicated MR.)_ |
 | ⬜ | CRITICAL | Prompt injection via unescaped retrieved RAG / memory / dead-end context concatenated into agent prompts. | Fence retrieved content as untrusted data with explicit delimiters and a system directive to treat it as data, not instructions. |
 | ⬜ | HIGH | IDOR: memory endpoints trust a caller-supplied `device_id` with no server binding, contradicting the "no cross-device leakage" claim. | Bind `device_id` to the authenticated session/ticket and reject mismatches. |
 | ⬜ | HIGH | `secureFetch` only injects the auth header for `localhost:8001`; non-localhost deployments silently 401. | Derive the trusted origin from `API_BASE_URL` instead of a hardcoded host. |
@@ -40,3 +40,6 @@ branch/MR that addresses it.
   enabled CI on `master`, guarded the `verify_feedback` retry-path
   `NameError`. Both changes are surgical and do not alter existing behavior
   on the success path.
+- **2026-06-13** — Phase 2 started: database write-serialization race handed
+  to the developer agent for a dedicated MR (serialize all MemoryService
+  writes through `_write_lock`).
