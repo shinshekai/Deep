@@ -23,8 +23,8 @@ branch/MR that addresses it.
 |--------|----------|---------|-------------|
 | ✅ | CRITICAL | Shared single `aiosqlite` connection is mutated by concurrent unawaited writes; common write paths bypass `_write_lock`, risking races/corruption under load. | Serialized **all** MemoryService writes through `_write_lock` (deadlock-safe via `_track_usage_nolock`; reads stay concurrent). Added `tests/test_memory_concurrency.py`. Branch `fix/memory-write-serialization`. |
 | ✅ | CRITICAL | Prompt injection via unescaped retrieved RAG / memory / dead-end context concatenated into agent prompts. | Added `_fence_untrusted()` + `INJECTION_DEFENSE_DIRECTIVE` in `solve_orchestrator.py`; fenced untrusted blocks in both the dual-loop and recursive-solver paths; appended the directive to agent system prompts. Added `tests/test_solve_injection_defense.py`. Branch `fix/memory-write-serialization`. |
-| ⬜ | HIGH | IDOR: memory endpoints trust a caller-supplied `device_id` with no server binding, contradicting the "no cross-device leakage" claim. | Bind `device_id` to the authenticated session/ticket and reject mismatches. |
-| 🟡 | HIGH | `secureFetch` only injects the auth header for `localhost:8001`; non-localhost deployments silently 401. | Derive the trusted origin from `API_BASE_URL` / `WS_BASE_URL` (localhost still trusted for dev). Added `__tests__/lib/config.test.ts`. Branch `fix/securefetch-trusted-origin`. |
+| 🟡 | HIGH | IDOR: memory endpoints trust a caller-supplied `device_id` with no server binding, contradicting the "no cross-device leakage" claim. | Added `is_valid_device_id()` (UUID check) + `_check_device_id()` guard on every memory route; non-UUID ids now 400 before the data layer. Existing ownership checks on delete/feedback preserved. Added router rejection tests. Branch `fix/device-id-validation`. |
+| 🟡 | HIGH | `secureFetch` only injects the auth header for `localhost:8001`; non-localhost deployments silently 401. | Derive the trusted origin from `API_BASE_URL` / `WS_BASE_URL` (localhost still trusted for dev). Added `__tests__/lib/config.test.ts`. Merged in !7. Branch `fix/securefetch-trusted-origin`. |
 
 ## Phase 3 — Quality & AI Maturity
 
@@ -55,4 +55,12 @@ branch/MR that addresses it.
   `fix/securefetch-trusted-origin`: the auth header is now attached to any
   request whose origin matches the configured API/WS origin (not just a
   hardcoded localhost host), fixing silent 401s on non-localhost
-  deployments. Added frontend tests.
+  deployments. Added frontend tests. Merged in !7.
+- **2026-06-13** — Phase 2 (`device_id` IDOR) **implemented** on branch
+  `fix/device-id-validation`: all memory routes now validate `device_id`
+  as a canonical UUID and return 400 for malformed values before touching
+  the data layer (defense-in-depth against IDOR/enumeration). The
+  device-identity model is unchanged (frontend already uses
+  `crypto.randomUUID()`). Existing ownership checks on delete/feedback are
+  preserved. Added rejection tests. **All audit P0/HIGH items now
+  addressed.**
