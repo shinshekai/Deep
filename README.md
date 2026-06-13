@@ -13,12 +13,11 @@
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-orange)
 
 DEEP is a local-first AI platform that merges document intelligence, multi-agent reasoning, and persistent memory into a single system. It runs entirely on your hardware — no cloud, no data leakage. Upload documents, build hierarchical indexes, and interact with specialized agents that research, tutor, generate, and solve problems using your local LLM.
-
 ## Why DEEP Exists
 
 Modern AI tools force a choice: powerful cloud APIs that send your data elsewhere, or local models that lack the orchestration to do anything useful with them. DEEP bridges this gap. It pairs local inference (via LM Studio, Ollama, or llama.cpp) with a full agent system, structured retrieval pipeline, and persistent memory — all running on your own machine.
 
-The result is a platform where a student can upload lecture notes and get guided tutoring, a researcher can compile deep multi-source analysis, and a developer can query their codebase through a knowledge graph — without any data leaving their network. Every component, from the 3-tier model manager that balances VRAM across always-resident and on-demand models, to the 8-table memory system that tracks episodic recall and semantic facts, is designed for the constraints and strengths of consumer hardware.
+The result is a platform where a student can upload lecture notes and get guided tutoring, a researcher can compile deep multi-source analysis, and a developer can query their codebase through a knowledge graph — without any data leaving their network. Every component, from the 3-tier model manager that balances VRAM across always-resident and on-demand models, to the 14-table memory system that tracks episodic recall and semantic facts, is designed for the constraints and strengths of consumer hardware.
 
 ## Key Features
 
@@ -31,7 +30,7 @@ The result is a platform where a student can upload lecture notes and get guided
 | **Recursive Multi-Agent Solver** | 4 collaboration patterns: Sequential, Mixture, Deliberation, Distillation from RecursiveMAS research. |
 | **Deep Research Pipeline** | 3-phase: Decompose → Parallel Research → Report with source attribution. |
 | **Guided Learning System** | 4-agent pipeline: Locate → Interactive → Chat → Summary for adaptive tutoring. |
-| **Persistent Memory** | 10-table SQLite with episodic recall, semantic facts, contradiction detection, staged observations, and background maintenance. |
+| **Persistent Memory** | 14-table SQLite (+3 FTS5 virtual tables) with episodic recall, semantic facts, contradiction detection, staged observations, and background maintenance. |
 | **Knowledge Graph** | Entity-relation graph for dual-index RAG (KG + Dense Embeddings), enabling graph-based retrieval. |
 | **Progressive Crystallization** | Observations staged before permanent storage, crystallized on closure signals. |
 | **TurboQuant KV Cache** | 3-4 bit KV cache quantization reducing VRAM usage 40-50% with minimal quality loss. |
@@ -80,7 +79,7 @@ graph TB
     end
 
     subgraph Storage["Storage — Local"]
-        DB[(SQLite + FTS5 — 14 tables)]
+        DB[(SQLite + FTS5 — 14 tables + 3 FTS5)]
         FS[File System — Knowledge Bases]
         KG[Knowledge Graph]
         IDX[PageIndex Trees]
