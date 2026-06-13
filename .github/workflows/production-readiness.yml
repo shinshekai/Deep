@@ -7,13 +7,13 @@ name: Production Readiness
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, master, develop]
     paths:
       - 'backend/**'
       - 'frontend/**'
       - '.github/workflows/production-readiness.yml'
   pull_request:
-    branches: [main]
+    branches: [main, master]
   schedule:
     # Nightly at 02:00 UTC — full suite with coverage
     - cron: '0 2 * * *'

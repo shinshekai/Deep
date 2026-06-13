@@ -320,6 +320,9 @@ async def _run_dual_loop(
     MAX_STEP_RETRIES = 2
 
     context_summary = " | ".join(analysis_context[-2:])  # last 2 steps
+    # Always defined so the attempt>0 retry prompt can never reference an
+    # undefined name, even if verification is skipped for a given step.
+    verify_feedback = ""
 
     for agent_key, agent_label in solve_steps:
         step_content = None
@@ -334,7 +337,7 @@ async def _run_dual_loop(
                 else:
                     user_prompt = f"Context from analysis: {context_summary}\n\nOriginal query: {query}"
             if attempt > 0:
-                user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"  # noqa: F821
+                user_prompt = f"Previous attempt failed verification: {verify_feedback}\n\nRetry the {agent_key} step.\n\n{user_prompt}"
 
             messages = [
                 {"role": "system", "content": AGENT_PROMPTS[agent_key]},
