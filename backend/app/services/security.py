@@ -207,3 +207,25 @@ def is_safe_path_segment(segment: str) -> bool:
     if segment.startswith("."):
         return False
     return "\x00" not in segment
+
+
+# ── Device id validation ─────────────────────────────────────────
+#
+# Device ids are client-generated UUID v4 values (``crypto.randomUUID()``
+# on the frontend, ``uuid.uuid4()`` on the solve WebSocket). Memory is
+# scoped per device id, so accepting arbitrary strings would let a caller
+# read or modify another device's data by guessing/enumerating ids, and
+# would allow non-UUID values to be used as path/query keys. Validating
+# the UUID shape rejects those inputs without changing the device-identity
+# model.
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def is_valid_device_id(value: str) -> bool:
+    """Return True iff ``value`` is a canonical UUID string."""
+    return isinstance(value, str) and bool(_UUID_RE.match(value))
+
