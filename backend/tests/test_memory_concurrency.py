@@ -126,3 +126,22 @@ class TestConcurrentWrites:
 
         stats = await svc.get_stats(device_id)
         assert stats["episodes"] == 20
+
+    async def test_compaction_tracks_usage_without_reentrant_lock_deadlock(
+        self, isolated_service
+    ):
+        """compact_episodes must not call track_usage while holding _write_lock."""
+        svc = isolated_service
+        device_id = "compact-deadlock-check"
+
+        episode_id = await svc.store_episode(device_id, "old query", "old answer")
+        db = await svc._get_db()
+        await db.execute("UPDATE episodes SET created_at = 0 WHERE id = ?", (episode_id,))
+        await db.commit()
+
+        compacted = await asyncio.wait_for(svc.compact_episodes(older_than_days=1), timeout=2)
+
+        assert compacted == 1
+        usage = await svc.get_usage(device_id, metric_name="episodes_compacted")
+        assert usage
+        assert usage[0]["metric_value"] == 1

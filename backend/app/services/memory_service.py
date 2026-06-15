@@ -478,28 +478,28 @@ class MemoryService:
             db = await self._get_db()
             episode_id = uuid.uuid4().hex[:12]
             now = time.time()
-            await db.execute(
-                """INSERT INTO episodes
-                   (id, device_id, session_type, query, answer, agents,
-                    model_used, tier, citations, outcome_rating, created_at, provenance)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    episode_id,
-                    device_id,
-                    session_type,
-                    query,
-                    answer,
-                    json.dumps(agents or []),
-                    model_used,
-                    tier,
-                    json.dumps(citations or []),
-                    0.0,
-                    now,
-                    provenance,
-                ),
-            )
             combined = f"{query}\n\n{answer}"
             async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO episodes
+                       (id, device_id, session_type, query, answer, agents,
+                        model_used, tier, citations, outcome_rating, created_at, provenance)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        episode_id,
+                        device_id,
+                        session_type,
+                        query,
+                        answer,
+                        json.dumps(agents or []),
+                        model_used,
+                        tier,
+                        json.dumps(citations or []),
+                        0.0,
+                        now,
+                        provenance,
+                    ),
+                )
                 await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
                 await db.commit()
                 await self._track_usage_nolock(device_id, "episodes_stored", 1)
@@ -686,23 +686,23 @@ class MemoryService:
             db = await self._get_db()
             obs_id = uuid.uuid4().hex[:12]
             now = time.time()
-            await db.execute(
-                """INSERT INTO staged_observations
-                   (id, device_id, content, source_type, source_id,
-                    confidence, metadata, created_at, crystallized)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-                (
-                    obs_id,
-                    device_id,
-                    content,
-                    source_type,
-                    source_id,
-                    confidence,
-                    json.dumps(metadata or {}),
-                    now,
-                ),
-            )
             async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO staged_observations
+                       (id, device_id, content, source_type, source_id,
+                        confidence, metadata, created_at, crystallized)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                    (
+                        obs_id,
+                        device_id,
+                        content,
+                        source_type,
+                        source_id,
+                        confidence,
+                        json.dumps(metadata or {}),
+                        now,
+                    ),
+                )
                 await db.commit()
             return obs_id
 
@@ -779,25 +779,25 @@ class MemoryService:
             db = await self._get_db()
             fact_id = uuid.uuid4().hex[:12]
             now = time.time()
-            await db.execute(
-                """INSERT INTO facts
-                   (id, device_id, content, source_type, source_id,
-                    confidence, created_at, last_accessed, access_count, provenance)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    fact_id,
-                    device_id,
-                    content,
-                    source_type,
-                    source_id,
-                    confidence,
-                    now,
-                    now,
-                    0,
-                    provenance,
-                ),
-            )
             async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO facts
+                       (id, device_id, content, source_type, source_id,
+                        confidence, created_at, last_accessed, access_count, provenance)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        fact_id,
+                        device_id,
+                        content,
+                        source_type,
+                        source_id,
+                        confidence,
+                        now,
+                        now,
+                        0,
+                        provenance,
+                    ),
+                )
                 await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
                 await db.commit()
                 await self._track_usage_nolock(device_id, "facts_stored", 1)
@@ -1032,7 +1032,6 @@ class MemoryService:
                     f"UPDATE facts SET archived = 1 WHERE id IN ({placeholders})",
                     fact_ids,
                 )
-                await db.commit()
             return {"resolved": len(fact_ids)}
 
     # ── User Profile ──────────────────────────────────────────────────────────
@@ -1352,7 +1351,7 @@ class MemoryService:
                     did = r[1]
                     device_counts[did] = device_counts.get(did, 0) + 1
                 for did, count in device_counts.items():
-                    await self.track_usage(did, "episodes_compacted", count)
+                    await self._track_usage_nolock(did, "episodes_compacted", count)
                 return len(episode_ids)
 
     async def recover_partial_compactions(self) -> int:
@@ -1412,31 +1411,31 @@ class MemoryService:
             db = await self._get_db()
             dead_end_id = uuid.uuid4().hex[:12]
             now = time.time()
-            await db.execute(
-                """INSERT INTO dead_ends
-                   (id, device_id, title, hypothesis, approach, failure_mode,
-                    failure_evidence, lesson, parent_node_id, parent_node_type,
-                    provenance, tags, confidence, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    dead_end_id,
-                    device_id,
-                    title,
-                    hypothesis,
-                    approach,
-                    failure_mode,
-                    failure_evidence,
-                    lesson,
-                    parent_node_id,
-                    parent_node_type,
-                    provenance,
-                    json.dumps(tags or []),
-                    0.5,
-                    now,
-                ),
-            )
             searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
             async with self._write_lock:
+                await db.execute(
+                    """INSERT INTO dead_ends
+                       (id, device_id, title, hypothesis, approach, failure_mode,
+                        failure_evidence, lesson, parent_node_id, parent_node_type,
+                        provenance, tags, confidence, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        dead_end_id,
+                        device_id,
+                        title,
+                        hypothesis,
+                        approach,
+                        failure_mode,
+                        failure_evidence,
+                        lesson,
+                        parent_node_id,
+                        parent_node_type,
+                        provenance,
+                        json.dumps(tags or []),
+                        0.5,
+                        now,
+                    ),
+                )
                 await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
                 await db.commit()
                 await self._track_usage_nolock(device_id, "dead_ends_stored", 1)
