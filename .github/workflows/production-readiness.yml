@@ -41,10 +41,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install backend dependencies
         working-directory: backend
-        run: |
-          pip install -e ".[dev]"
+        run: uv sync
 
       - name: Run validation pipeline (fast mode)
         working-directory: backend
@@ -79,11 +81,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install dependencies
         working-directory: backend
-        run: |
-          pip install -e ".[dev,type-check]"
-          pip install pytest-cov
+        run: uv sync --extra type-check
 
       - name: Type check (mypy)
         working-directory: backend
@@ -155,11 +158,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install backend + audit tools
         working-directory: backend
         run: |
-          pip install -e ".[dev]"
-          pip install pip-audit
+          uv sync
+          uv pip install pip-audit
 
       - name: Python dependency audit (pip-audit)
         working-directory: backend
@@ -198,11 +204,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install dependencies
         working-directory: backend
-        run: |
-          pip install -e ".[dev]"
-          pip install pytest-cov
+        run: uv sync
 
       - name: Download coverage data
         uses: actions/download-artifact@v4
@@ -323,8 +330,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install Locust
-        run: pip install locust
+        run: uv pip install locust
 
       - name: Start backend container
         run: |
@@ -372,9 +382,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install dependencies
         working-directory: backend
-        run: pip install -e ".[dev]"
+        run: uv sync
 
       - name: Check remediation progress
         working-directory: backend
@@ -424,8 +437,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install cyclonedx-bom
-        run: pip install cyclonedx-bom
+        run: uv pip install cyclonedx-bom
 
       - name: Generate Python SBOM
         working-directory: backend

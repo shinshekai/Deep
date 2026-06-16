@@ -28,6 +28,7 @@ build/
 .next/
 node_modules/
 out/
+.python-version
 
 # IDE
 .vscode/
