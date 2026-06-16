@@ -11,6 +11,7 @@ interface PageIndexSidebarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   filteredTree: IndexNode | null;
+  className?: string;
 }
 
 export function PageIndexSidebar({
@@ -20,9 +21,10 @@ export function PageIndexSidebar({
   searchQuery,
   onSearchChange,
   filteredTree,
+  className = "",
 }: PageIndexSidebarProps) {
   return (
-    <aside className="w-80 shrink-0 border-l border-zinc-900 bg-zinc-950/60 backdrop-blur-sm flex flex-col h-full overflow-hidden select-none animate-slide-in">
+    <aside className={`w-80 shrink-0 border-l border-border bg-card/60 backdrop-blur-sm flex flex-col h-full overflow-hidden select-none animate-slide-in ${className}`}>
       <div className="p-4 border-b border-zinc-900 flex items-center justify-between">
         <span className="text-xs uppercase font-extrabold text-zinc-400 tracking-wider font-mono flex items-center gap-1.5">
           <Layers className="h-4 w-4 text-indigo-400 animate-pulse" />
@@ -42,14 +44,19 @@ export function PageIndexSidebar({
             className="flex-1 bg-transparent border-0 px-2 py-0 text-xs text-zinc-300 placeholder-zinc-700 focus:outline-none focus:ring-0"
           />
           {searchQuery && (
-            <button onClick={() => onSearchChange("")} aria-label="Clear search" className="text-zinc-600 hover:text-zinc-400">
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              aria-label="Clear index search"
+              className="tap-target pressable focus-ring flex items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-400"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-1">
+      <div className="deep-scrollbar flex-1 overflow-y-auto p-3.5 space-y-1">
         {loadingTree ? (
           <div className="flex flex-col items-center justify-center py-12 text-zinc-600 text-xs gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />

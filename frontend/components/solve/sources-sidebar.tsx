@@ -27,6 +27,7 @@ interface SourcesSidebarProps {
   onFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   solveStatus: string;
+  className?: string;
 }
 
 export function SourcesSidebar({
@@ -45,11 +46,12 @@ export function SourcesSidebar({
   onFileChange,
   fileInputRef,
   solveStatus,
+  className = "",
 }: SourcesSidebarProps) {
   const triggerFileBrowser = () => fileInputRef.current?.click();
 
   return (
-    <aside className="w-80 shrink-0 border-r border-zinc-900 bg-zinc-950/60 backdrop-blur-sm flex flex-col h-full overflow-hidden select-none animate-slide-in">
+    <aside className={`w-80 shrink-0 border-r border-border bg-card/60 backdrop-blur-sm flex flex-col h-full overflow-hidden select-none animate-slide-in ${className}`}>
       <div className="p-4 border-b border-zinc-900 flex items-center justify-between">
         <span className="text-xs uppercase font-extrabold text-zinc-400 tracking-wider font-mono flex items-center gap-1.5">
           <span className="h-4 w-4 text-indigo-400" />
@@ -60,7 +62,7 @@ export function SourcesSidebar({
         </Badge>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      <div className="deep-scrollbar flex-1 overflow-y-auto p-4 space-y-5">
         <KbSelector
           kbOptions={kbOptions}
           selectedKb={kbName}
@@ -71,25 +73,27 @@ export function SourcesSidebar({
           <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono block">
             Ingest Document
           </label>
-          <div
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".pdf,.txt,.md"
+            onChange={onFileChange}
+            aria-label="Upload document to knowledge base"
+            className="hidden"
+          />
+          <button
+            type="button"
             onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
+            onDragLeave={() => onDragLeave()}
             onDrop={onDrop}
             onClick={triggerFileBrowser}
-            className={`rounded-xl border border-dashed p-4 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2 ${
+            className={`focus-ring pressable min-h-32 w-full rounded-xl border border-dashed p-4 text-center cursor-pointer flex flex-col items-center justify-center gap-2 ${
               dragging
                 ? "border-indigo-500 bg-indigo-500/10"
                 : "border-zinc-800 bg-zinc-950/20 hover:border-zinc-750 hover:bg-zinc-950/40"
             }`}
+            aria-label="Choose or drop a document to upload"
           >
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".pdf,.txt,.md"
-              onChange={onFileChange}
-              aria-label="Upload document to knowledge base"
-              className="hidden"
-            />
             {uploadProgress ? (
               <div className="space-y-2 py-2">
                 <Loader2 className="h-6 w-6 text-indigo-400 animate-spin mx-auto" />
@@ -106,7 +110,7 @@ export function SourcesSidebar({
                 </div>
               </>
             )}
-          </div>
+          </button>
         </div>
 
         <div className="space-y-2">
@@ -123,16 +127,19 @@ export function SourcesSidebar({
               No indexed resources in scope. Ingest files above.
             </div>
           ) : (
-            <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+            <div className="deep-scrollbar space-y-1.5 min-h-24 max-h-[300px] overflow-y-auto pr-1">
               {documents.map((doc) => (
-                <div
+                <button
+                  type="button"
                   key={doc.doc_id}
                   onClick={() => onSelectDoc(doc.doc_id)}
-                  className={`flex items-center justify-between rounded-lg border p-2.5 transition text-left cursor-pointer ${
+                  className={`focus-ring pressable flex min-h-11 w-full items-center justify-between rounded-lg border p-2.5 text-left cursor-pointer ${
                     doc.doc_id === selectedDocId
                       ? "bg-indigo-950/20 border-indigo-500/30 text-indigo-200"
                       : "border-zinc-900/60 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-900/30"
                   }`}
+                  aria-pressed={doc.doc_id === selectedDocId}
+                  aria-label={`Select document ${doc.doc_id}`}
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <FileText className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
@@ -149,14 +156,17 @@ export function SourcesSidebar({
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${
                         doc.status === "indexed"
-                          ? "bg-emerald-500"
+                          ? "bg-success"
                           : doc.status === "processing"
-                            ? "animate-pulse bg-amber-500"
-                            : "bg-red-500"
+                            ? "animate-pulse bg-warning"
+                            : "bg-danger"
                       }`}
                     />
+                    <span className="text-[9px] font-mono text-zinc-600 capitalize">
+                      {doc.status}
+                    </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}

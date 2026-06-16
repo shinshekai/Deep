@@ -10,16 +10,15 @@ export function TreeItem({ node, depth = 0 }: { node: IndexNode; depth: number }
 
   return (
     <div className="space-y-1 select-none">
-      <div
+      <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-start gap-1.5 py-1 px-2 rounded-lg text-xs transition cursor-pointer hover:bg-zinc-900/40 ${
+        className={`focus-ring pressable flex min-h-11 w-full items-start gap-1.5 py-1 px-2 rounded-lg text-left text-xs cursor-pointer hover:bg-zinc-900/40 ${
           expanded ? "bg-zinc-900/20 text-zinc-200" : "text-zinc-450 hover:text-zinc-300"
         }`}
         style={{ paddingLeft: `${depth * 10 + 8}px` }}
-        role="button"
         aria-expanded={expanded}
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } }}
+        aria-label={`${expanded ? "Collapse" : "Expand"} ${node.title || "Untitled heading"}`}
       >
         {hasChildren ? (
           <span className="mt-0.5 shrink-0">
@@ -45,7 +44,7 @@ export function TreeItem({ node, depth = 0 }: { node: IndexNode; depth: number }
             </p>
           )}
         </div>
-      </div>
+      </button>
       {expanded && hasChildren && (
         <div className="space-y-0.5">
           {node.children.map((child, i) => (

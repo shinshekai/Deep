@@ -134,41 +134,42 @@ export default function PlatformLayout({
 
   const pressureBulbColor =
     pressureLevel === "green"
-      ? "bg-emerald-500 shadow-emerald-500/50"
+      ? "bg-success shadow-success/50"
       : pressureLevel === "yellow"
-        ? "bg-yellow-500 shadow-yellow-500/50"
+        ? "bg-warning shadow-warning/50"
         : pressureLevel === "orange"
-          ? "bg-orange-500 shadow-orange-500/50"
-          : "bg-red-500 shadow-red-500/50";
+          ? "bg-warning shadow-warning/50"
+          : "bg-danger shadow-danger/50";
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-zinc-950 text-zinc-100 antialiased font-sans">
+    <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground antialiased font-sans">
       
       {/* Skip navigation — visible only on focus for keyboard users */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-indigo-600 focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-primary-foreground focus:shadow-lg"
       >
         Skip to main content
       </a>
       
       {/* ── STICKY CONTROL HEADER ── */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md px-3 md:px-4 select-none">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-3 md:px-4 select-none">
         
         {/* Logo and Mobile Toggle */}
         <div className="flex items-center gap-3 md:gap-6">
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-900 bg-zinc-950 text-zinc-400 hover:text-white md:hidden focus:outline-none"
+            className="tap-target pressable focus-ring flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground md:hidden"
             title="Toggle Menu"
+            aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
           >
             <Menu className="h-4.5 w-4.5" />
           </button>
 
-          <Link href="/" className="flex items-center gap-2 group focus:outline-none">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 font-black text-xs text-white shadow-lg shadow-indigo-600/30 group-hover:bg-indigo-500 transition">
+          <Link href="/" className="focus-ring pressable flex items-center gap-2 rounded-lg group">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary font-black text-xs text-primary-foreground shadow-lg group-hover:opacity-90 transition-all duration-200">
               D
             </div>
             <span className="font-extrabold text-sm tracking-widest text-white font-sans uppercase">DEEP</span>
@@ -221,12 +222,13 @@ export default function PlatformLayout({
           <button
             type="button"
             onClick={() => setRightPanelOpen(!rightPanelOpen)}
-            className={`hidden lg:flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+            className={`tap-target pressable focus-ring hidden lg:flex items-center justify-center rounded-lg border ${
               rightPanelOpen
                 ? "bg-zinc-800 border-zinc-700 text-white"
                 : "bg-zinc-950 border-zinc-900 text-zinc-400 hover:text-white"
-            } focus:outline-none`}
+            }`}
             title="Toggle dynamic context panel"
+            aria-label="Toggle dynamic context panel"
             aria-expanded={rightPanelOpen}
           >
             <LayoutGrid className="h-4 w-4" />
@@ -248,7 +250,7 @@ export default function PlatformLayout({
           <button
             type="button"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="absolute top-3 -right-3 z-30 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white transition focus:outline-none"
+            className="tap-target pressable focus-ring absolute top-3 -right-4 z-30 flex items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
             aria-label="Toggle sidebar collapse"
             aria-expanded={!sidebarCollapsed}
           >
@@ -256,7 +258,7 @@ export default function PlatformLayout({
           </button>
           
           {/* Workspace navigation content */}
-          <nav className="flex-1 space-y-6 p-4 overflow-y-auto overflow-x-hidden">
+          <nav className="deep-scrollbar flex-1 space-y-6 p-4 overflow-y-auto overflow-x-hidden">
             {navSections.map((section) => (
               <div key={section.label} className="space-y-2">
                 <span className={`px-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 font-mono block transition-opacity duration-200 ${
@@ -273,7 +275,7 @@ export default function PlatformLayout({
                       <Link
                         key={item.href}
                         href={item.href}
-                        className={`flex items-center justify-between group rounded-lg px-2.5 py-2.5 text-xs font-semibold transition relative ${
+                        className={`focus-ring pressable flex min-h-11 items-center justify-between group rounded-lg px-2.5 py-2.5 text-xs font-semibold relative ${
                           isActive
                             ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
                             : "text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-300 border border-transparent"
@@ -321,11 +323,11 @@ export default function PlatformLayout({
         {/* MOBILE SIDEOVER SLIDE DRAWER MENU */}
         {mobileMenuOpen && (
           <div className="fixed inset-0 z-50 flex md:hidden bg-black/60 backdrop-blur-xs select-none">
-            <div className="w-64 border-r border-zinc-850 bg-zinc-950 p-4.5 flex flex-col justify-between animate-slide-in relative">
+            <div className="safe-area-panel w-64 max-w-[calc(100vw-3rem)] border-r border-border bg-background px-4.5 flex flex-col justify-between animate-slide-in relative">
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="absolute top-4 right-4 p-1 rounded text-zinc-500 hover:text-white focus:outline-none"
+                className="tap-target pressable focus-ring absolute top-4 right-4 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground"
                 aria-label="Close mobile menu"
               >
                 <X className="h-5 w-5" />
@@ -350,7 +352,7 @@ export default function PlatformLayout({
                               key={item.href}
                               href={item.href}
                               onClick={() => setMobileMenuOpen(false)}
-                              className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-xs font-semibold ${
+                              className={`focus-ring pressable flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-xs font-semibold ${
                                 isActive ? "bg-indigo-600/10 text-indigo-400" : "text-zinc-500 hover:bg-zinc-900"
                               }`}
                             >
@@ -370,12 +372,17 @@ export default function PlatformLayout({
               </div>
             </div>
             {/* Tap outside backdrop */}
-            <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
+            <button
+              type="button"
+              className="flex-1"
+              aria-label="Close mobile menu backdrop"
+              onClick={() => setMobileMenuOpen(false)}
+            />
           </div>
         )}
 
         {/* PRIMARY WORKSPACE CONTENT FRAME (RESPONSIVE GRID) */}
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto bg-zinc-950 select-text relative">
+        <main id="main-content" tabIndex={-1} className="deep-scrollbar flex-1 overflow-auto bg-background select-text relative">
           <div className="w-full h-full p-3 sm:p-5 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
             <ErrorBoundary fallbackTitle="Page Load Error">
               {children}
@@ -393,15 +400,15 @@ export default function PlatformLayout({
               <button
                 type="button"
                 onClick={() => setRightPanelOpen(false)}
-                className="p-1 rounded text-zinc-500 hover:text-white hover:bg-zinc-900 transition focus:outline-none"
-                aria-label="Close observability panel"
-              >
-                <X className="h-4 w-4" />
+              className="tap-target pressable focus-ring flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+              aria-label="Close observability panel"
+            >
+              <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Dynamic Observability content sections */}
-            <div className="flex-1 p-4.5 overflow-y-auto space-y-5">
+            <div className="deep-scrollbar flex-1 p-4.5 overflow-y-auto space-y-5">
               
               {/* Telemetry Dial stats */}
               <div className="rounded-xl border border-zinc-900 bg-zinc-950/30 p-4 space-y-3.5">
@@ -474,7 +481,7 @@ export default function PlatformLayout({
                   <span>Mission State logs</span>
                 </div>
 
-                <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+                <div className="deep-scrollbar space-y-2.5 min-h-24 max-h-[220px] overflow-y-auto pr-1">
                   <div className="text-[10px] text-zinc-400 leading-normal border-l-2 border-zinc-800 pl-2">
                     <div className="font-bold font-mono text-zinc-450">SYSTEM INGESTION</div>
                     <p className="mt-0.5">Vector KB generator ready. Ingested 12 documents successfully.</p>
@@ -495,7 +502,13 @@ export default function PlatformLayout({
             {/* Quick help button footer */}
             <div className="border-t border-zinc-900 p-4 bg-zinc-950/20 flex justify-between items-center">
               <span className="text-[9px] font-mono text-zinc-500">DEEP V2 ENGINE v2.0.4</span>
-              <HelpCircle className="h-4 w-4 text-zinc-600 hover:text-white transition cursor-pointer" />
+              <button
+                type="button"
+                className="tap-target pressable focus-ring flex items-center justify-center rounded-lg text-zinc-600 hover:text-white"
+                aria-label="Open DEEP help"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </button>
             </div>
 
           </aside>
