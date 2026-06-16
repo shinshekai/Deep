@@ -56,7 +56,7 @@ colorclass==2.2.2
     # via oletools
 compressed-rtf==1.0.7
     # via extract-msg
-cryptography==48.0.0
+cryptography==48.0.1
     # via msoffcrypto-tool
 datasets==4.8.5
     # via ragas
