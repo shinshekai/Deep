@@ -361,7 +361,7 @@ python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.30
+python-multipart==0.0.31
     # via udip-backend (pyproject.toml)
 python-pptx==1.0.2
     # via udip-backend (pyproject.toml)
