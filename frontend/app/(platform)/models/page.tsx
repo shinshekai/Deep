@@ -10,11 +10,13 @@ import { API_BASE_URL, secureFetch } from "@/lib/config";
 import { toast } from "sonner";
 import { Eye, EyeOff, Check, AlertCircle, ExternalLink } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ModelsHeader } from "@/components/models/models-header";
 import { ConnectionRail } from "@/components/models/connection-rail";
 import { FilterToolbar } from "@/components/models/filter-toolbar";
 import { TierSlotCard } from "@/components/models/tier-slot-card";
 import { estimateVramNeeds } from "@/lib/estimate-vram";
+import { useAppStore } from "@/stores";
 
 const EMPTY_DISCOVERY: ModelDiscoveryResponse = {
   local: [],
@@ -26,6 +28,7 @@ export default function ModelsConsoleV2() {
   const [discovery, setDiscovery] = useState<ModelDiscoveryResponse>(EMPTY_DISCOVERY);
   const [loading, setLoading] = useState(true);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const setModelSelection = useAppStore((s) => s.setModelSelection);
 
   const [telemetry, setTelemetry] = useState({
     total_mb: 24576,
@@ -166,6 +169,7 @@ export default function ModelsConsoleV2() {
       } else {
         toast.info(data.message || `Tier ${tier} pipeline target targeted successfully.`);
       }
+      setModelSelection(tier, { model_id: model.id, provider_id: model.provider_id, provider_type: model.source });
       await loadDiscovery();
       await loadTelemetry();
     } catch (e) {
@@ -243,6 +247,17 @@ export default function ModelsConsoleV2() {
       />
 
       <main className="flex flex-1 flex-col lg:flex-row gap-6 p-6">
+        {loading ? (
+          <div className="flex-1 space-y-6">
+            <Skeleton className="h-8 w-48 rounded-lg" />
+            <div className="grid gap-6 md:grid-cols-3">
+              <Skeleton className="h-64 w-full rounded-xl" />
+              <Skeleton className="h-64 w-full rounded-xl" />
+              <Skeleton className="h-64 w-full rounded-xl" />
+            </div>
+          </div>
+        ) : (
+          <>
         <ConnectionRail
           localProviders={discovery.local ?? []}
           cloudProviders={discovery.cloud ?? []}
@@ -297,6 +312,8 @@ export default function ModelsConsoleV2() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </main>
 
       {/* Provider Setup Sheet */}

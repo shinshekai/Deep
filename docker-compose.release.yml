@@ -1,0 +1,32 @@
+# docker-compose.release.yml — Pre-built image deployment
+# Uses images from GitHub Container Registry instead of building locally.
+# Usage: docker compose -f docker-compose.release.yml up
+version: "3.8"
+
+services:
+  backend:
+    image: ghcr.io/shinshekai/deep-backend:latest
+    ports:
+      - "${BACKEND_PORT:-8001}:8001"
+    env_file: .env
+    volumes:
+      - deep_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    image: ghcr.io/shinshekai/deep-frontend:latest
+    ports:
+      - "${FRONTEND_PORT:-3782}:3782"
+    environment:
+      - BACKEND_URL=http://backend:8001
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  deep_data:

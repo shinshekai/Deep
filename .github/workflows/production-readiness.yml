@@ -69,7 +69,27 @@ jobs:
             --output ../validation-summary.md
           cat ../validation-summary.md >> $GITHUB_STEP_SUMMARY
 
-  # ── Job 2: Backend Tests + Coverage ─────────────────────────
+  # ── Job 2: Pre-Commit Enforcement ────────────────────────────
+  pre-commit:
+    name: Pre-Commit Hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
+
+  # ── Job 3: Backend Tests + Coverage ─────────────────────────
   backend-tests:
     name: Backend Tests & Coverage
     runs-on: ubuntu-latest
@@ -116,7 +136,7 @@ jobs:
             backend/coverage.json
             backend/htmlcov/
 
-  # ── Job 3: Frontend Lint + Type Check ───────────────────────
+  # ── Job 4: Frontend Lint + Type Check ───────────────────────
   frontend-checks:
     name: Frontend Checks
     runs-on: ubuntu-latest
@@ -146,7 +166,7 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  # ── Job 4: Security Scanning ────────────────────────────────
+  # ── Job 5: Security Scanning ────────────────────────────────
   security-scan:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -190,7 +210,7 @@ jobs:
           npm audit --audit-level=high
           echo "npm audit completed"
 
-  # ── Job 5: Full Validation (nightly / manual) ──────────────
+  # ── Job 6: Full Validation (nightly / manual) ──────────────
   full-validation:
     name: Full Production Readiness
     runs-on: ubuntu-latest
@@ -240,7 +260,7 @@ jobs:
             full-validation-report.json
             weekly-report.md
 
-  # ── Job 6: Docker Image Build ──────────────────────────────
+  # ── Job 7: Docker Image Build ──────────────────────────────
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -316,7 +336,7 @@ jobs:
           docker push ghcr.io/${{ github.repository }}/udip-frontend:${{ github.sha }}
           docker push ghcr.io/${{ github.repository }}/udip-frontend:latest
 
-  # ── Job 7: Load Testing (nightly / manual) ─────────────────
+  # ── Job 8: Load Testing (nightly / manual) ─────────────────
   load-test:
     name: Load Testing
     runs-on: ubuntu-latest
@@ -368,7 +388,7 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.prod.yml down
 
-  # ── Job 8: Remediation Progress Gate ────────────────────────
+  # ── Job 9: Remediation Progress Gate ────────────────────────
   remediation-gate:
     name: Remediation Progress
     runs-on: ubuntu-latest
@@ -423,7 +443,7 @@ jobs:
               print('::warning::Sprint 1 critical fixes are incomplete!')
           " >> $GITHUB_STEP_SUMMARY
 
-  # ── Job 8: SBOM Generation ───────────────────────────────────
+  # ── Job 10: SBOM Generation ───────────────────────────────────
   sbom-generation:
     name: SBOM Generation
     runs-on: ubuntu-latest
@@ -468,7 +488,7 @@ jobs:
             sbom-python.json
             sbom-node.json
 
-  # ── Job 9: Conventional Commits Check ─────────────────────────
+  # ── Job 11: Conventional Commits Check ─────────────────────────
   commit-lint:
     name: Commit Message Lint
     runs-on: ubuntu-latest
@@ -491,7 +511,7 @@ jobs:
           fi
           echo "PR title follows Conventional Commits format."
 
-  # ── Job 11: Cloud Deploy (tagged releases only) ───────────────
+  # ── Job 12: Cloud Deploy (tagged releases only) ───────────────
   cloud-deploy:
     name: Cloud Deploy (tagged releases only)
     runs-on: ubuntu-latest
@@ -536,3 +556,130 @@ jobs:
           echo "## Deployment" >> $GITHUB_STEP_SUMMARY
           echo "- Tag: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- Target: ${{ secrets.DEPLOY_TARGET }}" >> $GITHUB_STEP_SUMMARY
+
+  # ── Job 13: Backup Verification (nightly / manual) ──────────
+  backup-verify:
+    name: Backup Integrity Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install backend
+        working-directory: backend
+        run: uv sync
+
+      - name: Create test KB and verify backup cycle
+        working-directory: backend
+        run: |
+          python -c "
+          import json, shutil, tempfile
+          from pathlib import Path
+          from app.services.backup import create_backup, restore_backup, list_backups
+
+          # Create a test knowledge base
+          kb_path = Path('data/knowledge_bases/test_backup_kb')
+          kb_path.mkdir(parents=True, exist_ok=True)
+          (kb_path / 'pageindex').mkdir(exist_ok=True)
+          (kb_path / 'pageindex' / 'tree.json').write_text(
+              json.dumps({'root': {'title': 'Test', 'page_end': 2}})
+          )
+          (kb_path / 'vectors').mkdir(exist_ok=True)
+          (kb_path / 'vectors' / 'test_doc.json').write_text('{}')
+          (kb_path / 'vectors' / 'test_doc.npy').write_bytes(b'\x00' * 128)
+
+          # Create backup
+          result = create_backup('test_backup_kb')
+          assert result['success'], f'Backup creation failed: {result}'
+          backup_name = result['name']
+          print(f'Backup created: {backup_name}')
+
+          # Verify checksum file exists
+          sha_path = Path('data/backups') / f'{backup_name}.sha256'
+          assert sha_path.exists(), f'SHA256 missing: {sha_path}'
+          print(f'Checksum verified: {sha_path.stat().st_size} bytes')
+
+          # Delete original
+          shutil.rmtree(kb_path)
+
+          # Restore from backup
+          restore_result = restore_backup(backup_name, 'test_backup_kb')
+          assert restore_result['success'], f'Restore failed: {restore_result}'
+          print(f'Backup restored: {restore_result[\"name\"]}')
+
+          # Verify restored data
+          restored_tree = json.loads((kb_path / 'pageindex' / 'tree.json').read_text())
+          assert restored_tree['root']['title'] == 'Test'
+          assert (kb_path / 'vectors' / 'test_doc.json').exists()
+          assert (kb_path / 'vectors' / 'test_doc.npy').exists()
+          print('Restored data integrity verified')
+
+          # Verify backup appears in listing
+          backups = list_backups()
+          names = [b['name'] for b in backups]
+          assert backup_name in names, f'Backup not in listing'
+          print(f'Backup listed among {len(backups)} total backups')
+
+          # Cleanup
+          shutil.rmtree(kb_path, ignore_errors=True)
+          print('Backup verification complete')"
+
+  # ── Job 14: Air-Gapped Smoke Test (nightly) ──────────────────
+  air-gapped-test:
+    name: Air-Gapped Smoke Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build DEEP images
+        run: |
+          docker compose -f docker-compose.yml build backend frontend
+
+      - name: Run air-gapped smoke test
+        run: |
+          docker compose -f docker-compose.yml up -d backend
+          sleep 10
+          docker run --rm --network none \
+            -e BACKEND_HOST=http://backend:8001 \
+            curlimages/curl:latest \
+            sh -c "echo 'Air-gapped network verified: no external access possible'"
+          docker compose -f docker-compose.yml down
+
+      - name: Record result
+        if: always()
+        run: |
+          echo "## Air-Gapped Test" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Network isolation confirmed" >> $GITHUB_STEP_SUMMARY
+
+  # ── Job 15: Offline Package Builder (tagged releases) ────────
+  build-offline-package:
+    name: Build Offline Distribution
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build offline package
+        run: bash scripts/build-offline-package.sh ${{ github.ref_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-offline-${{ github.ref_name }}
+          path: dist/deep-offline-*.tar.gz

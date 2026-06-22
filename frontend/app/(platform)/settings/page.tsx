@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, type ReactNode, type ComponentType } from "react";
-import { Settings as SettingsIcon, Save, RefreshCw, Database, Cpu, Layers, HardDrive, Network, Sparkles, Brain, CheckCircle2, Loader2, Eye, EyeOff } from "lucide-react";
+import { Settings as SettingsIcon, Save, RefreshCw, Database, Cpu, Layers, HardDrive, Network, Sparkles, Brain, CheckCircle2, Loader2, Eye, EyeOff, Palette, Shield } from "lucide-react";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
 import { getEpisodes, type MemoryEpisode } from "@/lib/memory";
+import { useTheme } from "@/providers/theme-provider";
+import { useT } from "@/lib/i18n";
 
 const InputField = ({
   label,
@@ -226,6 +228,9 @@ export default function SettingsPage() {
   const [showMemoryHistory, setShowMemoryHistory] = useState(false);
   const [memoryEpisodes, setMemoryEpisodes] = useState<MemoryEpisode[]>([]);
   const [memoryEpisodesLoading, setMemoryEpisodesLoading] = useState(false);
+  const { theme, setTheme, themes } = useTheme();
+  const { t, locale, setLocale, locales } = useT();
+  const [auditCatalog, setAuditCatalog] = useState<Record<string, string>>({});
 
   // Load current config from backend on mount
   useEffect(() => {
@@ -240,6 +245,13 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    secureFetch(`${API_BASE_URL}/system/data/audit-stats`)
+      .then(r => r.json())
+      .then(d => setAuditCatalog(d.catalog || {}))
+      .catch(() => {});
   }, []);
 
   const set = <K extends keyof Config>(key: K, value: Config[K]) => {
@@ -283,10 +295,10 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             <SettingsIcon className="h-6 w-6 text-indigo-500 animate-spin-slow" />
-            Runtime Settings
+            {t("settings.title")}
           </h1>
           <p className="text-sm text-zinc-400 mt-1 font-sans">
-            Configure inference connections, quantization bit levels, memory margins, and search integrations.
+            {t("settings.description")}
           </p>
         </div>
 
@@ -298,7 +310,7 @@ export default function SettingsPage() {
             className="flex items-center gap-1.5 rounded-lg border border-zinc-900 bg-zinc-950 px-4 py-2 text-xs font-semibold text-zinc-450 hover:border-zinc-800 hover:text-zinc-300 transition cursor-pointer disabled:opacity-40"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            <span>Reset</span>
+            <span>{t("settings.reset")}</span>
           </button>
           <button
             onClick={handleSave}
@@ -307,8 +319,76 @@ export default function SettingsPage() {
             className="flex items-center gap-1.5 rounded-lg bg-indigo-650 px-4.5 py-2 text-xs font-bold text-white hover:bg-indigo-500 transition cursor-pointer shadow-md shadow-indigo-600/10 disabled:opacity-40"
           >
             <Save className="h-3.5 w-3.5" />
-            <span>Save Settings</span>
+            <span>{t("settings.save")}</span>
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-3 font-sans">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono border-b border-zinc-900 pb-2">
+          <Palette className="h-3.5 w-3.5 text-indigo-400" />
+          <span>Theme</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {themes.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              aria-label={`Switch to ${t.label} theme`}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
+                theme === t.id
+                  ? "border-indigo-500 bg-indigo-600/20 text-indigo-300"
+                  : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-3 font-sans">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono border-b border-zinc-900 pb-2">
+          <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+          <span>Language / 语言</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {locales.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => setLocale(l.code)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
+                locale === l.code
+                  ? "border-indigo-500 bg-indigo-600/20 text-indigo-300"
+                  : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-900 bg-zinc-950/40 p-5 space-y-3 font-sans">
+        <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">
+            <Shield className="h-3.5 w-3.5 text-indigo-400" />
+            <span>Audit Log</span>
+          </div>
+          <a
+            href={`${API_BASE_URL}/system/data/audit-log?format=json`}
+            target="_blank"
+            rel="noopener"
+            className="text-[9px] text-indigo-400 hover:text-indigo-300 font-mono"
+          >
+            Export JSON →
+          </a>
+        </div>
+        <div className="text-[10px] text-zinc-500 font-mono">
+          Structured audit events with SQLite persistence. Export as JSON or CSV.
+          {Object.keys(auditCatalog).length > 0 && (
+            <span className="text-indigo-400"> {Object.keys(auditCatalog).length} event types tracked.</span>
+          )}
         </div>
       </div>
 
@@ -325,7 +405,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             
             {/* LM Studio Connection */}
-            <Section title="LM Studio Connection" icon={Database}>
+            <Section title={t("settings.section.lm_studio")} icon={Database}>
               <InputField
                 label="Base Url Host"
                 value={config.llm_host}
@@ -364,7 +444,7 @@ export default function SettingsPage() {
             </Section>
 
             {/* Embedding Model */}
-            <Section title="Embedding Space" icon={Network}>
+            <Section title={t("settings.section.embedding")} icon={Network}>
               <InputField
                 label="Base Url Host"
                 value={config.embedding_host}
@@ -394,7 +474,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             
             {/* TurboQuant KV Cache */}
-            <Section title="TurboQuant KV Cache" icon={Cpu}>
+            <Section title={t("settings.section.turboquant")} icon={Cpu}>
               <ToggleField
                 label="Quantization Enabled"
                 value={config.turboquant_enabled}
@@ -433,7 +513,7 @@ export default function SettingsPage() {
             </Section>
 
             {/* VRAM Pressure Management */}
-            <Section title="VRAM Pressure Monitor" icon={HardDrive}>
+            <Section title={t("settings.section.vram")} icon={HardDrive}>
               <InputField
                 label="Safety Buffer Margin (%)"
                 type="number"
@@ -458,7 +538,7 @@ export default function SettingsPage() {
             </Section>
 
             {/* System Settings */}
-            <Section title="System Portals" icon={Layers}>
+            <Section title={t("settings.section.system")} icon={Layers}>
               <div className="grid grid-cols-2 gap-3">
                 <InputField
                   label="Backend Port"
@@ -488,7 +568,7 @@ export default function SettingsPage() {
         {/* Memory Config */}
         <div className="grid gap-6 md:grid-cols-2 animate-slide-in select-text">
           <div className="space-y-6">
-            <Section title="Memory Configuration" icon={Brain}>
+            <Section title={t("settings.section.memory")} icon={Brain}>
               <ToggleField
                 label="Memory Enabled"
                 value={config.memory_enabled}
@@ -567,7 +647,7 @@ export default function SettingsPage() {
                   ) : (
                     <Database className="h-3.5 w-3.5" />
                   )}
-                  <span>Test Memory</span>
+                   <span>{t("settings.test_memory")}</span>
                 </button>
                 {memoryHealthMessage && (
                   <p className={`text-[10px] font-mono mt-1.5 ${memoryHealthStatus === "ok" ? "text-emerald-400" : "text-red-400"}`}>
@@ -579,7 +659,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <Section title="Memory History" icon={Sparkles}>
+            <Section title={t("settings.section.memory_history")} icon={Sparkles}>
               <div className="flex items-center justify-between">
                 <p className="text-[9px] font-mono text-zinc-400 leading-normal">
                   View recent episodes stored by the memory system.

@@ -160,6 +160,7 @@ async def http_query(request: QueryRequest):
         doc_pages=0,  # TODO: resolve from KB metadata
         retrieved_chunks=retrieved_chunks,
         free_vram_mb=free_vram_mb,
+        total_vram_mb=total_mb,
     )
 
     # ── Step 3: Model selection ──

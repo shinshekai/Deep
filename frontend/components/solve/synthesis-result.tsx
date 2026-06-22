@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { linkifyCitations } from "@/lib/markdown-citations";
 import { Sparkles, Copy, FileText } from "lucide-react";
 import { CitationList } from "./citation-list";
 import type { Citation, CompleteFrame } from "@/types/api";
@@ -37,7 +38,7 @@ export function SynthesisResult({ answer, citations, onNewSession }: SynthesisRe
 
         <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-900 prose-code:text-indigo-400 leading-relaxed select-text">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {answer.answer}
+            {linkifyCitations(answer.answer)}
           </ReactMarkdown>
         </div>
 

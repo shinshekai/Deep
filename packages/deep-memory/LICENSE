@@ -1,0 +1,60 @@
+DEEP LICENSE — Personal Use Only
+==================================
+
+Copyright (c) 2026 ShinShekai
+
+Permission is hereby granted, free of charge, to any individual obtaining
+a copy of this software and associated documentation files (the "Software"),
+to use, copy, modify, and distribute the Software for **personal,
+non-commercial purposes only**, subject to the following conditions:
+
+RESTRICTIONS
+------------
+
+1. **Non-Commercial Use Only.** The Software may NOT be used for any
+   commercial, for-profit, or revenue-generating purpose. This includes
+   but is not limited to:
+   - Selling the Software or derivative works
+   - Using the Software in a commercial product or service
+   - Using the Software to generate revenue (including SaaS, consulting,
+     or hosting services)
+   - Incorporating the Software into a product that is sold or licensed
+     to third parties
+
+2. **Personal and Research Use Permitted.** The Software may be freely
+   used for:
+   - Personal, hobby, and educational projects
+   - Academic research and non-commercial scientific work
+   - Open-source non-commercial projects
+   - Internal experimentation and learning
+
+3. **Attribution Required.** Redistributions of the Software, in whole
+   or in part, must retain this license notice, the copyright notice,
+   and the following attribution:
+   "Powered by DEEP — https://github.com/shinshekai/Deep"
+
+4. **No Warranty.** The Software is provided "as is", without warranty
+   of any kind, express or implied, including but not limited to the
+   warranties of merchantability, fitness for a particular purpose, and
+   noninfringement. In no event shall the authors or copyright holders
+   be liable for any claim, damages, or other liability, whether in an
+   action of contract, tort, or otherwise, arising from, out of, or in
+   connection with the Software or the use or other dealings in the
+   Software.
+
+COMMERCIAL LICENSING
+--------------------
+
+For commercial use, please contact the author at the GitHub repository
+to obtain a commercial license.
+
+https://github.com/shinshekai/Deep
+
+THIRD-PARTY COMPONENTS
+-----------------------
+
+This software includes components from third-party projects under their
+respective licenses. See ACKNOWLEDGEMENTS.md for a full list of
+attributions and license compliance details.
+
+END OF LICENSE

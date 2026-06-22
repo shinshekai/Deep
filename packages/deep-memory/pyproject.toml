@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deep-memory"
+version = "0.1.0"
+description = "Self-synthesizing local-first memory system — SQLite+FTS5 with device-scoped progressive crystallization"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "LicenseRef-DEEP-License"
+license-files = ["LICENSE"]
+authors = [{ name = "DEEP Team" }]
+keywords = ["memory", "sqlite", "fts5", "local-first", "ai", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Private :: Do Not Upload",
+]
+
+dependencies = [
+    "aiosqlite>=0.20.0",
+]
+
+[project.urls]
+Repository = "https://github.com/shinshekai/Deep"

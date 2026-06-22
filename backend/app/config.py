@@ -14,18 +14,42 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.services.security import generate_auth_token
+from app.services.secrets import get_secret as _secrets_get
+from app.services.secrets import set_secret as _secrets_set
+from app.services.secrets import is_keyring_available as _keyring_ok
 
 logger = logging.getLogger(__name__)
 
-# Where the auto-generated token is stored if not provided via env.
+_AUTH_TOKEN_KEY = "WS_AUTH_TOKEN"
 _TOKEN_FILE = Path(__file__).resolve().parent.parent / "data" / ".auth_token"
 
 
 def _load_or_create_token() -> str:
-    """Resolve the auth token from env, file, or generate a new one."""
+    """Resolve the auth token from env, OS keyring, or generate a new one.
+
+    Priority: env var → OS keyring → generate new (stored in keyring).
+    Existing plaintext file tokens are migrated to keyring on first read.
+    """
     env_token = os.environ.get("WS_AUTH_TOKEN") or os.environ.get("UDIP_AUTH_TOKEN")
     if env_token:
         return env_token
+
+    if _keyring_ok():
+        token = _secrets_get(_AUTH_TOKEN_KEY)
+        if token:
+            return token
+
+        # Migrate from legacy plaintext file if present
+        if _TOKEN_FILE.exists():
+            try:
+                legacy = _TOKEN_FILE.read_text(encoding="utf-8").strip()
+                if legacy:
+                    _secrets_set(_AUTH_TOKEN_KEY, legacy)
+                    _TOKEN_FILE.unlink(missing_ok=True)
+                    logger.info("Migrated legacy auth token from %s to OS keyring", _TOKEN_FILE)
+                    return legacy
+            except OSError as e:
+                logger.warning("Could not migrate legacy auth token: %s", e)
 
     if _TOKEN_FILE.exists():
         try:
@@ -35,27 +59,25 @@ def _load_or_create_token() -> str:
         except OSError as e:
             logger.warning(f"Could not read auth token file: {e}")
 
-    # First boot — generate and persist a strong random token.
     token = generate_auth_token(32)
+    if _keyring_ok():
+        try:
+            _secrets_set(_AUTH_TOKEN_KEY, token)
+            logger.info("Generated new auth token and stored in OS keyring — set WS_AUTH_TOKEN env var to override.")
+            return token
+        except RuntimeError as e:
+            logger.warning("Keyring store failed, falling back to file: %s", e)
+
     try:
         _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         _TOKEN_FILE.write_text(token, encoding="utf-8")
-        # Restrict permissions
         if os.name == "nt":
             try:
                 username = os.environ.get("USERNAME", "")
                 if username:
                     subprocess.run(
-                        [
-                            "icacls",
-                            str(_TOKEN_FILE),
-                            "/grant:r",
-                            f"{username}:(R)",
-                            "/inheritance:r",
-                        ],
-                        check=True,
-                        capture_output=True,
-                        timeout=5,
+                        ["icacls", str(_TOKEN_FILE), "/grant:r", f"{username}:(R)", "/inheritance:r"],
+                        check=True, capture_output=True, timeout=5,
                     )
             except Exception as e:
                 logger.warning("Windows ACL restriction failed: %s", e)

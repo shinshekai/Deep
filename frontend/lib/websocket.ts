@@ -1,4 +1,5 @@
 import { API_BASE_URL, WS_BASE_URL, secureFetch, getWsAuthToken } from "./config";
+import { notify } from "./notifications";
 
 const API_BASE = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
@@ -92,21 +93,26 @@ export class WebSocketManager {
             const data: Record<string, unknown> =
               "data" in message ? (message.data as Record<string, unknown>) : message;
             this._notify(subscribers, message.type ?? "message", data);
-          } catch {
-            this._notify(subscribers, "_raw", { connection: name, text: String(event.data) });
-          }
+      } catch {
+        this._notify(subscribers, "_raw", { connection: name, text: String(event.data) });
+        notify.warning("Malformed server message received");
+      }
         };
 
-        ws.onclose = () => {
-          setStatus("closed");
-          this._notify(subscribers, "_connection", { connection: name, status: "close" });
-          this._scheduleReconnect(name);
-        };
+      ws.onclose = () => {
+        setStatus("closed");
+        this._notify(subscribers, "_connection", { connection: name, status: "close" });
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          notify.error("Connection lost — reconnect attempts exhausted", `${name} endpoint is unreachable`);
+        }
+        this._scheduleReconnect(name);
+      };
 
-        ws.onerror = () => {
-          setStatus("error");
-          this._notify(subscribers, "_connection", { connection: name, status: "error" });
-        };
+      ws.onerror = () => {
+        setStatus("error");
+        this._notify(subscribers, "_connection", { connection: name, status: "error" });
+        notify.warning(`Unable to reach ${name} endpoint`, "Check that the backend server is running");
+      };
       } catch {
         setStatus("error");
         this._scheduleReconnect(name);

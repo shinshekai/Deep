@@ -344,10 +344,11 @@ def _rrf_merge(
     keyword_results: list[dict],
     top_k: int = 5,
 ) -> list[dict]:
-    """Reciprocal Rank Fusion merge of two ranked result lists.
+    """Confidence-weighted Reciprocal Rank Fusion (Kafi et al., CCNC 2026).
 
     k=60 per the original RRF paper (Cormack et al., 2009).
-    Deduplicates by (doc_id, section) key, accumulating RRF scores.
+    Each result's similarity score is used as a confidence weight,
+    deduplicating by (doc_id, section) key and accumulating weighted RRF scores.
     """
     k = 60
     scores: dict[tuple, tuple[float, dict]] = {}
@@ -355,7 +356,8 @@ def _rrf_merge(
     def process(results: list[dict]):
         for rank, result in enumerate(results):
             key = (result.get("doc_id", ""), result.get("section", ""))
-            rrf = 1.0 / (k + rank + 1)
+            confidence = max(result.get("score", 0.5), 0.01)
+            rrf = confidence / (k + rank + 1)
             if key in scores:
                 old_score, _old_result = scores[key]
                 scores[key] = (old_score + rrf, result)

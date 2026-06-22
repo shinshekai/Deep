@@ -342,7 +342,7 @@ async def broadcast_loop():
         _metrics_history.append(dict(state._latest_metrics))
         if len(_metrics_history) > 30:
             _metrics_history = _metrics_history[-30:]
-        from app.routers import system as sm
+        from app.routers import system_shared as sm
 
         sm._metrics_history = _metrics_history
 

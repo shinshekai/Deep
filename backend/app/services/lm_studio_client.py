@@ -390,21 +390,27 @@ class LMStudioClient:
         messages: list[dict],
         max_tokens: int = 2048,
         chunk_callback=None,
+        tools: list[dict] | None = None,
     ) -> dict:
-        """Stream chat completion and return dict with 'content' key.
+        """Streaming chat completion with tool support.
 
-        Returns {"content": str} on success or {"error": str(e)} on failure.
-        Delegates to `stream_chat` to avoid duplicated streaming logic.
+        Returns {"content": str, "tool_calls": list | None} or {"error": str(e)}.
         """
         try:
-            content = await self.stream_chat(
+            result = await self.stream_chat(
                 messages=messages,
                 model=model,
                 max_tokens=max_tokens,
                 temperature=0.7,
                 chunk_callback=chunk_callback,
+                tools=tools,
             )
-            return {"content": content if content else ""}
+            if tools:
+                return {
+                    "content": result.get("content", ""),
+                    "tool_calls": result.get("tool_calls"),
+                }
+            return {"content": result if isinstance(result, str) else result.get("content", ""), "tool_calls": None}
         except Exception as e:
             logger.error(f"stream_chat_completion failed: {e}")
             return {"error": str(e)}
@@ -418,17 +424,12 @@ class LMStudioClient:
         priority: int = 2,
         chunk_callback=None,
         enable_thinking: bool | None = None,
-    ) -> str:
-        """Stream chat completion and return the full content string.
+        tools: list[dict] | None = None,
+    ):
+        """Stream chat completion.
 
-        Uses priority semaphore to govern concurrent execution.
-        priority: 1 (Retrieval), 2 (Reasoning), 3 (Generation)
-
-        Returns the joined content on success (empty string if the
-        model returned zero tokens). Re-raises any exception that
-        occurred during the request — callers can ``try/except`` to
-        handle the error context, or wrap with ``stream_chat_completion``
-        which translates the exception into an ``{"error": ...}`` dict.
+        Without `tools`: returns str (backward-compatible).
+        With `tools`: returns dict {"content": str, "tool_calls": list | None}.
         """
         if enable_thinking is None:
             enable_thinking = get_settings().enable_thinking
@@ -461,8 +462,12 @@ class LMStudioClient:
                     }
                     if model:
                         body["model"] = model
+                    if tools:
+                        body["tools"] = tools
+                        body.pop("enable_thinking", None)
 
                     content = []
+                    tool_calls_map: dict[int, dict] = {}
 
                     # The coroutine factory below only handles the initial
                     # handshake (open the stream + read response status).
@@ -503,8 +508,8 @@ class LMStudioClient:
                                     chunk = json.loads(data)
                                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                                     tok = delta.get("content", "")
-                                    # Qwen3 thinking mode: also capture reasoning_content
                                     reason_tok = delta.get("reasoning_content", "")
+                                    tc_items = delta.get("tool_calls", [])
                                     if tok:
                                         content.append(tok)
                                         if chunk_callback:
@@ -518,6 +523,18 @@ class LMStudioClient:
                                                 await chunk_callback(reason_tok)
                                             else:
                                                 chunk_callback(reason_tok)
+                                    for tc in tc_items:
+                                        idx = tc.get("index", 0)
+                                        if idx not in tool_calls_map:
+                                            tool_calls_map[idx] = {"id": tc.get("id", ""), "type": "function", "function": {"name": "", "arguments": ""}}
+                                        if "id" in tc and tc["id"]:
+                                            tool_calls_map[idx]["id"] = tc["id"]
+                                        if "function" in tc:
+                                            fn = tc["function"]
+                                            if "name" in fn and fn["name"]:
+                                                tool_calls_map[idx]["function"]["name"] += fn["name"]
+                                            if "arguments" in fn:
+                                                tool_calls_map[idx]["function"]["arguments"] += fn["arguments"]
                                 except json.JSONDecodeError:
                                     pass
                     finally:
@@ -537,7 +554,11 @@ class LMStudioClient:
                     # via the future's exception — callers can distinguish
                     # "no answer yet" (empty string) from "request failed"
                     # (raised exception).
-                    future.set_result("".join(content))
+                    tool_calls = list(tool_calls_map.values()) if tool_calls_map else None
+                    if tools:
+                        future.set_result({"content": "".join(content), "tool_calls": tool_calls})
+                    else:
+                        future.set_result("".join(content))
             except Exception as e:
                 logger.error(f"stream_chat failed: {e}")
                 future.set_exception(e)

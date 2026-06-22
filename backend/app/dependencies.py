@@ -79,3 +79,15 @@ container = Container()
 
 def get_service(name: str) -> Any:
     return container.get(name)
+
+
+def get_container() -> Container:
+    """Return the global container (may be replaced by state.ServiceContainer)."""
+    global container
+    return container
+
+
+def set_container(c: Container) -> None:
+    """Replace the global container (used by state.py to share the instance)."""
+    global container
+    container = c

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { linkifyCitations } from "@/lib/markdown-citations";
 import {
   FileSearch, Loader2, Sparkles, CheckCircle2,
   PanelLeft, PanelRight, Database, PlayCircle, BarChart3,
@@ -518,7 +519,7 @@ export default function ResearchPage() {
                       {/* Render markdown body */}
                       <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-900 prose-code:text-indigo-400 select-text leading-relaxed font-sans">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {session.final_report}
+                          {linkifyCitations(session.final_report)}
                         </ReactMarkdown>
                       </div>
 

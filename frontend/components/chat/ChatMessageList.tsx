@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { linkifyCitations } from "@/lib/markdown-citations";
+import { useChatAutoScroll } from "@/hooks/use-chat-auto-scroll";
+import { useSmoothStream } from "@/hooks/use-smooth-stream";
 import {
   Brain,
   RefreshCw,
@@ -142,7 +145,7 @@ function MessageItem({
 
               <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-900 prose-code:text-indigo-400 prose-a:text-indigo-400 select-text leading-relaxed">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {msg.content}
+                  {linkifyCitations(msg.content)}
                 </ReactMarkdown>
               </div>
 
@@ -238,11 +241,13 @@ export function ChatMessageList({
     overscan: 5,
   });
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
-    }
-  }, [messages, streamingAnswer, streamingSteps, virtualizer]);
+  useChatAutoScroll(parentRef, {
+    isStreaming,
+    itemCount: messages.length,
+    streamChunk: streamingAnswer,
+  });
+
+  const smoothAnswer = useSmoothStream(streamingAnswer, isStreaming);
 
   return (
     <div className="flex-1 p-4 md:p-6 space-y-6">
@@ -274,7 +279,7 @@ export function ChatMessageList({
                   key={card.title}
                   type="button"
                   onClick={() => onSend(card.prompt)}
-                  className="group flex flex-col justify-between rounded-xl border border-zinc-900 bg-zinc-950/40 p-4 transition text-left cursor-pointer hover:border-indigo-500/20 hover:bg-indigo-950/5 hover:-translate-y-0.5 focus:outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/30"
+                  className="group flex flex-col justify-between rounded-xl border border-zinc-900 bg-zinc-950/40 p-4 transition text-left cursor-pointer hover:border-indigo-500/20 hover:bg-indigo-950/5 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                 >
                   <Icon className="h-4.5 w-4.5 text-zinc-500 group-hover:text-indigo-400 transition" />
                   <div className="mt-4">
@@ -383,7 +388,7 @@ export function ChatMessageList({
               {streamingAnswer && (
                 <div className="prose prose-invert prose-xs md:prose-sm max-w-none prose-code:text-indigo-400 select-text leading-relaxed">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streamingAnswer}
+                    {linkifyCitations(smoothAnswer)}
                   </ReactMarkdown>
                   <span className="inline-block h-2 w-2 rounded-full bg-indigo-500 animate-ping ml-1" />
                 </div>

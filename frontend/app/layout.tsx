@@ -5,6 +5,10 @@ import { WebSocketProvider } from "@/providers/websocket-provider";
 import { MemoryProvider } from "@/providers/memory-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { NotifyBridge } from "@/components/notify-bridge";
+import { ThemeProvider } from "@/providers/theme-provider";
+import { ThemeScript } from "@/components/theme-script";
+import { I18nProvider } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
@@ -41,13 +45,20 @@ export default function RootLayout({
         "font-sans",
         geist.variable
       )}
+      suppressHydrationWarning
     >
+      <ThemeScript />
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <TooltipProvider delay={300}>
+          <I18nProvider>
+          <ThemeProvider>
           <MemoryProvider>
             <WebSocketProvider>{children}</WebSocketProvider>
           </MemoryProvider>
+          </ThemeProvider>
+          </I18nProvider>
           <Toaster />
+          <NotifyBridge />
         </TooltipProvider>
       </body>
     </html>

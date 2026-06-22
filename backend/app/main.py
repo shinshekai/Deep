@@ -71,15 +71,27 @@ if tracer:
 
 # Import routers after middleware setup
 from app.routers.agent import router as agent_router
+from app.routers.backup import router as backup_router
+from app.routers.benchmarks import router as benchmarks_router
+from app.routers.config_routes import router as config_router
+from app.routers.data_routes import router as data_router
+from app.routers.health import router as health_router
 from app.routers.knowledge import router as knowledge_router
 from app.routers.memory import router as memory_router
+from app.routers.model_routes import router as model_router
 from app.routers.query import router as query_router
 from app.routers.retrieval import router as retrieval_router
-from app.routers.system import router as system_router
+from app.routers.vram import router as vram_router
 from app.validation.validation_routes import router as validation_router
 
+app.include_router(health_router)
+app.include_router(config_router)
+app.include_router(model_router)
+app.include_router(vram_router)
+app.include_router(benchmarks_router)
+app.include_router(data_router)
+app.include_router(backup_router)
 app.include_router(knowledge_router)
-app.include_router(system_router)
 app.include_router(agent_router)
 app.include_router(retrieval_router)
 app.include_router(query_router)

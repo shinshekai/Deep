@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 
+from app.services.corpus_index import build_corpus_index
 from app.services.text_extractor import TextExtractor
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class TreeSearch:
             scored = await self._score_tree(tree.get("doc_id", ""), tree, query)
             results.extend(scored)
         else:
-            # Search across all docs in KB
+            # Search across all docs in KB — use corpus-level pre-filter
             pi_dir = (
                 Path(__file__).resolve().parent.parent.parent
                 / "data"
@@ -92,9 +93,18 @@ class TreeSearch:
                 / "pageindex"
             )
             if pi_dir.exists():
-                for tree_file in sorted(pi_dir.glob("*.json")):
-                    if doc_id and tree_file.stem != doc_id:
-                        continue
+                tree_files = sorted(pi_dir.glob("*.json"))
+                if doc_id:
+                    tree_files = [f for f in tree_files if f.stem == doc_id]
+                elif len(tree_files) > 1:
+                    # Corpus-level pre-filter: only search docs the LLM thinks are relevant
+                    corpus = await build_corpus_index(kb_name)
+                    selected = await self._select_docs_for_query(corpus, query, len(tree_files))
+                    if selected:
+                        tree_files = [f for f in tree_files if f.stem in selected]
+                        logger.info("Corpus filter: %d/%d docs selected", len(tree_files), len(selected))
+
+                for tree_file in tree_files:
                     try:
                         loaded = json.loads(tree_file.read_text())
                     except (json.JSONDecodeError, OSError):
@@ -266,3 +276,30 @@ class TreeSearch:
 
         walk(tree.get("root", {}))
         return results
+
+    async def _select_docs_for_query(self, corpus: dict, query: str, total: int) -> list[str] | None:
+        if total <= 2:
+            return None
+
+        from app.services.corpus_index import get_corpus_summary_prompt
+        prompt = get_corpus_summary_prompt(corpus.get("title", ""), corpus)
+        full_prompt = f"Query: {query}\n\n{prompt}"
+
+        try:
+            result = await self.lm_client.stream_chat_completion(
+                model="",
+                messages=[{"role": "user", "content": full_prompt}],
+                max_tokens=100,
+            )
+            content = result.get("content", "{}")
+            start = content.find("{")
+            end = content.rfind("}")
+            if start >= 0 and end > start:
+                data = json.loads(content[start:end+1])
+                indices = data.get("selected", [])
+                docs = corpus.get("documents", [])
+                if isinstance(indices, list) and indices and 0 < len(indices) < total:
+                    return [docs[i]["doc_id"] for i in indices if 0 <= i < len(docs)]
+        except Exception:
+            pass
+        return None

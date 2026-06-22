@@ -8,7 +8,49 @@ from pathlib import Path
 
 import aiosqlite
 
+from app.services.schema_migrations import apply_migrations, mark_migration_applied
 from app.services.telemetry import trace_span
+from app.services.memory.episodes import (
+    store_episode as _store_episode_impl,
+    recall_episodes as _recall_episodes_impl,
+    get_episode as _get_episode_impl,
+    delete_episode as _delete_episode_impl,
+    rate_episode as _rate_episode_impl,
+    list_episodes as _list_episodes_impl,
+    update_episode_rating as _update_episode_rating_impl,
+    _store_chunks as _store_chunks_fn,
+)
+from app.services.memory.facts import (
+    store_fact as _store_fact_impl,
+    recall_facts as _recall_facts_impl,
+    detect_contradictions as _detect_contradictions_impl,
+    batch_resolve_contradictions as _batch_resolve_contradictions_impl,
+    resolve_contradiction as _resolve_contradiction_impl,
+)
+from app.services.memory.observations import (
+    stage_observation as _stage_observation_impl,
+    crystallize_observations as _crystallize_observations_impl,
+    get_staged_observations as _get_staged_observations_impl,
+)
+from app.services.memory.dead_ends import (
+    store_dead_end as _store_dead_end_impl,
+    recall_dead_ends as _recall_dead_ends_impl,
+    get_dead_end_preventions as _get_dead_end_preventions_impl,
+)
+from app.services.memory.profiles import (
+    get_profile as _get_profile_impl,
+    update_profile as _update_profile_impl,
+    record_agent_outcome as _record_agent_outcome_impl,
+    get_agent_strategies as _get_agent_strategies_impl,
+    get_project_profile as _get_project_profile_impl,
+    update_project_profile as _update_project_profile_impl,
+    get_l3 as _get_l3_impl,
+    get_l3_all as _get_l3_all_impl,
+    update_l3_preference as _update_l3_preference_impl,
+    read_l3_concat as _read_l3_concat_impl,
+    upgrade_provenance as _upgrade_provenance_impl,
+    get_provenance_lineage as _get_provenance_lineage_impl,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -265,13 +307,6 @@ END;
 """
 
 
-PROFILE_STALE_THRESHOLD = 300
-MAX_BACKOFF = 10.0
-CHUNK_SIZE = 2000
-CHUNK_OVERLAP = 200
-VALID_CHUNK_TABLES = frozenset({"episode_chunks", "fact_chunks"})
-
-
 class MemoryService:
     def __init__(self, db_path: str = "data/memory/deep_memory.db"):
         self.db_path = db_path
@@ -287,26 +322,6 @@ class MemoryService:
         except Exception as e:
             logger.warning(f"Memory operation failed: {e}")
             return default
-
-    @staticmethod
-    def _chunk_text(
-        text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP
-    ) -> list[str]:
-        if len(text) <= chunk_size:
-            return [text]
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            if end < len(text):
-                for sep in ("\n", ". ", "! ", "? "):
-                    last = text.rfind(sep, start + chunk_size // 2, end)
-                    if last > start:
-                        end = last + len(sep)
-                        break
-            chunks.append(text[start:end])
-            start = end - overlap
-        return chunks
 
     async def get_memory_stats_summary(self) -> dict:
         stats = await self.get_stats()
@@ -328,8 +343,24 @@ class MemoryService:
         await self._db.executescript(SCHEMA_SQL)
         await self._db.executescript(FTS_SYNC_TRIGGERS)
         await self._db.commit()
-        await self._migrate_fts_tokenizer()
-        await self._migrate_provenance()
+
+        migrations = [
+            (1, "FTS5 porter unicode61 tokenizer", self._migrate_fts_tokenizer),
+            (2, "Add provenance columns", self._migrate_provenance),
+        ]
+        pending = await apply_migrations(self._db, [(v, d) for v, d, _ in migrations])
+        if pending > 0:
+            cursor = await self._db.execute("SELECT MAX(version) FROM schema_versions")
+            row = await cursor.fetchone()
+            current = row[0] if row[0] is not None else 0
+            for v, desc, fn in migrations:
+                if v > current:
+                    try:
+                        await fn()
+                        await mark_migration_applied(self._db, v, desc)
+                    except Exception as e:
+                        logger.warning("Migration v%d (%s) failed: %s", v, desc, e)
+
         recovered = await self.recover_partial_compactions()
         if recovered:
             logger.info("Startup recovery: fixed %d orphaned compacted episodes", recovered)
@@ -372,7 +403,7 @@ class MemoryService:
                             f"SELECT {col} FROM {source_table} WHERE id = ?", (sid,)
                         )
                         if text_row and text_row[0][0]:
-                            await self._store_chunks(chunk_table, sid, did, text_row[0][0], created)
+                            await _store_chunks_fn(db, chunk_table, sid, did, text_row[0][0], created)
                     await db.commit()
                 elif "porter" not in sql:
                     logger.info(f"Migrating {table_name} to porter unicode61 tokenizer")
@@ -439,25 +470,6 @@ class MemoryService:
                 logger.exception("Failed to rollback transaction")
             raise
 
-    async def _store_chunks(
-        self, table: str, source_id: str, device_id: str, text: str, created_at: float
-    ) -> None:
-        if table not in VALID_CHUNK_TABLES:
-            raise ValueError(f"Invalid chunk table: {table}")
-        db = await self._get_db()
-        chunks = self._chunk_text(text)
-        await db.executemany(
-            f"INSERT INTO {table} (source_id, device_id, chunk_index, chunk_text, created_at) "
-            f"VALUES (?, ?, ?, ?, ?)",
-            [(source_id, device_id, i, chunk, created_at) for i, chunk in enumerate(chunks)],
-        )
-
-    async def _delete_chunks(self, table: str, source_id: str) -> None:
-        if table not in VALID_CHUNK_TABLES:
-            raise ValueError(f"Invalid chunk table: {table}")
-        db = await self._get_db()
-        await db.execute(f"DELETE FROM {table} WHERE source_id = ?", (source_id,))
-
     # ── Episodic ──────────────────────────────────────────────────────────────
 
     async def store_episode(
@@ -472,204 +484,30 @@ class MemoryService:
         session_type: str = "chat",
         provenance: str = "user",
     ) -> str:
-        with trace_span(
-            "memory.store_episode", {"device_id": device_id, "session_type": session_type}
-        ):
-            db = await self._get_db()
-            episode_id = uuid.uuid4().hex[:12]
-            now = time.time()
-            combined = f"{query}\n\n{answer}"
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO episodes
-                       (id, device_id, session_type, query, answer, agents,
-                        model_used, tier, citations, outcome_rating, created_at, provenance)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        episode_id,
-                        device_id,
-                        session_type,
-                        query,
-                        answer,
-                        json.dumps(agents or []),
-                        model_used,
-                        tier,
-                        json.dumps(citations or []),
-                        0.0,
-                        now,
-                        provenance,
-                    ),
-                )
-                await self._store_chunks("episode_chunks", episode_id, device_id, combined, now)
-                await db.commit()
-                await self._track_usage_nolock(device_id, "episodes_stored", 1)
-            return episode_id
-
-    async def _stream_query(self, sql: str, params: tuple = (), chunk_size: int = 100):
-        db = await self._get_db()
-        async with db.execute(sql, params) as cursor:
-            while True:
-                batch = await cursor.fetchmany(chunk_size)
-                if not batch:
-                    break
-                for row in batch:
-                    yield row
+        return await _store_episode_impl(
+            await self._get_db(), self._write_lock,
+            device_id, query, answer, agents, model_used, tier,
+            citations, session_type, provenance,
+        )
 
     async def recall_episodes(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
-        with trace_span("memory.recall_episodes", {"device_id": device_id, "top_k": top_k}):
-            db = await self._get_db()
-            now = time.time()
-            try:
-                rows = await db.execute_fetchall(
-                    """SELECT e.id, e.device_id, e.session_type, e.query, e.answer,
-                              e.agents, e.model_used, e.tier, e.citations,
-                              e.outcome_rating, e.created_at,
-                              MIN(fts.rank) as best_rank
-                       FROM episodes_fts fts
-                       JOIN episode_chunks c ON c.chunk_id = fts.rowid
-                       JOIN episodes e ON e.id = c.source_id
-                       WHERE episodes_fts MATCH ? AND e.device_id = ? AND e.archived = 0
-                       GROUP BY e.id
-                       ORDER BY best_rank, e.created_at DESC, e.id
-                       LIMIT ?""",
-                    (query, device_id, top_k),
-                )
-            except Exception:
-                rows = await db.execute_fetchall(
-                    """SELECT id, device_id, session_type, query, answer, agents,
-                              model_used, tier, citations, outcome_rating, created_at, 0
-                       FROM episodes
-                       WHERE device_id = ? AND archived = 0
-                       ORDER BY created_at DESC, id
-                       LIMIT ?""",
-                    (device_id, top_k),
-                )
-
-            results = []
-            for row in rows:
-                recency = now - row[10] if row[10] else 0
-                recency_score = 1.0 / (1.0 + recency / 86400.0)
-                fts_score = -row[11] if row[11] else 0.0
-                combined = 0.6 * fts_score + 0.4 * recency_score
-
-                results.append(
-                    {
-                        "id": row[0],
-                        "device_id": row[1],
-                        "session_type": row[2],
-                        "query": row[3],
-                        "answer": row[4],
-                        "agents": json.loads(row[5]) if row[5] else [],
-                        "model_used": row[6] or "",
-                        "tier": row[7] or 0,
-                        "citations": json.loads(row[8]) if row[8] else [],
-                        "outcome_rating": row[9] or 0.0,
-                        "created_at": row[10],
-                        "score": round(combined, 4),
-                    }
-                )
-
-            results.sort(key=lambda r: r["score"], reverse=True)
-            await self.track_usage(device_id, "recalls", 1)
-            return results[:top_k]
+        return await _recall_episodes_impl(
+            await self._get_db(), self._write_lock, device_id, query, top_k,
+        )
 
     async def get_episode(self, episode_id: str) -> dict | None:
-        with trace_span("memory.get_episode", {"episode_id": episode_id}):
-            db = await self._get_db()
-            row = await db.execute_fetchall(
-                """SELECT id, device_id, session_type, query, answer, agents,
-                          model_used, tier, citations, outcome_rating, created_at
-                   FROM episodes WHERE id = ?""",
-                (episode_id,),
-            )
-            if not row:
-                return None
-            r = row[0]
-            return {
-                "id": r[0],
-                "device_id": r[1],
-                "session_type": r[2],
-                "query": r[3],
-                "answer": r[4],
-                "agents": json.loads(r[5]) if r[5] else [],
-                "model_used": r[6] or "",
-                "tier": r[7] or 0,
-                "citations": json.loads(r[8]) if r[8] else [],
-                "outcome_rating": r[9] or 0.0,
-                "created_at": r[10],
-            }
+        return await _get_episode_impl(await self._get_db(), episode_id)
 
     async def delete_episode(self, episode_id: str) -> bool:
-        with trace_span("memory.delete_episode", {"episode_id": episode_id}):
-            db = await self._get_db()
-            async with self._write_lock:
-                await self._delete_chunks("episode_chunks", episode_id)
-                cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
-                await db.commit()
-            return cursor.rowcount > 0
+        return await _delete_episode_impl(await self._get_db(), self._write_lock, episode_id)
 
     async def rate_episode(self, device_id: str, episode_id: str, rating: float) -> bool:
-        with trace_span("memory.rate_episode", {"device_id": device_id}):
-            db = await self._get_db()
-            rating = max(0.0, min(1.0, float(rating)))
-            async with self._write_lock:
-                cursor = await db.execute(
-                    "UPDATE episodes SET outcome_rating = ? WHERE id = ? AND device_id = ?",
-                    (rating, episode_id, device_id),
-                )
-                await db.commit()
-            return cursor.rowcount > 0
+        return await _rate_episode_impl(
+            await self._get_db(), self._write_lock, device_id, episode_id, rating,
+        )
 
     async def list_episodes(self, device_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
-        with trace_span(
-            "memory.list_episodes", {"device_id": device_id, "limit": limit, "offset": offset}
-        ):
-            db = await self._get_db()
-            sql = """SELECT id, device_id, session_type, query, answer, agents,
-                            model_used, tier, citations, outcome_rating, created_at
-                     FROM episodes
-                     WHERE device_id = ? AND archived = 0
-                     ORDER BY created_at DESC
-                     LIMIT ? OFFSET ?"""
-            params = (device_id, limit, offset)
-            if limit > 100:
-                results = []
-                async for r in self._stream_query(sql, params):
-                    results.append(
-                        {
-                            "id": r[0],
-                            "device_id": r[1],
-                            "session_type": r[2],
-                            "query": r[3],
-                            "answer": r[4],
-                            "agents": json.loads(r[5]) if r[5] else [],
-                            "model_used": r[6] or "",
-                            "tier": r[7] or 0,
-                            "citations": json.loads(r[8]) if r[8] else [],
-                            "outcome_rating": r[9] or 0.0,
-                            "created_at": r[10],
-                        }
-                    )
-                return results
-            rows = await db.execute_fetchall(sql, params)
-            results = []
-            for r in rows:
-                results.append(
-                    {
-                        "id": r[0],
-                        "device_id": r[1],
-                        "session_type": r[2],
-                        "query": r[3],
-                        "answer": r[4],
-                        "agents": json.loads(r[5]) if r[5] else [],
-                        "model_used": r[6] or "",
-                        "tier": r[7] or 0,
-                        "citations": json.loads(r[8]) if r[8] else [],
-                        "outcome_rating": r[9] or 0.0,
-                        "created_at": r[10],
-                    }
-                )
-            return results
+        return await _list_episodes_impl(await self._get_db(), device_id, limit, offset)
 
     # ── Progressive Crystallization ─────────────────────────────────────────
 
@@ -682,87 +520,18 @@ class MemoryService:
         confidence: float = 0.5,
         metadata: dict | None = None,
     ) -> str:
-        with trace_span("memory.stage_observation", {"device_id": device_id}):
-            db = await self._get_db()
-            obs_id = uuid.uuid4().hex[:12]
-            now = time.time()
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO staged_observations
-                       (id, device_id, content, source_type, source_id,
-                        confidence, metadata, created_at, crystallized)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-                    (
-                        obs_id,
-                        device_id,
-                        content,
-                        source_type,
-                        source_id,
-                        confidence,
-                        json.dumps(metadata or {}),
-                        now,
-                    ),
-                )
-                await db.commit()
-            return obs_id
+        return await _stage_observation_impl(
+            await self._get_db(), self._write_lock,
+            device_id, content, source_type, source_id, confidence, metadata,
+        )
 
     async def crystallize_observations(self, device_id: str) -> int:
-        with trace_span("memory.crystallize_observations", {"device_id": device_id}):
-            db = await self._get_db()
-            rows = await db.execute_fetchall(
-                """SELECT id, content, source_type, source_id, confidence
-                   FROM staged_observations
-                   WHERE device_id = ? AND crystallized = 0""",
-                (device_id,),
-            )
-            if not rows:
-                return 0
-            count = 0
-            # store_fact self-serializes via _write_lock, so it is called
-            # OUTSIDE the lock here (asyncio.Lock is non-reentrant). The
-            # crystallized-flag updates are then applied under the lock.
-            crystallized_ids = []
-            for obs_id, content, source_type, source_id, confidence in rows:
-                await self.store_fact(
-                    device_id=device_id,
-                    content=content,
-                    source_type=source_type,
-                    source_id=source_id,
-                    confidence=confidence,
-                    provenance="ai-executed",
-                )
-                crystallized_ids.append(obs_id)
-                count += 1
-            async with self._write_lock:
-                for obs_id in crystallized_ids:
-                    await db.execute(
-                        "UPDATE staged_observations SET crystallized = 1 WHERE id = ?",
-                        (obs_id,),
-                    )
-                await db.commit()
-            return count
+        return await _crystallize_observations_impl(
+            await self._get_db(), self._write_lock, device_id,
+        )
 
     async def get_staged_observations(self, device_id: str) -> list[dict]:
-        db = await self._get_db()
-        rows = await db.execute_fetchall(
-            """SELECT id, content, source_type, source_id, confidence, metadata, created_at
-               FROM staged_observations
-               WHERE device_id = ? AND crystallized = 0
-               ORDER BY created_at DESC""",
-            (device_id,),
-        )
-        return [
-            {
-                "id": r[0],
-                "content": r[1],
-                "source_type": r[2],
-                "source_id": r[3],
-                "confidence": r[4],
-                "metadata": json.loads(r[5]) if r[5] else {},
-                "created_at": r[6],
-            }
-            for r in rows
-        ]
+        return await _get_staged_observations_impl(await self._get_db(), device_id)
 
     # ── Facts ─────────────────────────────────────────────────────────────────
 
@@ -775,317 +544,40 @@ class MemoryService:
         confidence: float = 0.5,
         provenance: str = "user",
     ) -> str:
-        with trace_span("memory.store_fact", {"device_id": device_id, "source_type": source_type}):
-            db = await self._get_db()
-            fact_id = uuid.uuid4().hex[:12]
-            now = time.time()
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO facts
-                       (id, device_id, content, source_type, source_id,
-                        confidence, created_at, last_accessed, access_count, provenance)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        fact_id,
-                        device_id,
-                        content,
-                        source_type,
-                        source_id,
-                        confidence,
-                        now,
-                        now,
-                        0,
-                        provenance,
-                    ),
-                )
-                await self._store_chunks("fact_chunks", fact_id, device_id, content, now)
-                await db.commit()
-                await self._track_usage_nolock(device_id, "facts_stored", 1)
-            return fact_id
+        return await _store_fact_impl(
+            await self._get_db(), self._write_lock,
+            device_id, content, source_type, source_id, confidence, provenance,
+        )
 
     async def recall_facts(self, device_id: str, query: str, top_k: int = 10) -> list[dict]:
-        with trace_span("memory.recall_facts", {"device_id": device_id, "top_k": top_k}):
-            db = await self._get_db()
-            now = time.time()
-
-            # Phase 1: Read-only (no exclusive lock)
-            try:
-                rows = await db.execute_fetchall(
-                    """SELECT f.id, f.device_id, f.content, f.source_type, f.source_id,
-                              f.confidence, f.created_at, f.last_accessed, f.access_count,
-                              MIN(fts.rank) as best_rank
-                       FROM facts_fts fts
-                       JOIN fact_chunks c ON c.chunk_id = fts.rowid
-                       JOIN facts f ON f.id = c.source_id
-                       WHERE facts_fts MATCH ? AND f.device_id = ? AND f.archived = 0
-                       GROUP BY f.id
-                       ORDER BY best_rank
-                       LIMIT ?""",
-                    (query, device_id, top_k * 2),
-                )
-            except Exception:
-                rows = await db.execute_fetchall(
-                    """SELECT id, device_id, content, source_type, source_id,
-                              confidence, created_at, last_accessed, access_count, 0
-                       FROM facts
-                       WHERE device_id = ? AND archived = 0
-                       ORDER BY created_at DESC, id
-                       LIMIT ?""",
-                    (device_id, top_k * 2),
-                )
-
-            results = []
-            for row in rows:
-                recency = now - row[6] if row[6] else 0
-                recency_score = 1.0 / (1.0 + recency / 86400.0)
-                fts_score = -row[9] if row[9] else 0.0
-                combined = 0.4 * fts_score + 0.3 * recency_score + 0.3 * (row[5] or 0.5)
-
-                results.append(
-                    {
-                        "id": row[0],
-                        "device_id": row[1],
-                        "content": row[2],
-                        "source_type": row[3] or "",
-                        "source_id": row[4] or "",
-                        "confidence": row[5] or 0.5,
-                        "created_at": row[6],
-                        "last_accessed": row[7],
-                        "access_count": row[8] or 0,
-                        "score": round(combined, 4),
-                    }
-                )
-
-            results.sort(key=lambda r: r["score"], reverse=True)
-            selected = results[:top_k]
-            selected_ids = [r["id"] for r in selected]
-
-            # Phase 2: Short write transaction (batch UPDATE).
-            # Serialized via _write_lock so it cannot interleave with other
-            # writes/commits on the shared connection.
-            if selected_ids:
-                async with self._write_lock, self._transaction():
-                    placeholders = ",".join("?" * len(selected_ids))
-                    await db.execute(
-                        f"UPDATE facts SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
-                        [now, *selected_ids],
-                    )
-
-            return selected
+        return await _recall_facts_impl(
+            await self._get_db(), self._write_lock, device_id, query, top_k,
+        )
 
     async def detect_contradictions(self, new_fact: str, device_id: str) -> list[dict]:
-        with trace_span("memory.detect_contradictions", {"device_id": device_id}):
-            db = await self._get_db()
-            new_words = set(new_fact.lower().split())
-            if not new_words:
-                return []
-
-            rows = await db.execute_fetchall(
-                """SELECT id, content, confidence, created_at
-                   FROM facts
-                   WHERE device_id = ? AND archived = 0
-                   ORDER BY created_at DESC
-                   LIMIT 200""",
-                (device_id,),
-            )
-
-            contradictions = []
-            for row in rows:
-                existing_words = set(row[1].lower().split())
-                overlap = len(new_words & existing_words)
-                total = len(new_words | existing_words)
-                if total == 0:
-                    continue
-                jaccard = overlap / total
-                negation = False
-                new_lower = new_fact.lower()
-                existing_lower = row[1].lower()
-                negations = ["not", "no", "never", "isn't", "aren't", "wasn't", "won't", "can't"]
-                for neg in negations:
-                    if neg in new_lower and neg not in existing_lower:
-                        negation = True
-                        break
-                    if neg not in new_lower and neg in existing_lower:
-                        negation = True
-                        break
-
-                if jaccard > 0.4 and negation:
-                    contradictions.append(
-                        {
-                            "existing_fact_id": row[0],
-                            "existing_content": row[1],
-                            "existing_confidence": row[2] or 0.5,
-                            "new_fact": new_fact,
-                            "overlap_score": round(jaccard, 4),
-                            "relation_type": "contradicts",
-                        }
-                    )
-
-            return contradictions
+        return await _detect_contradictions_impl(await self._get_db(), new_fact, device_id)
 
     async def batch_resolve_contradictions(self, device_id: str, batch_size: int = 10) -> dict:
-        with trace_span("memory.batch_resolve_contradictions", {"device_id": device_id}):
-            db = await self._get_db()
-            rows = await db.execute_fetchall(
-                """SELECT id, content, confidence, created_at
-                   FROM facts
-                   WHERE device_id = ? AND archived = 0
-                   ORDER BY created_at DESC
-                   LIMIT 200""",
-                (device_id,),
-            )
-            if len(rows) < 2:
-                return {"resolved": 0, "groups": 0, "candidates": []}
-
-            negations = ["not", "no", "never", "isn't", "aren't", "wasn't", "won't", "can't"]
-            groups: list[list[dict]] = []
-            seen: set[str] = set()
-
-            for i in range(len(rows)):
-                if rows[i][0] in seen:
-                    continue
-                words_i = set(rows[i][1].lower().split())
-                if not words_i:
-                    continue
-                group = [{"id": rows[i][0], "content": rows[i][1], "confidence": rows[i][2] or 0.5}]
-                for j in range(i + 1, len(rows)):
-                    if rows[j][0] in seen:
-                        continue
-                    words_j = set(rows[j][1].lower().split())
-                    if not words_j:
-                        continue
-                    overlap = len(words_i & words_j)
-                    total = len(words_i | words_j)
-                    if total == 0:
-                        continue
-                    jaccard = overlap / total
-                    negation = False
-                    ci = rows[i][1].lower()
-                    cj = rows[j][1].lower()
-                    for neg in negations:
-                        if (neg in ci) != (neg in cj):
-                            negation = True
-                            break
-                    if jaccard > 0.3 and negation:
-                        group.append(
-                            {
-                                "id": rows[j][0],
-                                "content": rows[j][1],
-                                "confidence": rows[j][2] or 0.5,
-                            }
-                        )
-                        seen.add(rows[j][0])
-                if len(group) > 1:
-                    seen.add(rows[i][0])
-                    groups.append(group)
-
-            candidates = []
-            for group in groups[:batch_size]:
-                candidates.append(
-                    {
-                        "facts": group,
-                        "suggested_resolution": "; ".join(item["content"] for item in group),
-                    }
-                )
-            return {
-                "resolved": 0,
-                "groups": len(candidates),
-                "candidates": candidates,
-            }
+        return await _batch_resolve_contradictions_impl(await self._get_db(), device_id, batch_size)
 
     async def resolve_contradiction(
         self, device_id: str, fact_ids: list[str], keep: str, merge: bool = True
     ) -> dict:
-        with trace_span("memory.resolve_contradiction", {"device_id": device_id}):
-            db = await self._get_db()
-            if not fact_ids:
-                return {"resolved": 0}
-            async with self._write_lock, self._transaction():
-                if merge:
-                    merged_content = keep
-                    ep_id = uuid.uuid4().hex[:12]
-                    now = time.time()
-                    await db.execute(
-                        """INSERT INTO episodes
-                           (id, device_id, session_type, query, answer, agents,
-                            model_used, tier, citations, outcome_rating, created_at, provenance)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            ep_id,
-                            device_id,
-                            "maintenance",
-                            "contradiction resolution",
-                            merged_content,
-                            json.dumps([]),
-                            "",
-                            0,
-                            json.dumps([]),
-                            0.0,
-                            now,
-                            "user",
-                        ),
-                    )
-                    combined = f"contradiction resolution\n\n{merged_content}"
-                    await self._store_chunks("episode_chunks", ep_id, device_id, combined, now)
-                placeholders = ",".join("?" * len(fact_ids))
-                await db.execute(
-                    f"UPDATE facts SET archived = 1 WHERE id IN ({placeholders})",
-                    fact_ids,
-                )
-            return {"resolved": len(fact_ids)}
+        return await _resolve_contradiction_impl(
+            await self._get_db(), self._write_lock, device_id, fact_ids, keep, merge,
+        )
 
     # ── User Profile ──────────────────────────────────────────────────────────
 
-    def _get_profile_backoff(self, device_id: str) -> float:
-        return self._profile_backoff_state.get(device_id, 0.0)
-
     async def get_profile(self, device_id: str) -> dict:
-        with trace_span("memory.get_profile", {"device_id": device_id}):
-            backoff = self._get_profile_backoff(device_id)
-            if backoff > 0:
-                await asyncio.sleep(backoff)
-            db = await self._get_db()
-            row = await db.execute_fetchall(
-                "SELECT profile_json, updated_at FROM user_profiles WHERE device_id = ?",
-                (device_id,),
-            )
-            if not row:
-                return {"device_id": device_id, "preferences": {}, "updated_at": 0}
-            updated_at = row[0][1]
-            now = time.time()
-            if now - updated_at > PROFILE_STALE_THRESHOLD:
-                current = self._profile_backoff_state.get(device_id, 0.0)
-                if current == 0.0:
-                    self._profile_backoff_state[device_id] = 0.5
-                else:
-                    self._profile_backoff_state[device_id] = min(current * 2, MAX_BACKOFF)
-            else:
-                self._profile_backoff_state.pop(device_id, None)
-            return {
-                "device_id": device_id,
-                **json.loads(row[0][0]),
-                "updated_at": updated_at,
-            }
+        return await _get_profile_impl(
+            await self._get_db(), self._profile_backoff_state, device_id,
+        )
 
     async def update_profile(self, device_id: str, updates: dict) -> dict:
-        with trace_span("memory.update_profile", {"device_id": device_id}):
-            db = await self._get_db()
-            now = time.time()
-            existing = await self.get_profile(device_id)
-            merged = {k: v for k, v in existing.items() if k not in ("device_id", "updated_at")}
-            merged.update(updates)
-
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO user_profiles (device_id, profile_json, updated_at)
-                       VALUES (?, ?, ?)
-                       ON CONFLICT(device_id) DO UPDATE SET
-                           profile_json = excluded.profile_json,
-                           updated_at = excluded.updated_at""",
-                    (device_id, json.dumps(merged), now),
-                )
-                await db.commit()
-            return {"device_id": device_id, **merged, "updated_at": now}
+        return await _update_profile_impl(
+            await self._get_db(), self._write_lock, self._profile_backoff_state, device_id, updates,
+        )
 
     # ── Agent Memory ──────────────────────────────────────────────────────────
 
@@ -1099,146 +591,23 @@ class MemoryService:
         model_used: str = "",
         tier: int = 0,
     ) -> None:
-        with trace_span(
-            "memory.record_agent_outcome", {"agent_type": agent_type, "device_id": device_id}
-        ):
-            db = await self._get_db()
-            now = time.time()
-            async with self._write_lock, self._transaction():
-                await db.execute(
-                    """INSERT INTO agent_outcomes
-                       (agent_type, query_pattern, strategy_used, outcome_quality,
-                        model_used, tier, device_id, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        agent_type,
-                        query_pattern,
-                        strategy,
-                        outcome_quality,
-                        model_used,
-                        tier,
-                        device_id,
-                        now,
-                    ),
-                )
-
-                rows = await db.execute_fetchall(
-                    """SELECT id, best_strategy, success_rate, sample_count
-                       FROM agent_strategies
-                       WHERE agent_type = ? AND pattern_signature = ?""",
-                    (agent_type, query_pattern),
-                )
-
-                if rows:
-                    sid, best_strat, rate, count = rows[0]
-                    new_count = count + 1
-                    new_rate = (rate * count + outcome_quality) / new_count
-                    if outcome_quality > rate:
-                        best_strat = strategy
-                    await db.execute(
-                        """UPDATE agent_strategies
-                           SET best_strategy = ?, success_rate = ?, sample_count = ?,
-                               last_updated = ?
-                           WHERE id = ?""",
-                        (best_strat, new_rate, new_count, now, sid),
-                    )
-                else:
-                    await db.execute(
-                        """INSERT INTO agent_strategies
-                           (agent_type, pattern_signature, best_strategy, success_rate,
-                            sample_count, last_updated)
-                           VALUES (?, ?, ?, ?, ?, ?)""",
-                        (agent_type, query_pattern, strategy, outcome_quality, 1, now),
-                    )
+        return await _record_agent_outcome_impl(
+            await self._get_db(), self._write_lock,
+            agent_type, query_pattern, strategy, outcome_quality, device_id, model_used, tier,
+        )
 
     async def get_agent_strategies(self, agent_type: str, query_pattern: str = "") -> list[dict]:
-        with trace_span("memory.get_agent_strategies", {"agent_type": agent_type}):
-            db = await self._get_db()
-            if query_pattern:
-                rows = await db.execute_fetchall(
-                    """SELECT agent_type, pattern_signature, best_strategy,
-                              success_rate, sample_count, last_updated
-                       FROM agent_strategies
-                       WHERE agent_type = ? AND pattern_signature = ?
-                       ORDER BY success_rate DESC""",
-                    (agent_type, query_pattern),
-                )
-            else:
-                rows = await db.execute_fetchall(
-                    """SELECT agent_type, pattern_signature, best_strategy,
-                              success_rate, sample_count, last_updated
-                       FROM agent_strategies
-                       WHERE agent_type = ?
-                       ORDER BY success_rate DESC
-                       LIMIT 50""",
-                    (agent_type,),
-                )
-
-            return [
-                {
-                    "agent_type": r[0],
-                    "pattern_signature": r[1],
-                    "best_strategy": r[2],
-                    "success_rate": r[3] or 0.5,
-                    "sample_count": r[4] or 0,
-                    "last_updated": r[5],
-                }
-                for r in rows
-            ]
+        return await _get_agent_strategies_impl(await self._get_db(), agent_type, query_pattern)
 
     # ── Project Memory ────────────────────────────────────────────────────────
 
     async def get_project_profile(self, kb_name: str) -> dict | None:
-        with trace_span("memory.get_project_profile", {"kb_name": kb_name}):
-            db = await self._get_db()
-            row = await db.execute_fetchall(
-                """SELECT profile_json, document_count, total_pages,
-                          created_at, last_queried
-                   FROM project_profiles WHERE kb_name = ?""",
-                (kb_name,),
-            )
-            if not row:
-                return None
-            return {
-                "kb_name": kb_name,
-                **json.loads(row[0][0]),
-                "document_count": row[0][1],
-                "total_pages": row[0][2],
-                "created_at": row[0][3],
-                "last_queried": row[0][4],
-            }
+        return await _get_project_profile_impl(await self._get_db(), kb_name)
 
     async def update_project_profile(self, kb_name: str, profile: dict) -> None:
-        with trace_span("memory.update_project_profile", {"kb_name": kb_name}):
-            db = await self._get_db()
-            now = time.time()
-            existing = await self.get_project_profile(kb_name)
-            doc_count = profile.get("document_count", existing["document_count"] if existing else 0)
-            total_pages = profile.get("total_pages", existing["total_pages"] if existing else 0)
-            profile_filtered = {
-                k: v for k, v in profile.items() if k not in ("document_count", "total_pages")
-            }
-
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO project_profiles
-                       (kb_name, profile_json, document_count, total_pages, created_at, last_queried)
-                       VALUES (?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(kb_name) DO UPDATE SET
-                           profile_json = excluded.profile_json,
-                           document_count = excluded.document_count,
-                           total_pages = excluded.total_pages,
-                           last_queried = excluded.last_queried""",
-                    (
-                        kb_name,
-                        json.dumps(profile_filtered),
-                        doc_count,
-                        total_pages,
-                        existing["created_at"] if existing else now,
-                        now,
-                    ),
-                )
-                await db.commit()
+        return await _update_project_profile_impl(
+            await self._get_db(), self._write_lock, kb_name, profile,
+        )
 
     # ── Maintenance ───────────────────────────────────────────────────────────
 
@@ -1267,16 +636,9 @@ class MemoryService:
                 return count
 
     async def update_episode_rating(self, episode_id: str, rating: float) -> bool:
-        with trace_span("memory.update_episode_rating", {"episode_id": episode_id}):
-            db = await self._get_db()
-            clamped = max(0.0, min(1.0, float(rating)))
-            async with self._write_lock:
-                await db.execute(
-                    "UPDATE episodes SET outcome_rating = ? WHERE id = ?",
-                    (clamped, episode_id),
-                )
-                await db.commit()
-            return True
+        return await _update_episode_rating_impl(
+            await self._get_db(), self._write_lock, episode_id, rating,
+        )
 
     async def compact_episodes(self, older_than_days: int = 90) -> int:
         with trace_span("memory.compact_episodes", {"older_than_days": older_than_days}):
@@ -1407,181 +769,37 @@ class MemoryService:
         parent_node_type: str = "",
         tags: list[str] | None = None,
     ) -> str:
-        with trace_span("memory.store_dead_end", {"device_id": device_id}):
-            db = await self._get_db()
-            dead_end_id = uuid.uuid4().hex[:12]
-            now = time.time()
-            searchable = f"{title} {hypothesis} {approach} {failure_mode} {lesson}"
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO dead_ends
-                       (id, device_id, title, hypothesis, approach, failure_mode,
-                        failure_evidence, lesson, parent_node_id, parent_node_type,
-                        provenance, tags, confidence, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        dead_end_id,
-                        device_id,
-                        title,
-                        hypothesis,
-                        approach,
-                        failure_mode,
-                        failure_evidence,
-                        lesson,
-                        parent_node_id,
-                        parent_node_type,
-                        provenance,
-                        json.dumps(tags or []),
-                        0.5,
-                        now,
-                    ),
-                )
-                await self._store_chunks("dead_end_chunks", dead_end_id, device_id, searchable, now)
-                await db.commit()
-                await self._track_usage_nolock(device_id, "dead_ends_stored", 1)
-            return dead_end_id
+        return await _store_dead_end_impl(
+            await self._get_db(), self._write_lock,
+            device_id, title, hypothesis, approach, failure_mode, lesson,
+            provenance, failure_evidence, parent_node_id, parent_node_type, tags,
+        )
 
     async def recall_dead_ends(self, device_id: str, query: str, top_k: int = 5) -> list[dict]:
-        with trace_span("memory.recall_dead_ends", {"device_id": device_id}):
-            db = await self._get_db()
-            try:
-                rows = await db.execute_fetchall(
-                    """SELECT d.id, d.device_id, d.title, d.hypothesis, d.approach,
-                              d.failure_mode, d.failure_evidence, d.lesson,
-                              d.parent_node_id, d.parent_node_type,
-                              d.provenance, d.tags, d.confidence, d.created_at,
-                              MIN(fts.rank) as best_rank
-                       FROM dead_ends_fts fts
-                       JOIN dead_end_chunks c ON c.chunk_id = fts.rowid
-                       JOIN dead_ends d ON d.id = c.source_id
-                       WHERE dead_ends_fts MATCH ? AND d.device_id = ? AND d.archived = 0
-                       GROUP BY d.id
-                       ORDER BY best_rank
-                       LIMIT ?""",
-                    (query, device_id, top_k),
-                )
-            except Exception:
-                rows = await db.execute_fetchall(
-                    """SELECT id, device_id, title, hypothesis, approach,
-                              failure_mode, failure_evidence, lesson,
-                              parent_node_id, parent_node_type,
-                              provenance, tags, confidence, created_at, 0
-                       FROM dead_ends
-                       WHERE device_id = ? AND archived = 0
-                       ORDER BY created_at DESC
-                       LIMIT ?""",
-                    (device_id, top_k),
-                )
-            return [
-                {
-                    "id": r[0],
-                    "device_id": r[1],
-                    "title": r[2],
-                    "hypothesis": r[3],
-                    "approach": r[4],
-                    "failure_mode": r[5],
-                    "failure_evidence": r[6] or "",
-                    "lesson": r[7],
-                    "parent_node_id": r[8] or "",
-                    "parent_node_type": r[9] or "",
-                    "provenance": r[10],
-                    "tags": json.loads(r[11]) if r[11] else [],
-                    "confidence": r[12] or 0.5,
-                    "created_at": r[13],
-                }
-                for r in rows
-            ]
+        return await _recall_dead_ends_impl(await self._get_db(), device_id, query, top_k)
 
     async def get_dead_end_preventions(
         self, device_id: str, approach_description: str
     ) -> list[dict]:
-        with trace_span("memory.get_dead_end_preventions", {"device_id": device_id}):
-            db = await self._get_db()
-            try:
-                rows = await db.execute_fetchall(
-                    """SELECT d.id, d.title, d.approach, d.failure_mode, d.lesson, d.confidence
-                       FROM dead_ends_fts fts
-                       JOIN dead_end_chunks c ON c.chunk_id = fts.rowid
-                       JOIN dead_ends d ON d.id = c.source_id
-                       WHERE dead_ends_fts MATCH ? AND d.device_id = ? AND d.archived = 0
-                       GROUP BY d.id
-                       ORDER BY MIN(fts.rank)
-                       LIMIT 5""",
-                    (approach_description, device_id),
-                )
-            except Exception:
-                return []
-            return [
-                {
-                    "id": r[0],
-                    "title": r[1],
-                    "approach": r[2],
-                    "failure_mode": r[3],
-                    "lesson": r[4],
-                    "confidence": r[5] or 0.5,
-                }
-                for r in rows
-            ]
+        return await _get_dead_end_preventions_impl(
+            await self._get_db(), device_id, approach_description,
+        )
 
     # ── L3 Cross-Surface Synthesis (A3) ───────────────────────────────────
 
     async def get_l3(self, device_id: str, slot: str) -> dict:
-        with trace_span("memory.get_l3", {"device_id": device_id, "slot": slot}):
-            db = await self._get_db()
-            row = await db.execute_fetchall(
-                """SELECT content, entry_count, last_consolidated_at, updated_at
-                   FROM user_l3 WHERE device_id = ? AND slot = ?""",
-                (device_id, slot),
-            )
-            if not row:
-                return {
-                    "slot": slot,
-                    "content": {},
-                    "entry_count": 0,
-                    "last_consolidated_at": None,
-                    "updated_at": None,
-                }
-            return {
-                "slot": slot,
-                "content": json.loads(row[0][0]) if row[0][0] else {},
-                "entry_count": row[0][1],
-                "last_consolidated_at": row[0][2],
-                "updated_at": row[0][3],
-            }
+        return await _get_l3_impl(await self._get_db(), device_id, slot)
 
     async def get_l3_all(self, device_id: str) -> dict:
-        result = {}
-        for slot in ("profile", "recent", "scope", "preferences"):
-            result[slot] = await self.get_l3(device_id, slot)
-        return result
+        return await _get_l3_all_impl(await self._get_db(), device_id)
 
     async def update_l3_preference(self, device_id: str, updates: dict) -> dict:
-        with trace_span("memory.update_l3_preference", {"device_id": device_id}):
-            db = await self._get_db()
-            now = time.time()
-            current = await self.get_l3(device_id, "preferences")
-            content = {**current["content"], **updates}
-            async with self._write_lock:
-                await db.execute(
-                    """INSERT INTO user_l3 (device_id, slot, content, entry_count, updated_at)
-                       VALUES (?, 'preferences', ?, 1, ?)
-                       ON CONFLICT(device_id, slot) DO UPDATE SET
-                          content = excluded.content,
-                          entry_count = excluded.entry_count,
-                          updated_at = excluded.updated_at""",
-                    (device_id, json.dumps(content), now),
-                )
-                await db.commit()
-            return content
+        return await _update_l3_preference_impl(
+            await self._get_db(), self._write_lock, device_id, updates,
+        )
 
     async def read_l3_concat(self, device_id: str) -> str:
-        all_l3 = await self.get_l3_all(device_id)
-        parts = []
-        for slot in ("profile", "recent", "scope", "preferences"):
-            data = all_l3[slot]["content"]
-            if data:
-                parts.append(f"[{slot}]: {json.dumps(data)}")
-        return "\n".join(parts) if parts else ""
+        return await _read_l3_concat_impl(await self._get_db(), device_id)
 
     # ── Provenance (A5) ───────────────────────────────────────────────────
 
@@ -1592,48 +810,13 @@ class MemoryService:
         new_provenance: str,
         reasoning: str = "",
     ) -> bool:
-        with trace_span("memory.upgrade_provenance", {"entity_type": entity_type}):
-            db = await self._get_db()
-            now = time.time()
-            table = {"episode": "episodes", "fact": "facts"}.get(entity_type)
-            if not table:
-                return False
-            row = await db.execute_fetchall(
-                f"SELECT provenance FROM {table} WHERE id = ?", (entity_id,)
-            )
-            if not row:
-                return False
-            old = row[0][0]
-            valid = {"user", "ai-suggested", "ai-executed", "user-revised"}
-            if new_provenance not in valid:
-                return False
-            async with self._write_lock:
-                await db.execute(
-                    f"UPDATE {table} SET provenance = ? WHERE id = ?",
-                    (new_provenance, entity_id),
-                )
-                await db.execute(
-                    """INSERT INTO provenance_log
-                       (entity_type, entity_id, provenance_type, original_provenance,
-                        reasoning, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (entity_type, entity_id, new_provenance, old, reasoning, now),
-                )
-                await db.commit()
-            return True
+        return await _upgrade_provenance_impl(
+            await self._get_db(), self._write_lock, entity_type, entity_id,
+            new_provenance, reasoning,
+        )
 
     async def get_provenance_lineage(self, entity_type: str, entity_id: str) -> list[dict]:
-        db = await self._get_db()
-        rows = await db.execute_fetchall(
-            """SELECT provenance_type, original_provenance, reasoning, created_at
-               FROM provenance_log
-               WHERE entity_type = ? AND entity_id = ?
-               ORDER BY created_at""",
-            (entity_type, entity_id),
-        )
-        return [
-            {"provenance": r[0], "was": r[1], "reasoning": r[2] or "", "at": r[3]} for r in rows
-        ]
+        return await _get_provenance_lineage_impl(await self._get_db(), entity_type, entity_id)
 
     async def get_stats(self, device_id: str | None = None) -> dict:
         with trace_span("memory.get_stats", {"device_id": device_id}):
@@ -1652,6 +835,14 @@ class MemoryService:
                     "SELECT COUNT(*) FROM user_profiles WHERE device_id = ?",
                     (device_id,),
                 )
+                de_row = await db.execute_fetchall(
+                    "SELECT COUNT(*) FROM dead_ends WHERE device_id = ?",
+                    (device_id,),
+                )
+                strat_row = await db.execute_fetchall(
+                    "SELECT COUNT(*) FROM agent_strategies WHERE device_id = ?",
+                    (device_id,),
+                )
                 usage_rows = await db.execute_fetchall(
                     "SELECT metric_name, SUM(metric_value) as total FROM memory_usage WHERE device_id = ? AND timestamp > datetime('now', '-7 days') GROUP BY metric_name",
                     (device_id,),
@@ -1660,6 +851,8 @@ class MemoryService:
                     "episodes": ep_row[0][0] if ep_row else 0,
                     "facts": fact_row[0][0] if fact_row else 0,
                     "profiles": profile_row[0][0] if profile_row else 0,
+                    "total_dead_ends": de_row[0][0] if de_row else 0,
+                    "total_strategies": strat_row[0][0] if strat_row else 0,
                     "usage_7d": {r[0]: r[1] for r in usage_rows},
                 }
 

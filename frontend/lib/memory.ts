@@ -36,7 +36,9 @@ export interface MemoryStats {
   episodes: number;
   facts: number;
   profiles: number;
-  total_size_bytes: number;
+  total_dead_ends: number;
+  total_strategies: number;
+  usage_7d: Record<string, number>;
 }
 
 export async function recallMemory(query: string, deviceId: string, topK: number = 5): Promise<MemoryRecall> {

@@ -3,6 +3,7 @@
 import { useRef, type RefObject, type ChangeEvent, type DragEvent } from "react";
 import { Upload, FileText, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { KbSelector } from "@/components/shared/kb-selector";
 
 type DocumentInfo = {
@@ -118,9 +119,10 @@ export function SourcesSidebar({
             Workspace Contents
           </label>
           {loadingDocs ? (
-            <div className="flex items-center justify-center py-8 text-zinc-500 text-xs gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Loading library node...</span>
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-5 w-full rounded" />
+              <Skeleton className="h-5 w-3/4 rounded" />
+              <Skeleton className="h-5 w-5/6 rounded" />
             </div>
           ) : documents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-zinc-900 p-6 text-center text-zinc-500 text-xs">

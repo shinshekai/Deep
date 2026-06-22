@@ -36,6 +36,7 @@ def score_query_complexity(
     doc_pages: int = 0,
     retrieved_chunks: int = 0,
     free_vram_mb: float = float("inf"),
+    total_vram_mb: float = 0,
 ) -> tuple[float, int]:
     """Return (complexity_score 0-1, target_tier 1/2/3)."""
     # 1. Query complexity (0.35)
@@ -81,7 +82,7 @@ def score_query_complexity(
     if free_vram_mb != float("inf"):
         settings = get_settings()
         # Calculate threshold with safety margin (e.g., 15% of 16GB = ~2.4GB safe floor)
-        total_vram = 16384  # Assumed 16GB GPU for threshold calc
+        total_vram = total_vram_mb if total_vram_mb > 0 else 16384
         safe_floor = (total_vram * settings.vram_safety_margin_pct) / 100
         t2_threshold = total_vram * 0.55  # ~8.8GB needed for T2
         t3_threshold = total_vram * 0.30  # ~5GB needed for T3

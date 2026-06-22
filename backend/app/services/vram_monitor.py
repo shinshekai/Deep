@@ -1,4 +1,4 @@
-"""GPU VRAM monitor polling every 2s via pynvml with 4 pressure levels."""
+"""GPU VRAM monitor with adaptive polling (5s idle / 2s active) via pynvml with 4 pressure levels."""
 
 import asyncio
 import logging
@@ -98,8 +98,12 @@ class VRAMMonitor:
         else:
             return "red"
 
-    async def start_polling(self, interval: float = 2.0):
-        """Poll VRAM until cancelled."""
+    async def start_polling(self, idle_interval: float = 5.0, active_interval: float = 2.0):
+        """Poll VRAM until cancelled. Uses adaptive intervals:
+        - idle (green): 5s — minimizes CPU overhead when GPU is idle
+        - active (yellow+): 2s — responsive monitoring when models are loaded
+        """
         while True:
             await self.poll_once()
+            interval = active_interval if self._level != "green" else idle_interval
             await asyncio.sleep(interval)

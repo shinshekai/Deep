@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.services.telemetry import add_event, trace_span
+from app.services.retrieval_engines import get_kb_engine_preference
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,10 @@ async def retrieve(req: RetrieveRequest):
     req.kb_name = _safe_name(req.kb_name, default="default")
     if req.doc_id:
         req.doc_id = _safe_doc_id(req.doc_id, default="doc")
+
+    pipeline = req.retrieval_pipeline
+    if not pipeline or pipeline == "auto":
+        pipeline = get_kb_engine_preference(req.kb_name)
 
     with trace_span(
         "retrieval.execute",
@@ -143,20 +148,19 @@ async def retrieve(req: RetrieveRequest):
             )
             k = 60
             rrf_scores: dict[tuple, tuple[float, dict]] = {}
-            for rank, r in enumerate(tree_results):
-                key = (r.get("doc_id", ""), r.get("section", ""), r.get("page", 0))
-                rrf = 1.0 / (k + rank + 1)
-                if key in rrf_scores:
-                    rrf_scores[key] = (rrf_scores[key][0] + rrf, r)
-                else:
-                    rrf_scores[key] = (rrf, r)
-            for rank, r in enumerate(vector_results):
-                key = (r.get("doc_id", ""), r.get("section", ""), r.get("page", 0))
-                rrf = 1.0 / (k + rank + 1)
-                if key in rrf_scores:
-                    rrf_scores[key] = (rrf_scores[key][0] + rrf, r)
-                else:
-                    rrf_scores[key] = (rrf, r)
+
+            def _add_scored(results: list[dict]):
+                for rank, r in enumerate(results):
+                    key = (r.get("doc_id", ""), r.get("section", ""), r.get("page", 0))
+                    confidence = max(r.get("score", 0.5), 0.01)
+                    rrf = confidence / (k + rank + 1)
+                    if key in rrf_scores:
+                        rrf_scores[key] = (rrf_scores[key][0] + rrf, r)
+                    else:
+                        rrf_scores[key] = (rrf, r)
+
+            _add_scored(tree_results)
+            _add_scored(vector_results)
             merged = []
             for _key, (rrf_score, r) in rrf_scores.items():
                 entry = dict(r)

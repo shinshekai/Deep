@@ -1,17 +1,30 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   GlobalResourceMonitor,
   InferenceThroughputGrid,
   RouterEffectivenessMatrix,
+  LiveAgentThinking,
 } from "@/components/dashboard";
+import { MemoryGraph } from "@/components/memory/memory-graph";
 import { useWebSocket } from "@/providers/websocket-provider";
+import { useMemory } from "@/providers/memory-provider";
+import { getMemoryStats } from "@/lib/memory";
+import type { MemoryStats } from "@/lib/memory";
 import { Activity } from "lucide-react";
 import Link from "next/link";
 
 export default function DashboardPage() {
   const { metricsStatus } = useWebSocket();
   const connected = metricsStatus === "open";
+  const { deviceId } = useMemory();
+  const [stats, setStats] = useState<MemoryStats | null>(null);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    getMemoryStats(deviceId).then(setStats).catch(() => setStats(null));
+  }, [deviceId]);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -63,6 +76,17 @@ export default function DashboardPage() {
 
           {/* Full-width: router effectiveness */}
           <RouterEffectivenessMatrix />
+
+          <LiveAgentThinking />
+
+          <MemoryGraph
+            stats={stats ? {
+              total_episodes: stats.episodes,
+              total_facts: stats.facts,
+              total_dead_ends: stats.total_dead_ends,
+              total_strategies: stats.total_strategies,
+            } : undefined}
+          />
         </>
       )}
     </div>

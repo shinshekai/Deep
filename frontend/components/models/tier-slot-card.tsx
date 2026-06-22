@@ -77,7 +77,7 @@ export function TierSlotCard({
                 key={model.id}
                 onClick={() => onSelect(model)}
                 disabled={isActive || Boolean(selecting)}
-                className={`flex flex-col text-left p-2.5 rounded-lg border transition ${
+                className={`flex flex-col text-left p-2.5 rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
                   isActive
                     ? "bg-emerald-950/10 border-emerald-900/30 text-emerald-300"
                     : "bg-zinc-950 border-zinc-900 hover:border-zinc-800 text-zinc-300"

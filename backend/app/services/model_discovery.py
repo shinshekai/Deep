@@ -5,178 +5,23 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
 
 from app.services.secrets import get_secret
+from app.services.model_providers import BaseModelProvider, ProviderSpec
 
+LOCAL_PROVIDERS: list[ProviderSpec] = []
+CLOUD_PROVIDERS: list[ProviderSpec] = []
 
-@dataclass(frozen=True)
-class ProviderSpec:
-    id: str
-    name: str
-    source: str
-    api_key_env: str | tuple[str, ...] | None = None
-    base_url_env: str | None = None
-    default_base_url: str | None = None
-    models_path: str = "/v1/models"
-    auth_style: str = "bearer"
-    openai_compatible: bool = False
-    enabled_without_config: bool = False
-    cost_hint: str = "Free"
-    latency_hint: str = "Fast"
-    description: str = ""
-    setup_docs_url: str = ""
+def _init_provider_lists():
+    global LOCAL_PROVIDERS, CLOUD_PROVIDERS
+    LOCAL_PROVIDERS = BaseModelProvider.get_local_specs()
+    CLOUD_PROVIDERS = BaseModelProvider.get_cloud_specs()
 
-
-LOCAL_PROVIDERS = [
-    ProviderSpec(
-        id="lm_studio",
-        name="LM Studio",
-        source="local",
-        openai_compatible=True,
-        enabled_without_config=True,
-        cost_hint="Free (Local)",
-        latency_hint="Ultra-Fast",
-        description="Local LLM server. Launch LM Studio, load your model, and enable the Developer server.",
-        setup_docs_url="https://lmstudio.ai",
-    ),
-    ProviderSpec(
-        id="ollama",
-        name="Ollama",
-        source="local",
-        base_url_env="OLLAMA_HOST",
-        default_base_url="http://localhost:11434",
-        models_path="/api/tags",
-        openai_compatible=True,
-        enabled_without_config=True,
-        cost_hint="Free (Local)",
-        latency_hint="Ultra-Fast",
-        description="Run large language models locally. Install Ollama and pull any GGUF models.",
-        setup_docs_url="https://ollama.com",
-    ),
-    ProviderSpec(
-        id="llama_cpp",
-        name="llama.cpp OpenAI server",
-        source="local",
-        base_url_env="LLAMA_CPP_HOST",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="Free (Local)",
-        latency_hint="Ultra-Fast",
-        description="Ultra-fast, lightweight C++ inference backend. Start the server with a GGUF model.",
-        setup_docs_url="https://github.com/ggerganov/llama.cpp",
-    ),
-    ProviderSpec(
-        id="vlm",
-        name="VLM OpenAI-compatible server",
-        source="local",
-        base_url_env="VLM_HOST",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="Free (Local)",
-        latency_hint="Ultra-Fast",
-        description="Vision-language model server. Configure the VLM base URL endpoint.",
-        setup_docs_url="https://github.com/vllm-project/vllm",
-    ),
-]
-
-
-CLOUD_PROVIDERS = [
-    ProviderSpec(
-        id="openai",
-        name="OpenAI",
-        source="cloud",
-        api_key_env="OPENAI_API_KEY",
-        default_base_url="https://api.openai.com",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="$ (Variable)",
-        latency_hint="Fast",
-        description="Industry standard LLMs including GPT-4o and o1. Get an API key from the OpenAI Dashboard.",
-        setup_docs_url="https://platform.openai.com/api-keys",
-    ),
-    ProviderSpec(
-        id="anthropic",
-        name="Claude / Anthropic",
-        source="cloud",
-        api_key_env="ANTHROPIC_API_KEY",
-        default_base_url="https://api.anthropic.com",
-        models_path="/v1/models",
-        auth_style="anthropic",
-        cost_hint="$$ (Premium)",
-        latency_hint="Medium",
-        description="Advanced reasoning models like Claude 3.5 Sonnet. Acquire keys from the Anthropic Console.",
-        setup_docs_url="https://console.anthropic.com/settings/keys",
-    ),
-    ProviderSpec(
-        id="gemini",
-        name="Google Gemini",
-        source="cloud",
-        api_key_env=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-        default_base_url="https://generativelanguage.googleapis.com",
-        models_path="/v1beta/models",
-        auth_style="query_key",
-        cost_hint="$ (Competitive)",
-        latency_hint="Fast",
-        description="Fast models with massive context windows (Gemini 2.5 Flash). Create an API key in Google AI Studio.",
-        setup_docs_url="https://aistudio.google.com/app/apikey",
-    ),
-    ProviderSpec(
-        id="mistral",
-        name="Mistral",
-        source="cloud",
-        api_key_env="MISTRAL_API_KEY",
-        default_base_url="https://api.mistral.ai",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="$ (Competitive)",
-        latency_hint="Medium",
-        description="High-performance open-weight models including Mistral Large. Sign up on Mistral La Plateforme.",
-        setup_docs_url="https://console.mistral.ai/api-keys/",
-    ),
-    ProviderSpec(
-        id="vertex",
-        name="Google Vertex AI",
-        source="cloud",
-        api_key_env=("VERTEX_ACCESS_TOKEN", "GOOGLE_VERTEX_ACCESS_TOKEN"),
-        base_url_env="VERTEX_MODELS_URL",
-        auth_style="bearer",
-        cost_hint="$$ (Enterprise)",
-        latency_hint="Medium",
-        description="Enterprise-grade access to Gemini models via Google Cloud Platform.",
-        setup_docs_url="https://cloud.google.com/vertex-ai",
-    ),
-    ProviderSpec(
-        id="openrouter",
-        name="OpenRouter",
-        source="cloud",
-        api_key_env="OPENROUTER_API_KEY",
-        default_base_url="https://openrouter.ai/api",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="$ (Unified)",
-        latency_hint="Variable",
-        description="Unified endpoint for 100+ open and proprietary models. Get a key at openrouter.ai.",
-        setup_docs_url="https://openrouter.ai/keys",
-    ),
-    ProviderSpec(
-        id="opencode",
-        name="OpenCode / OpenAI-compatible",
-        source="cloud",
-        api_key_env="OPENCODE_API_KEY",
-        base_url_env="OPENCODE_BASE_URL",
-        models_path="/v1/models",
-        openai_compatible=True,
-        cost_hint="$ (Unified)",
-        latency_hint="Variable",
-        description="Generic endpoint for any custom OpenAI-compatible inference cloud provider.",
-        setup_docs_url="",
-    ),
-]
+_init_provider_lists()
 
 
 def classify_model_capabilities(model_id: str) -> dict[str, Any]:

@@ -5,10 +5,12 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   useCallback,
   type ReactNode,
 } from "react";
 import { WebSocketManager } from "@/lib/websocket";
+import { notify } from "@/lib/notifications";
 import type { CacheTelemetry, MetricsFrame, VramPressureLevel } from "@/types/api";
 
 // ─────────────────────────────────────────────
@@ -53,6 +55,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [pressure, setPressure] =
     useState<VramPressureLevel | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<MetricsFrame | null>(null);
+  const prevPressure = useRef<VramPressureLevel | null>(null);
 
   const subscribe: WebSocketContextValue["subscribe"] = useCallback(
     (eventType, callback) => {
@@ -100,7 +103,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       const frame = data as unknown as MetricsFrame;
       setLatestMetrics(frame);
       if (frame.pressure_level) {
-        setPressure(frame.pressure_level as VramPressureLevel);
+        const level = frame.pressure_level as VramPressureLevel;
+        setPressure(level);
+        if (level !== prevPressure.current) {
+          prevPressure.current = level;
+          if (level === "red") {
+            notify.error("VRAM critical — system may be unstable", "Free GPU memory or unload unused models");
+          } else if (level === "orange") {
+            notify.warning("VRAM pressure rising", "Consider unloading unused models");
+          }
+        }
       }
       setVram({
         vram_total_mb: frame.vram_total_mb,

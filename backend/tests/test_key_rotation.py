@@ -128,8 +128,7 @@ def test_rotate_key_returns_503_on_keyring_failure(monkeypatch):
         raise RuntimeError("keyring write failed")
 
     monkeypatch.setattr(secrets_mod, "is_keyring_available", lambda: True)
-    monkeypatch.setattr(system_mod, "secrets_available", lambda: True)
-    monkeypatch.setattr(system_mod, "secrets_set", fail_set)
+    monkeypatch.setattr(secrets_mod, "set_secret", fail_set)
 
     response = client.post(
         "/api/v1/secrets/rotate",

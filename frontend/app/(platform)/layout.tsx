@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
@@ -31,6 +31,7 @@ import { useWebSocket } from "@/providers/websocket-provider";
 import { Badge } from "@/components/ui/badge";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { API_BASE_URL, secureFetch } from "@/lib/config";
+import { useAppStore } from "@/stores";
 
 const navSections = [
   {
@@ -75,12 +76,10 @@ export default function PlatformLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Active targeted model selections
-  const [activeSelections, setActiveSelections] = useState<{
-    T1: { model_id: string } | null;
-    T2: { model_id: string } | null;
-    T3: { model_id: string } | null;
-  }>({ T1: null, T2: null, T3: null });
+  // Active targeted model selections — stored in Zustand for cross-component sync
+  const modelSelection = useAppStore((s) => s.modelSelection);
+  const setModelSelection = useAppStore((s) => s.setModelSelection);
+  const activeSelections = modelSelection as Record<string, { model_id: string } | null>;
 
   const vramTotalMb = wsVram?.vram_total_mb ?? 24576;
   const vramUsedMb = wsVram?.vram_used_mb ?? 8192;
@@ -88,27 +87,25 @@ export default function PlatformLayout({
   const pressureLevel = wsVram?.pressure_level ?? "green";
   const gpuAvailable = vramTotalMb > 0;
 
-  async function loadSelections() {
-    try {
-      const response = await secureFetch(`${API_BASE_URL}/models/selection`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.active_selections) {
-          setActiveSelections(data.active_selections);
-        } else if (data.active_selection) {
-          setActiveSelections({ T1: null, T2: null, T3: data.active_selection });
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load layout selections", e);
-    }
-  }
-
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    async function loadSelections() {
+      try {
+        const response = await secureFetch(`${API_BASE_URL}/models/selection`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.active_selections) {
+            for (const [tier, sel] of Object.entries(data.active_selections)) {
+              if (sel) setModelSelection(tier, sel as { model_id: string });
+            }
+          } else if (data.active_selection) {
+            setModelSelection("T3", data.active_selection);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load layout selections", e);
+      }
+    }
     loadSelections();
-    
-    const selectionsInterval = setInterval(loadSelections, 10000);
     
     // Auto-collapse sidebar on tablets/smaller devices
     const handleResize = () => {
@@ -125,10 +122,9 @@ export default function PlatformLayout({
     handleResize(); // Initial call
     
     return () => {
-      clearInterval(selectionsInterval);
       window.removeEventListener("resize", handleResize);
     };
-  }, []);
+  }, [setModelSelection]);
 
   const isConnected = solveStatus === "open" || metricsStatus === "open";
 

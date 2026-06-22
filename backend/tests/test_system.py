@@ -179,10 +179,6 @@ def test_provider_config_stores_api_key_in_keyring_not_env(tmp_path, monkeypatch
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(secrets_mod, "is_keyring_available", lambda: True)
-    # Patch the alias imported in the router module too
-    from app.routers import system as system_mod
-
-    monkeypatch.setattr(system_mod, "secrets_available", lambda: True)
     # Clean up any leftover test entry
     try:
         secrets_mod.delete_secret("OPENAI_API_KEY")
@@ -215,9 +211,7 @@ def test_provider_config_stores_api_key_in_keyring_not_env(tmp_path, monkeypatch
 
 def test_provider_config_returns_503_when_keyring_unavailable(monkeypatch):
     """If no keyring backend is available, the endpoint must refuse plaintext."""
-    from app.routers import system as system_mod
-
-    monkeypatch.setattr(system_mod, "secrets_available", lambda: False)
+    monkeypatch.setattr(secrets_mod, "is_keyring_available", lambda: False)
 
     response = client.post(
         "/api/v1/models/providers/openai/config",

@@ -13,7 +13,6 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app import state
-from app.dependencies import container
 from app.services.task_registry import TaskRegistry, _global_registry
 from app.services.task_wal import TaskWAL
 from app.websocket_handlers import broadcast_loop, ttl_loop
@@ -39,31 +38,31 @@ async def lifespan(app: FastAPI):
     from app.services.vram_monitor import VRAMMonitor
 
     state.vram_monitor = VRAMMonitor()
-    container.register("vram_monitor", lambda: state.vram_monitor, singleton=True)
+    state.container.register_svc("vram_monitor", state.vram_monitor)
     state.lm_client = LMStudioClient(metrics_callback=state.update_metrics)
-    container.register("lm_client", lambda: state.lm_client, singleton=True)
+    state.container.register_svc("lm_client", state.lm_client)
     state.model_manager = ModelManager(state.lm_client)
-    container.register("model_manager", lambda: state.model_manager, singleton=True)
+    state.container.register_svc("model_manager", state.model_manager)
     state.model_discovery = ModelDiscoveryService(state.lm_client)
-    container.register("model_discovery", lambda: state.model_discovery, singleton=True)
+    state.container.register_svc("model_discovery", state.model_discovery)
     state.pageindex_generator = PageIndexTreeGenerator(state.lm_client)
-    container.register("pageindex_generator", lambda: state.pageindex_generator, singleton=True)
+    state.container.register_svc("pageindex_generator", state.pageindex_generator)
     state.benchmark_runner = BenchmarkRunner(
         state.lm_client, state.vram_monitor, state.model_manager
     )
-    container.register("benchmark_runner", lambda: state.benchmark_runner, singleton=True)
+    state.container.register_svc("benchmark_runner", state.benchmark_runner)
     state.embedding_service = EmbeddingService(state.lm_client, batch_size=32)
-    container.register("embedding_service", lambda: state.embedding_service, singleton=True)
+    state.container.register_svc("embedding_service", state.embedding_service)
     from app.services.deep_research import DeepResearchService
 
     state.text_chunker = TextChunker(chunk_size=512, chunk_overlap=64)
-    container.register("text_chunker", lambda: state.text_chunker, singleton=True)
+    state.container.register_svc("text_chunker", state.text_chunker)
     state.deep_research_service = DeepResearchService(lm_client=state.lm_client)
-    container.register("deep_research_service", lambda: state.deep_research_service, singleton=True)
+    state.container.register_svc("deep_research_service", state.deep_research_service)
 
     _KB_BASE = Path("data/knowledge_bases")
     state.vector_kb_service = VectorKBService(kb_base=_KB_BASE, lm_client=state.lm_client)
-    container.register("vector_kb_service", lambda: state.vector_kb_service, singleton=True)
+    state.container.register_svc("vector_kb_service", state.vector_kb_service)
 
     from app.config import get_settings
 
@@ -73,7 +72,7 @@ async def lifespan(app: FastAPI):
         from app.services.memory_service import MemoryService
 
         state.memory_service = MemoryService(db_path=settings.memory_db_path)
-        container.register("memory_service", lambda: state.memory_service, singleton=True)
+        state.container.register_svc("memory_service", state.memory_service)
         await state.memory_service.initialize()
         logger.info("Memory service initialized")
 
@@ -99,7 +98,7 @@ async def lifespan(app: FastAPI):
 
     await state.benchmark_runner.start_worker()
 
-    vram_task = _lifespan_registry.spawn(state.vram_monitor.start_polling(interval=2.0))
+    vram_task = _lifespan_registry.spawn(state.vram_monitor.start_polling())
     broadcast_task = _lifespan_registry.spawn(broadcast_loop())
     ttl_task = _lifespan_registry.spawn(ttl_loop())
 

@@ -19,6 +19,9 @@ from app.services.retrieval_service import RetrieveRequest
 from app.services.retrieval_service import retrieve as run_retrieval
 from app.services.task_registry import _global_registry
 from app.services.telemetry import add_event, trace_span
+from app.services.tool_dispatch import run_tool_dispatch
+from app.services.stream_bus import StreamBus
+from app.services.outer_reflection import run_outer_reflection
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +105,12 @@ async def run_solve_pipeline(
 ):
     """Execute the dual-loop solve pipeline and stream frames to WebSocket."""
     start_time = time.time()
+    bus = StreamBus(session_id)
+
+    async def ws_send_bus(data: dict[str, Any]):
+        event_type = data.get("type", "message")
+        await bus.emit(event_type, data)
+        await ws_send(data)
 
     with trace_span("solve.pipeline", {"session_id": session_id, "mode": mode, "kb_name": kb_name}):
         # ── Step 1: Complexity scoring and tier routing ──
@@ -143,6 +152,7 @@ async def run_solve_pipeline(
             doc_pages=doc_pages,
             retrieved_chunks=0,
             free_vram_mb=free_vram_mb,
+            total_vram_mb=total_mb,
         )
         add_event(
             "complexity_scored",
@@ -171,9 +181,10 @@ async def run_solve_pipeline(
                 lm_client=lm_client,
                 model_id=model_id,
                 session_id=session_id,
-                ws_send=ws_send,
+                ws_send=ws_send_bus,
                 memory_context=memory_context,
                 device_id=device_id,
+                use_tool_dispatch=True,
             )
 
             if full_answer is None:
@@ -247,6 +258,19 @@ async def run_solve_pipeline(
                         )
                     )
 
+                    if state.memory_service and lm_client:
+                        _global_registry.spawn(
+                            run_outer_reflection(
+                                query=query,
+                                transcript=transcript,
+                                answer=full_answer or "",
+                                lm_client=lm_client,
+                                model_id=model_id,
+                                memory_service=state.memory_service,
+                                device_id=device_id or "",
+                            )
+                        )
+
         except Exception as e:
             logger.error(f"Solve pipeline error: {e}", exc_info=True)
             await ws_send(
@@ -269,10 +293,35 @@ async def _run_dual_loop(
     ws_send,
     memory_context: str = "",
     device_id: str | None = None,
+    use_tool_dispatch: bool = False,
 ) -> tuple[str | None, str]:
-    """Run Analysis Loop + Solve Loop, streaming frames. Returns (final_answer, transcript)."""
+    """Run Analysis + Solve loop (or tool dispatch). Returns (final_answer, transcript).
+
+    When use_tool_dispatch=True, attempts the LLM-driven tool dispatch loop.
+    Falls back to the fixed-sequence dual loop on any failure.
+    """
 
     transcript = f"# Smart Solver Session: {session_id}\n\n## Query\n{query}\n\n"
+
+    if use_tool_dispatch:
+        try:
+            logger.info("Attempting tool dispatch for query: %s...", query[:80])
+            answer, dispatch_transcript = await run_tool_dispatch(
+                query=query,
+                kb_name=kb_name,
+                retrieval_pipeline=retrieval_pipeline,
+                lm_client=lm_client,
+                model_id=model_id,
+                ws_send=ws_send_bus,
+                memory_context=memory_context,
+            )
+            if answer:
+                logger.info("Tool dispatch succeeded")
+                transcript += f"\n## Tool Dispatch Transcript\n{dispatch_transcript}\n"
+                return answer, transcript
+        except Exception as e:
+            logger.warning("Tool dispatch failed, falling back to fixed-sequence: %s", e, exc_info=True)
+            transcript += f"\n[Tool dispatch failed: {e}] — falling back\n\n"
 
     # ── Analysis Loop ──
     analysis_steps = [
@@ -400,7 +449,7 @@ async def _run_dual_loop(
                 lm_client=lm_client,
                 model_id=model_id,
                 messages=messages,
-                ws_send=ws_send,
+                ws_send=ws_send_bus,
             )
 
             if agent_key in ("plan", "solve") and step_content:
